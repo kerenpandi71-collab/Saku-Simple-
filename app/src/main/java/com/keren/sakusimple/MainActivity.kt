@@ -287,7 +287,9 @@ private fun SakuDesktop(
             LazyColumn(
                 modifier = Modifier.weight(1.35f).fillMaxHeight(),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(bottom = 12.dp)
+                contentPadding = PaddingValues(bottom = 12.dp),
+                userScrollEnabled = true,
+                flingBehavior = androidx.compose.foundation.gestures.ScrollableDefaults.flingBehavior()
             ) {
                 item(key = "clock", contentType = "widget") {
                     GlassCard {
@@ -508,7 +510,7 @@ private class AppShelfAdapter(
             }
             val label = TextView(context).apply {
                 setTextColor(android.graphics.Color.rgb(187, 208, 232))
-                textSize = if (listMode) 10f else 9f
+                textSize = if (listMode) 11f else 9f
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
                 gravity = if (listMode) android.view.Gravity.CENTER_VERTICAL else android.view.Gravity.CENTER
@@ -531,7 +533,8 @@ private class AppShelfAdapter(
         }
 
         val entry = getItem(position)
-        holder.icon.layoutParams = holder.icon.layoutParams.apply { width = dp(iconSize); height = dp(iconSize) }
+        val displayIconSize = if (listMode) maxOf(iconSize, 40) else iconSize
+        holder.icon.layoutParams = holder.icon.layoutParams.apply { width = dp(displayIconSize); height = dp(displayIconSize) }
         holder.icon.setImageBitmap(entry.icon.asAndroidBitmap())
         holder.label.visibility = if (!listMode && hideGridLabels) View.GONE else View.VISIBLE
         holder.label.text = entry.label
