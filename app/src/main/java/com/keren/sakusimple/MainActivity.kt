@@ -272,14 +272,6 @@ private fun SakuDesktop(
                             }
                         )
                     }
-                    Surface(color = Color(0x332D85B7), shape = RoundedCornerShape(14.dp)) {
-                        Column(Modifier.padding(7.dp)) {
-                            Text("FAVORIT", color = TextSoft, fontSize = 8.sp, letterSpacing = 1.sp)
-                            Row(Modifier.fillMaxWidth().padding(top = 5.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                                apps.take(3).forEach { AppIcon(it, true) { openApp(it.packageName) } }
-                            }
-                        }
-                    }
                 }
             }
 
