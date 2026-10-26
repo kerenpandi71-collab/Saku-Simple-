@@ -289,7 +289,7 @@ private fun SakuDesktop(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(bottom = 12.dp)
             ) {
-                item {
+                item(key = "clock", contentType = "widget") {
                     GlassCard {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
@@ -302,7 +302,7 @@ private fun SakuDesktop(
                         }
                     }
                 }
-                item {
+                item(key = "weather", contentType = "widget") {
                     GlassCard {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Cloud, null, tint = Glow, modifier = Modifier.size(25.dp))
@@ -315,7 +315,7 @@ private fun SakuDesktop(
                         }
                     }
                 }
-                item {
+                item(key = "device_info", contentType = "widget") {
                     GlassCard {
                         Text("INFO PERANGKAT", color = TextSoft, fontSize = 9.sp, letterSpacing = 1.sp)
                         Spacer(Modifier.height(10.dp))
@@ -326,7 +326,7 @@ private fun SakuDesktop(
                         }
                     }
                 }
-                item {
+                item(key = "notes", contentType = "widget") {
                     GlassCard {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.EditNote, null, tint = Glow, modifier = Modifier.size(20.dp))
@@ -348,7 +348,7 @@ private fun SakuDesktop(
                         Text("Catatan sesi ini", color = TextSoft, fontSize = 8.sp)
                     }
                 }
-                item {
+                item(key = "system_status", contentType = "widget") {
                     GlassCard {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Wifi, null, tint = Glow, modifier = Modifier.size(20.dp))
@@ -372,7 +372,7 @@ private fun SakuDesktop(
                         }
                     }
                 }
-                item {
+                item(key = "calendar", contentType = "widget") {
                     GlassCard {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.CalendarMonth, null, tint = Glow, modifier = Modifier.size(20.dp))
@@ -384,7 +384,7 @@ private fun SakuDesktop(
                         Text(now("EEEE", Locale("id", "ID")), color = TextSoft, fontSize = 10.sp)
                     }
                 }
-                item {
+                item(key = "android_settings", contentType = "widget") {
                     Surface(
                         color = Color(0x663C7FA7), shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth().clickable { openSettings() }
@@ -396,7 +396,7 @@ private fun SakuDesktop(
                         }
                     }
                 }
-                item {
+                item(key = "simple_settings", contentType = "widget") {
                     Surface(color = Color(0x663C7FA7), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().clickable { showSimpleSettings = true }) {
                         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Settings, null, tint = Glow, modifier = Modifier.size(18.dp))
