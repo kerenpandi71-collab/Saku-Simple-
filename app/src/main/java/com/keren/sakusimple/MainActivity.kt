@@ -1,95 +1,85 @@
 package com.keren.sakusimple
 
+import android.app.ActivityManager
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
+import android.os.BatteryManager
 import android.os.Bundle
+import android.os.StatFs
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.EditNote
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.Image
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private val Night = Color(0xFF071426)
-private val Glass = Color(0xBFFFFFFF)
+private val Ink = Color(0xFF07182D)
+private val TextMain = Color(0xFFF3F8FF)
+private val TextSoft = Color(0xFFBBD0E8)
+private val Panel = Color(0xAA102C4B)
+private val Stroke = Color(0x553EBEFF)
+private val Glow = Color(0xFF69DDF5)
 
-data class AppEntry(
-    val label: String,
-    val packageName: String,
-    val icon: Drawable
-)
+data class AppEntry(val label: String, val packageName: String, val icon: Drawable)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = android.graphics.Color.TRANSPARENT
         window.navigationBarColor = android.graphics.Color.TRANSPARENT
-        window.decorView.systemUiVisibility =
-            android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+        window.decorView.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
             android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
             android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-
         setContent {
             MaterialTheme {
-                SakuHome(
+                SakuDesktop(
                     loadApps = { loadLaunchableApps() },
-                    openApp = { packageName -> launchPackage(packageName) },
-                    openSettings = {
-                        startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
-                    }
+                    openApp = { launchPackage(it) },
+                    openSettings = { startActivity(Intent(android.provider.Settings.ACTION_SETTINGS)) },
+                    deviceInfo = { readDeviceInfo() }
                 )
             }
         }
@@ -99,161 +89,266 @@ class MainActivity : ComponentActivity() {
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         return packageManager.queryIntentActivities(intent, PackageManager.MATCH_ALL)
             .mapNotNull { info ->
-                val packageName = info.activityInfo?.packageName ?: return@mapNotNull null
-                AppEntry(info.loadLabel(packageManager).toString(), packageName, info.loadIcon(packageManager))
-            }
-            .distinctBy { it.packageName }
-            .sortedBy { it.label.lowercase(Locale.getDefault()) }
+                val pkg = info.activityInfo?.packageName ?: return@mapNotNull null
+                AppEntry(info.loadLabel(packageManager).toString(), pkg, info.loadIcon(packageManager))
+            }.distinctBy { it.packageName }.sortedBy { it.label.lowercase(Locale.getDefault()) }
     }
 
     private fun launchPackage(packageName: String) {
-        packageManager.getLaunchIntentForPackage(packageName)?.let { launch ->
-            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            runCatching { startActivity(launch) }
+        packageManager.getLaunchIntentForPackage(packageName)?.let {
+            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            runCatching { startActivity(it) }
         }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun readDeviceInfo(): DeviceInfo {
+        val battery = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val level = battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = battery?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
+        val batteryPct = if (level >= 0 && scale > 0) level * 100 / scale else 0
+        val manager = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+        val memory = ActivityManager.MemoryInfo()
+        manager.getMemoryInfo(memory)
+        val totalRam = memory.totalMem / (1024L * 1024L * 1024L)
+        val usedRam = ((memory.totalMem - memory.availMem) / (1024L * 1024L * 10L)).toDouble() / 100.0
+        val stat = StatFs(filesDir.absolutePath)
+        val total = stat.totalBytes / (1024L * 1024L * 1024L)
+        val free = stat.availableBytes / (1024L * 1024L * 1024L)
+        return DeviceInfo(batteryPct, usedRam, totalRam, total - free, total)
     }
 }
 
+private data class DeviceInfo(val battery: Int, val usedRam: Double, val totalRam: Long, val usedStorage: Long, val totalStorage: Long)
+
 @Composable
-private fun SakuHome(
+private fun SakuDesktop(
     loadApps: suspend () -> List<AppEntry>,
     openApp: (String) -> Unit,
-    openSettings: () -> Unit
+    openSettings: () -> Unit,
+    deviceInfo: () -> DeviceInfo
 ) {
     var apps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
     var search by remember { mutableStateOf("") }
-    var showAllApps by remember { mutableStateOf(false) }
-    var clock by remember { mutableStateOf(currentTime()) }
+    var listMode by remember { mutableStateOf(false) }
+    var allApps by remember { mutableStateOf(false) }
+    var clock by remember { mutableStateOf(now("HH:mm")) }
+    var note by remember { mutableStateOf("Selesaikan build Saku Simple\nRapikan widget Liquid Glass") }
+    var info by remember { mutableStateOf(DeviceInfo(0, 0.0, 4, 0, 128)) }
 
     LaunchedEffect(Unit) {
         apps = withContext(Dispatchers.IO) { loadApps() }
+        info = withContext(Dispatchers.IO) { deviceInfo() }
     }
     LaunchedEffect(Unit) {
         while (true) {
-            clock = currentTime()
+            clock = now("HH:mm")
+            info = withContext(Dispatchers.IO) { deviceInfo() }
             kotlinx.coroutines.delay(30_000)
         }
     }
-    BackHandler(enabled = showAllApps) { showAllApps = false }
+    BackHandler(enabled = allApps) { allApps = false; search = "" }
+    val filtered = apps.filter { it.label.contains(search, true) }
 
-    val filtered = apps.filter { it.label.contains(search, ignoreCase = true) }
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(Color(0xFF102C52), Color(0xFF172D45), Color(0xFF071321))
-                )
-            )
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .windowInsetsPadding(WindowInsets.navigationBars)
-            .padding(horizontal = 20.dp)
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxSize().background(
+            Brush.linearGradient(listOf(Color(0xFF061326), Color(0xFF0A2B50), Color(0xFF071321)))
+        ).windowInsetsPadding(WindowInsets.statusBars).windowInsetsPadding(WindowInsets.navigationBars).padding(10.dp)
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Spacer(Modifier.height(22.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(clock, color = Color.White, fontSize = 42.sp, fontWeight = FontWeight.Light)
-                    Text(
-                        SimpleDateFormat("EEEE, d MMMM", Locale("id", "ID")).format(Date()),
-                        color = Color(0xFFD0E3F6),
-                        fontSize = 14.sp
-                    )
-                }
-                Surface(
-                    shape = CircleShape,
-                    color = Glass,
-                    modifier = Modifier.size(46.dp).clickable { openSettings() }
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.Settings, contentDescription = "Pengaturan", tint = Night)
-                    }
-                }
-            }
-            Spacer(Modifier.height(26.dp))
+        val compact = maxWidth < 600.dp
+        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // App shelf: always on the left, with grid/list switching.
             Surface(
-                shape = RoundedCornerShape(28.dp),
-                color = Color(0x33FFFFFF),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxHeight().weight(if (compact) 0.82f else 0.78f),
+                shape = RoundedCornerShape(24.dp), color = Panel, border = androidx.compose.foundation.BorderStroke(1.dp, Stroke)
             ) {
-                Column(Modifier.padding(18.dp)) {
-                    Text("Ruang yang sederhana.", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Semua yang kamu butuhkan, dekat.", color = Color(0xFFD5E5F6), fontSize = 13.sp)
+                Column(Modifier.fillMaxSize().padding(if (compact) 8.dp else 14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(if (compact) 28.dp else 38.dp).clip(RoundedCornerShape(12.dp))
+                            .background(Brush.linearGradient(listOf(Glow, Color(0xFF7D8CFF)))),
+                            contentAlignment = Alignment.Center) {
+                            Text("S", color = Ink, fontWeight = FontWeight.Black, fontSize = 19.sp)
+                        }
+                        Spacer(Modifier.width(6.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("SAKU", color = TextMain, fontWeight = FontWeight.Bold, fontSize = if (compact) 12.sp else 17.sp)
+                            if (!compact) Text("DESKTOP", color = TextSoft, fontSize = 10.sp, letterSpacing = 2.sp)
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0x332F6796)).padding(7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Search, null, tint = TextSoft, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(5.dp))
+                        BasicTextField(
+                            value = search, onValueChange = { search = it },
+                            modifier = Modifier.weight(1f), singleLine = true,
+                            textStyle = androidx.compose.ui.text.TextStyle(color = TextMain, fontSize = 11.sp),
+                            decorationBox = { inner ->
+                                Box {
+                                    if (search.isEmpty()) Text("Cari...", color = TextSoft, fontSize = 11.sp)
+                                    inner()
+                                }
+                            }
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (allApps) "APLIKASI" else "FAVORIT", color = TextSoft, fontSize = 9.sp, letterSpacing = 1.sp, modifier = Modifier.weight(1f))
+                        Icon(if (listMode) Icons.Default.GridView else Icons.Default.List, "Ubah mode tampilan",
+                            tint = Glow, modifier = Modifier.size(20.dp).clickable { listMode = !listMode; allApps = true })
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    if (listMode) {
+                        LazyColumn(verticalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.weight(1f)) {
+                            items(if (allApps || search.isNotEmpty()) filtered else apps.take(10), key = { it.packageName }) { app ->
+                                Row(
+                                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { openApp(app.packageName) }.padding(5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    AppIcon(app, true)
+                                    Spacer(Modifier.width(7.dp))
+                                    Text(app.label, color = TextMain, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                    } else {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(if (compact) 2 else 3),
+                            modifier = Modifier.weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            verticalArrangement = Arrangement.spacedBy(9.dp),
+                            contentPadding = PaddingValues(vertical = 4.dp)
+                        ) {
+                            items(if (allApps || search.isNotEmpty()) filtered else apps.take(12), key = { it.packageName }) { app ->
+                                AppTile(app, compact) { openApp(app.packageName) }
+                            }
+                        }
+                    }
+                    Surface(color = Color(0x332D85B7), shape = RoundedCornerShape(14.dp)) {
+                        Column(Modifier.padding(7.dp)) {
+                            Text("FAVORIT", color = TextSoft, fontSize = 8.sp, letterSpacing = 1.sp)
+                            Row(Modifier.fillMaxWidth().padding(top = 5.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                                apps.take(3).forEach { AppIcon(it, true) { openApp(it.packageName) } }
+                            }
+                        }
+                    }
                 }
             }
-            Spacer(Modifier.height(22.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    if (showAllApps) "Semua aplikasi" else "Aplikasi",
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f)
-                )
-                Surface(
-                    color = Color(0x33FFFFFF),
-                    shape = CircleShape,
-                    modifier = Modifier.size(42.dp).clickable {
-                        showAllApps = !showAllApps
-                        search = ""
-                    }
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.Apps, contentDescription = "Semua aplikasi", tint = Color.White)
+
+            // Scrollable widget column on the right.
+            LazyColumn(
+                modifier = Modifier.weight(1.35f).fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = 12.dp)
+            ) {
+                item {
+                    GlassCard {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("SAKU DESKTOP", color = TextSoft, fontSize = 9.sp, letterSpacing = 1.2.sp)
+                                Spacer(Modifier.height(4.dp))
+                                Text(clock, color = TextMain, fontSize = if (compact) 32.sp else 48.sp, fontWeight = FontWeight.Light)
+                                Text(now("EEEE, d MMMM", Locale("id", "ID")), color = TextSoft, fontSize = 10.sp)
+                            }
+                            Icon(Icons.Default.CalendarMonth, null, tint = Glow, modifier = Modifier.size(24.dp))
+                        }
                     }
                 }
-            }
-            AnimatedVisibility(visible = showAllApps) {
-                TextField(
-                    value = search,
-                    onValueChange = { search = it },
-                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                    singleLine = true,
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                    placeholder = { Text("Cari aplikasi") },
-                    shape = RoundedCornerShape(20.dp),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color(0x33FFFFFF),
-                        unfocusedContainerColor = Color(0x22FFFFFF),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                        focusedPlaceholderColor = Color(0xFFCDDAE8),
-                        unfocusedPlaceholderColor = Color(0xFFCDDAE8),
-                        focusedLeadingIconColor = Color.White,
-                        unfocusedLeadingIconColor = Color.White
-                    )
-                )
-            }
-            Spacer(Modifier.height(12.dp))
-            val visibleApps = if (showAllApps) filtered else apps.take(12)
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(4),
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(top = 4.dp, bottom = 18.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp)
-            ) {
-                items(visibleApps, key = { it.packageName }) { app ->
-                    AppIcon(app = app, onClick = { openApp(app.packageName) })
-                }
-            }
-            Surface(
-                color = Color(0x66DDEEFF),
-                shape = RoundedCornerShape(28.dp),
-                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    apps.take(4).forEach { app ->
-                        AppIcon(app = app, compact = true, onClick = { openApp(app.packageName) })
+                item {
+                    GlassCard {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Cloud, null, tint = Glow, modifier = Modifier.size(25.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Column {
+                                Text("Cuaca", color = TextMain, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                Text("Sumber cuaca belum tersambung", color = TextSoft, fontSize = 9.sp)
+                                Text("Lokasi dan prakiraan akan tampil di sini", color = TextSoft, fontSize = 8.sp)
+                            }
+                        }
                     }
-                    if (apps.isEmpty()) {
-                        Text("Saku Simple", color = Color.White, modifier = Modifier.padding(8.dp))
+                }
+                item {
+                    GlassCard {
+                        Text("INFO PERANGKAT", color = TextSoft, fontSize = 9.sp, letterSpacing = 1.sp)
+                        Spacer(Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            DeviceMetric("BAT", "${info.battery}%", "Baterai", Modifier.weight(1f))
+                            DeviceMetric("RAM", String.format(Locale.US, "%.1f GB", info.usedRam), "dari ${info.totalRam} GB", Modifier.weight(1f))
+                            DeviceMetric("ROM", "${info.usedStorage} GB", "dari ${info.totalStorage} GB", Modifier.weight(1f))
+                        }
+                    }
+                }
+                item {
+                    GlassCard {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.EditNote, null, tint = Glow, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("CATATAN", color = TextMain, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                        }
+                        Spacer(Modifier.height(7.dp))
+                        BasicTextField(
+                            value = note, onValueChange = { note = it },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 65.dp),
+                            textStyle = androidx.compose.ui.text.TextStyle(color = TextMain, fontSize = 11.sp, lineHeight = 17.sp),
+                            decorationBox = { inner ->
+                                Box {
+                                    if (note.isEmpty()) Text("Tulis catatan...", color = TextSoft, fontSize = 11.sp)
+                                    inner()
+                                }
+                            }
+                        )
+                        Text("Catatan sesi ini", color = TextSoft, fontSize = 8.sp)
+                    }
+                }
+                item {
+                    GlassCard {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Wifi, null, tint = Glow, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("STATUS SISTEM", color = TextMain, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Memory, null, tint = Glow, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(7.dp))
+                            Column {
+                                Text("Android ${android.os.Build.VERSION.RELEASE}", color = TextMain, fontSize = 11.sp)
+                                Text("Saku Simple • berjalan", color = TextSoft, fontSize = 9.sp)
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Storage, null, tint = Glow, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(7.dp))
+                            Text("Penyimpanan internal", color = TextSoft, fontSize = 10.sp)
+                        }
+                    }
+                }
+                item {
+                    GlassCard {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.CalendarMonth, null, tint = Glow, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("KALENDER", color = TextMain, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(now("d MMMM yyyy", Locale("id", "ID")), color = TextMain, fontSize = 16.sp)
+                        Text(now("EEEE", Locale("id", "ID")), color = TextSoft, fontSize = 10.sp)
+                    }
+                }
+                item {
+                    Surface(
+                        color = Color(0x663C7FA7), shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth().clickable { openSettings() }
+                    ) {
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Settings, null, tint = TextMain, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Pengaturan Android", color = TextMain, fontSize = 11.sp)
+                        }
                     }
                 }
             }
@@ -262,43 +357,53 @@ private fun SakuHome(
 }
 
 @Composable
-private fun AppIcon(app: AppEntry, compact: Boolean = false, onClick: () -> Unit) {
-    val bitmap = remember(app.packageName) {
-        val drawable = app.icon
-        val width = 96
-        val height = 96
-        val output = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
-        val canvas = android.graphics.Canvas(output)
-        drawable.setBounds(0, 0, width, height)
-        drawable.draw(canvas)
-        output.asImageBitmap()
-    }
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .clip(RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 2.dp, vertical = 2.dp)
-    ) {
-        Image(
-            bitmap = bitmap,
-            contentDescription = app.label,
-            modifier = Modifier.size(if (compact) 44.dp else 52.dp)
-                .clip(RoundedCornerShape(14.dp))
-        )
-        if (!compact) {
-            Spacer(Modifier.height(5.dp))
-            Text(
-                text = app.label,
-                color = Color.White,
-                fontSize = 10.sp,
-                lineHeight = 12.sp,
-                textAlign = TextAlign.Center,
-                maxLines = 2
-            )
-        }
+private fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = Panel,
+        border = androidx.compose.foundation.BorderStroke(1.dp, Stroke),
+        content = { Column(Modifier.padding(12.dp), content = content) }
+    )
+}
+
+@Composable
+private fun DeviceMetric(title: String, value: String, detail: String, modifier: Modifier = Modifier) {
+    Column(modifier.clip(RoundedCornerShape(12.dp)).background(Color(0x332D8FC7)).padding(7.dp)) {
+        Text(title, color = Glow, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(5.dp))
+        Text(value, color = TextMain, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        Text(detail, color = TextSoft, fontSize = 8.sp, maxLines = 1)
     }
 }
 
-private fun currentTime(): String =
-    SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+@Composable
+private fun AppTile(app: AppEntry, compact: Boolean, onClick: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(vertical = 4.dp)
+    ) {
+        AppIcon(app, compact = false)
+        Text(app.label, color = TextSoft, fontSize = if (compact) 8.sp else 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun AppIcon(app: AppEntry, compact: Boolean = false, onClick: () -> Unit = {}) {
+    val bitmap = remember(app.packageName) {
+        val output = android.graphics.Bitmap.createBitmap(96, 96, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(output)
+        app.icon.setBounds(0, 0, 96, 96)
+        app.icon.draw(canvas)
+        output.asImageBitmap()
+    }
+    Image(
+        bitmap = bitmap,
+        contentDescription = app.label,
+        modifier = Modifier.size(if (compact) 28.dp else 34.dp)
+            .clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick)
+    )
+}
+
+private fun now(pattern: String, locale: Locale = Locale.getDefault()): String =
+    SimpleDateFormat(pattern, locale).format(Date())
