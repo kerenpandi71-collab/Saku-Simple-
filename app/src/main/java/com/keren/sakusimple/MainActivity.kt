@@ -45,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
@@ -64,7 +65,7 @@ private val Panel = Color(0xAA102C4B)
 private val Stroke = Color(0x553EBEFF)
 private val Glow = Color(0xFF69DDF5)
 
-data class AppEntry(val label: String, val packageName: String, val icon: Drawable)
+data class AppEntry(val label: String, val packageName: String, val icon: ImageBitmap)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -91,7 +92,7 @@ class MainActivity : ComponentActivity() {
         return packageManager.queryIntentActivities(intent, PackageManager.MATCH_ALL)
             .mapNotNull { info ->
                 val pkg = info.activityInfo?.packageName ?: return@mapNotNull null
-                AppEntry(info.loadLabel(packageManager).toString(), pkg, info.loadIcon(packageManager))
+                AppEntry(info.loadLabel(packageManager).toString(), pkg, drawableToBitmap(info.loadIcon(packageManager)))
             }.distinctBy { it.packageName }.sortedBy { it.label.lowercase(Locale.getDefault()) }
     }
 
@@ -391,19 +392,22 @@ private fun AppTile(app: AppEntry, compact: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun AppIcon(app: AppEntry, compact: Boolean = false, onClick: () -> Unit = {}) {
-    val bitmap = remember(app.packageName) {
-        val output = android.graphics.Bitmap.createBitmap(96, 96, android.graphics.Bitmap.Config.ARGB_8888)
-        val canvas = android.graphics.Canvas(output)
-        app.icon.setBounds(0, 0, 96, 96)
-        app.icon.draw(canvas)
-        output.asImageBitmap()
-    }
     Image(
-        bitmap = bitmap,
+        bitmap = app.icon,
         contentDescription = app.label,
         modifier = Modifier.size(if (compact) 28.dp else 34.dp)
             .clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick)
     )
+}
+
+private fun drawableToBitmap(drawable: Drawable): ImageBitmap {
+    // Small app icons are prepared while the app list loads on Dispatchers.IO.
+    val size = 48
+    val output = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(output)
+    drawable.setBounds(0, 0, size, size)
+    drawable.draw(canvas)
+    return output.asImageBitmap()
 }
 
 private fun now(pattern: String, locale: Locale = Locale.getDefault()): String =
