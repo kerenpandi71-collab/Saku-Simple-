@@ -61,8 +61,8 @@ import java.util.Locale
 private val Ink = Color(0xFF07182D)
 private val TextMain = Color(0xFFF3F8FF)
 private val TextSoft = Color(0xFFBBD0E8)
-private val Panel = Color(0xAA102C4B)
-private val Stroke = Color(0x553EBEFF)
+private val Panel = Color(0xFF102C4B)
+private val Stroke = Color(0x003EBEFF)
 private val Glow = Color(0xFF69DDF5)
 
 data class AppEntry(val label: String, val packageName: String, val icon: ImageBitmap)
@@ -145,17 +145,15 @@ private fun SakuDesktop(
     LaunchedEffect(Unit) {
         while (true) {
             clock = now("HH:mm")
+            kotlinx.coroutines.delay(60_000)
             info = withContext(Dispatchers.IO) { deviceInfo() }
-            kotlinx.coroutines.delay(30_000)
         }
     }
     BackHandler(enabled = allApps) { allApps = false; search = "" }
     val filtered = apps.filter { it.label.contains(search, true) }
 
     BoxWithConstraints(
-        modifier = Modifier.fillMaxSize().background(
-            Brush.linearGradient(listOf(Color(0xFF061326), Color(0xFF0A2B50), Color(0xFF071321)))
-        ).windowInsetsPadding(WindowInsets.statusBars).windowInsetsPadding(WindowInsets.navigationBars).padding(10.dp)
+        modifier = Modifier.fillMaxSize().background(Color(0xFF07182D)).windowInsetsPadding(WindowInsets.statusBars).windowInsetsPadding(WindowInsets.navigationBars).padding(10.dp)
     ) {
         val compact = maxWidth < 600.dp
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -396,7 +394,7 @@ private fun AppIcon(app: AppEntry, compact: Boolean = false, onClick: () -> Unit
         bitmap = app.icon,
         contentDescription = app.label,
         modifier = Modifier.size(if (compact) 28.dp else 34.dp)
-            .clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick)
+            .clickable(onClick = onClick)
     )
 }
 
