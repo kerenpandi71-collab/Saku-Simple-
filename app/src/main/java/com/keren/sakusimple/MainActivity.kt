@@ -5,6 +5,15 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
+import android.view.View
+import android.view.ViewGroup
+import android.widget.BaseAdapter
+import android.widget.FrameLayout
+import android.widget.GridView
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.ListView
+import android.widget.TextView
 import android.os.BatteryManager
 import android.os.Bundle
 import android.os.StatFs
@@ -48,6 +57,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -201,31 +212,44 @@ private fun SakuDesktop(
                             tint = Glow, modifier = Modifier.size(20.dp).clickable { listMode = !listMode; allApps = true })
                     }
                     Spacer(Modifier.height(6.dp))
-                    if (listMode) {
-                        LazyColumn(verticalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.weight(1f)) {
-                            items(if (allApps || search.isNotEmpty()) filtered else apps.take(10), key = { it.packageName }) { app ->
-                                Row(
-                                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { openApp(app.packageName) }.padding(5.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    AppIcon(app, true)
-                                    Spacer(Modifier.width(7.dp))
-                                    Text(app.label, color = TextMain, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    key(listMode) {
+                        AndroidView(
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            factory = { context ->
+                                val adapter = AppShelfAdapter(context, listMode) { packageName -> openApp(packageName) }
+                                if (listMode) {
+                                    ListView(context).apply {
+                                        id = View.generateViewId()
+                                        setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                                        divider = null
+                                        dividerHeight = 0
+                                        selector = android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT)
+                                        clipToPadding = false
+                                        this.adapter = adapter
+                                        tag = adapter
+                                    }
+                                } else {
+                                    GridView(context).apply {
+                                        id = View.generateViewId()
+                                        numColumns = if (compact) 2 else 3
+                                        horizontalSpacing = (3 * resources.displayMetrics.density).toInt()
+                                        verticalSpacing = (8 * resources.displayMetrics.density).toInt()
+                                        stretchMode = GridView.STRETCH_COLUMN_WIDTH
+                                        setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                                        selector = android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT)
+                                        clipToPadding = false
+                                        this.adapter = adapter
+                                        tag = adapter
+                                    }
                                 }
+                            },
+                            update = { view ->
+                                (view.tag as? AppShelfAdapter)?.submitItems(
+                                    if (allApps || search.isNotEmpty()) filtered else apps.take(if (listMode) 10 else 12)
+                                )
+                                if (view is GridView) view.numColumns = if (compact) 2 else 3
                             }
-                        }
-                    } else {
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(if (compact) 2 else 3),
-                            modifier = Modifier.weight(1f),
-                            horizontalArrangement = Arrangement.spacedBy(3.dp),
-                            verticalArrangement = Arrangement.spacedBy(9.dp),
-                            contentPadding = PaddingValues(vertical = 4.dp)
-                        ) {
-                            items(if (allApps || search.isNotEmpty()) filtered else apps.take(12), key = { it.packageName }) { app ->
-                                AppTile(app, compact) { openApp(app.packageName) }
-                            }
-                        }
+                        )
                     }
                     Surface(color = Color(0x332D85B7), shape = RoundedCornerShape(14.dp)) {
                         Column(Modifier.padding(7.dp)) {
@@ -396,6 +420,86 @@ private fun AppIcon(app: AppEntry, compact: Boolean = false, onClick: () -> Unit
         modifier = Modifier.size(if (compact) 28.dp else 34.dp)
             .clickable(onClick = onClick)
     )
+}
+
+
+private class AppShelfAdapter(
+    private val context: android.content.Context,
+    private val listMode: Boolean,
+    private val onLaunch: (String) -> Unit
+) : BaseAdapter() {
+    private var entries: List<AppEntry> = emptyList()
+    private val density = context.resources.displayMetrics.density
+
+    fun submitItems(items: List<AppEntry>) {
+        if (entries === items || entries == items) return
+        entries = items
+        notifyDataSetChanged()
+    }
+
+    override fun getCount(): Int = entries.size
+    override fun getItem(position: Int): AppEntry = entries[position]
+    override fun getItemId(position: Int): Long = entries[position].packageName.hashCode().toLong()
+    override fun hasStableIds(): Boolean = true
+
+    private data class Holder(val icon: ImageView, val label: TextView)
+
+    override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+        val root: View
+        val holder: Holder
+        if (convertView == null) {
+            val layout = LinearLayout(context).apply {
+                orientation = if (listMode) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(dp(if (listMode) 7 else 2), dp(5), dp(2), dp(5))
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(android.graphics.Color.TRANSPARENT)
+                    cornerRadius = dp(10).toFloat()
+                }
+                isFocusable = false
+                isClickable = true
+            }
+            val icon = ImageView(context).apply {
+                layoutParams = if (listMode) {
+                    LinearLayout.LayoutParams(dp(30), dp(30))
+                } else {
+                    LinearLayout.LayoutParams(dp(34), dp(34)).apply { gravity = android.view.Gravity.CENTER_HORIZONTAL }
+                }
+                scaleType = ImageView.ScaleType.FIT_CENTER
+            }
+            val label = TextView(context).apply {
+                setTextColor(android.graphics.Color.rgb(187, 208, 232))
+                textSize = if (listMode) 10f else 9f
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                gravity = if (listMode) android.view.Gravity.CENTER_VERTICAL else android.view.Gravity.CENTER
+                if (listMode) {
+                    setPadding(dp(8), 0, dp(2), 0)
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                } else {
+                    setPadding(0, dp(3), 0, 0)
+                    layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                }
+            }
+            layout.addView(icon)
+            layout.addView(label)
+            holder = Holder(icon, label)
+            layout.tag = holder
+            root = layout
+        } else {
+            root = convertView
+            holder = root.tag as Holder
+        }
+
+        val entry = getItem(position)
+        holder.icon.setImageBitmap(entry.icon.asAndroidBitmap())
+        holder.label.text = entry.label
+        root.contentDescription = entry.label
+        root.setOnClickListener { onLaunch(entry.packageName) }
+        return root
+    }
+
+    private fun dp(value: Int): Int = (value * density).toInt()
 }
 
 private fun drawableToBitmap(drawable: Drawable): ImageBitmap {
