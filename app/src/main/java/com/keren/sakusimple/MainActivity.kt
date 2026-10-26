@@ -500,7 +500,7 @@ private class AppShelfAdapter(
             }
             val icon = ImageView(context).apply {
                 layoutParams = if (listMode) {
-                    LinearLayout.LayoutParams(dp(30), dp(30))
+                    LinearLayout.LayoutParams(dp(iconSize), dp(iconSize))
                 } else {
                     LinearLayout.LayoutParams(dp(iconSize), dp(iconSize)).apply { gravity = android.view.Gravity.CENTER_HORIZONTAL }
                 }
@@ -531,7 +531,7 @@ private class AppShelfAdapter(
         }
 
         val entry = getItem(position)
-        holder.icon.layoutParams = holder.icon.layoutParams.apply { width = dp(if (listMode) 30 else iconSize); height = dp(if (listMode) 30 else iconSize) }
+        holder.icon.layoutParams = holder.icon.layoutParams.apply { width = dp(iconSize); height = dp(iconSize) }
         holder.icon.setImageBitmap(entry.icon.asAndroidBitmap())
         holder.label.visibility = if (!listMode && hideGridLabels) View.GONE else View.VISIBLE
         holder.label.text = entry.label
