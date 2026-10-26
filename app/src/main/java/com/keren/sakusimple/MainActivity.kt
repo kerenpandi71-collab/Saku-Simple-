@@ -275,131 +275,159 @@ private fun SakuDesktop(
                 }
             }
 
-            // Scrollable widget column on the right.
-            LazyColumn(
+            // Native Android widget shelf: avoid Compose LazyColumn's scroll overhead on low-memory devices.
+            AndroidView(
                 modifier = Modifier.weight(1.35f).fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(bottom = 12.dp),
-                userScrollEnabled = true,
-                flingBehavior = androidx.compose.foundation.gestures.ScrollableDefaults.flingBehavior()
-            ) {
-                item(key = "clock", contentType = "widget") {
-                    GlassCard {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text("SAKU DESKTOP", color = TextSoft, fontSize = 9.sp, letterSpacing = 1.2.sp)
-                                Spacer(Modifier.height(4.dp))
-                                Text(clock, color = TextMain, fontSize = if (compact) 32.sp else 48.sp, fontWeight = FontWeight.Light)
-                                Text(now("EEEE, d MMMM", Locale("id", "ID")), color = TextSoft, fontSize = 10.sp)
-                            }
-                            Icon(Icons.Default.CalendarMonth, null, tint = Glow, modifier = Modifier.size(24.dp))
-                        }
+                factory = { context ->
+                    val density = context.resources.displayMetrics.density
+                    fun dp(v: Int) = (v * density).toInt()
+                    val ink = android.graphics.Color.rgb(235, 244, 255)
+                    val soft = android.graphics.Color.rgb(157, 179, 205)
+                    val glow = android.graphics.Color.rgb(91, 207, 255)
+                    val panel = android.graphics.Color.rgb(20, 35, 58)
+                    val root = android.widget.ScrollView(context).apply {
+                        isFillViewport = false
+                        clipToPadding = false
+                        setPadding(0, 0, 0, dp(10))
+                        overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+                        isVerticalScrollBarEnabled = false
+                        setBackgroundColor(android.graphics.Color.TRANSPARENT)
                     }
-                }
-                item(key = "weather", contentType = "widget") {
-                    GlassCard {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Cloud, null, tint = Glow, modifier = Modifier.size(25.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Column {
-                                Text("Cuaca", color = TextMain, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                                Text("Sumber cuaca belum tersambung", color = TextSoft, fontSize = 9.sp)
-                                Text("Lokasi dan prakiraan akan tampil di sini", color = TextSoft, fontSize = 8.sp)
-                            }
-                        }
+                    val column = LinearLayout(context).apply {
+                        orientation = LinearLayout.VERTICAL
+                        setPadding(0, 0, 0, dp(4))
                     }
-                }
-                item(key = "device_info", contentType = "widget") {
-                    GlassCard {
-                        Text("INFO PERANGKAT", color = TextSoft, fontSize = 9.sp, letterSpacing = 1.sp)
-                        Spacer(Modifier.height(10.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            DeviceMetric("BAT", "${info.battery}%", "Baterai", Modifier.weight(1f))
-                            DeviceMetric("RAM", String.format(Locale.US, "%.1f GB", info.usedRam), "dari ${info.totalRam} GB", Modifier.weight(1f))
-                            DeviceMetric("ROM", "${info.usedStorage} GB", "dari ${info.totalStorage} GB", Modifier.weight(1f))
-                        }
-                    }
-                }
-                item(key = "notes", contentType = "widget") {
-                    GlassCard {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.EditNote, null, tint = Glow, modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("CATATAN", color = TextMain, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                        }
-                        Spacer(Modifier.height(7.dp))
-                        BasicTextField(
-                            value = note, onValueChange = { note = it },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 65.dp),
-                            textStyle = androidx.compose.ui.text.TextStyle(color = TextMain, fontSize = 11.sp, lineHeight = 17.sp),
-                            decorationBox = { inner ->
-                                Box {
-                                    if (note.isEmpty()) Text("Tulis catatan...", color = TextSoft, fontSize = 11.sp)
-                                    inner()
-                                }
-                            }
-                        )
-                        Text("Catatan sesi ini", color = TextSoft, fontSize = 8.sp)
-                    }
-                }
-                item(key = "system_status", contentType = "widget") {
-                    GlassCard {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Wifi, null, tint = Glow, modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("STATUS SISTEM", color = TextMain, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Memory, null, tint = Glow, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(7.dp))
-                            Column {
-                                Text("Android ${android.os.Build.VERSION.RELEASE}", color = TextMain, fontSize = 11.sp)
-                                Text("Saku Simple • berjalan", color = TextSoft, fontSize = 9.sp)
+                    fun card(title: String? = null): LinearLayout {
+                        val box = LinearLayout(context).apply {
+                            orientation = LinearLayout.VERTICAL
+                            setPadding(dp(12), dp(12), dp(12), dp(12))
+                            background = android.graphics.drawable.GradientDrawable().apply {
+                                setColor(panel)
+                                cornerRadius = dp(18).toFloat()
+                                setStroke(dp(1), android.graphics.Color.rgb(55, 84, 116))
                             }
                         }
-                        Spacer(Modifier.height(6.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Storage, null, tint = Glow, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(7.dp))
-                            Text("Penyimpanan internal", color = TextSoft, fontSize = 10.sp)
+                        val params = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                        params.bottomMargin = dp(8)
+                        column.addView(box, params)
+                        if (title != null) {
+                            val heading = TextView(context).apply {
+                                text = title
+                                textSize = 12f
+                                setTextColor(ink)
+                                setTypeface(null, android.graphics.Typeface.BOLD)
+                            }
+                            box.addView(heading)
+                            heading.setPadding(0, 0, 0, dp(7))
+                        }
+                        return box
+                    }
+                    fun label(text: String, size: Float = 11f, color: Int = soft, bold: Boolean = false): TextView =
+                        TextView(context).apply {
+                            this.text = text
+                            textSize = size
+                            setTextColor(color)
+                            if (bold) setTypeface(null, android.graphics.Typeface.BOLD)
+                        }
+                    val clockCard = card()
+                    clockCard.addView(label("SAKU DESKTOP", 9f, soft, true))
+                    clockCard.addView(label(clock, if (compact) 32f else 44f, ink).apply { tag = "saku_clock" })
+                    clockCard.addView(label(now("EEEE, d MMMM", Locale("id", "ID")), 10f, soft).apply { tag = "saku_date" })
+
+                    val weather = card()
+                    weather.addView(label("☁  Cuaca", 15f, ink, true))
+                    weather.addView(label("Sumber cuaca belum tersambung", 9f, soft))
+                    weather.addView(label("Lokasi dan prakiraan akan tampil di sini", 8f, soft))
+
+                    val device = card("INFO PERANGKAT")
+                    val metrics = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+                    fun metric(title: String, value: String, detail: String): LinearLayout {
+                        val item = LinearLayout(context).apply {
+                            orientation = LinearLayout.VERTICAL
+                            setPadding(dp(6), dp(7), dp(4), dp(7))
+                            background = android.graphics.drawable.GradientDrawable().apply {
+                                setColor(android.graphics.Color.rgb(34, 65, 94))
+                                cornerRadius = dp(10).toFloat()
+                            }
+                        }
+                        item.addView(label(title, 8f, glow, true))
+                        item.addView(label(value, 10f, ink, true).apply { maxLines = 1; tag = "metric_$title" })
+                        item.addView(label(detail, 7f, soft).apply { maxLines = 1; tag = "detail_$title" })
+                        val p = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                        p.marginEnd = dp(3)
+                        metrics.addView(item, p)
+                        return item
+                    }
+                    metric("BAT", "${info.battery}%", "Baterai")
+                    metric("RAM", String.format(Locale.US, "%.1f GB", info.usedRam), "dari ${info.totalRam} GB")
+                    metric("ROM", "${info.usedStorage} GB", "dari ${info.totalStorage} GB")
+                    device.addView(metrics)
+
+                    val notes = card("✎  CATATAN")
+                    val edit = android.widget.EditText(context).apply {
+                        setText(note)
+                        setTextColor(ink)
+                        setHintTextColor(soft)
+                        hint = "Tulis catatan..."
+                        textSize = 11f
+                        minHeight = dp(65)
+                        gravity = android.view.Gravity.TOP
+                        setPadding(0, dp(4), 0, dp(4))
+                        background = null
+                        addTextChangedListener(object : android.text.TextWatcher {
+                            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { note = s?.toString().orEmpty() }
+                            override fun afterTextChanged(s: android.text.Editable?) {}
+                        })
+                    }
+                    notes.addView(edit)
+                    notes.addView(label("Catatan sesi ini", 8f, soft))
+
+                    val status = card("◉  STATUS SISTEM")
+                    status.addView(label("Android ${android.os.Build.VERSION.RELEASE}", 11f, ink))
+                    status.addView(label("Saku Simple • berjalan", 9f, soft))
+                    status.addView(label("▤  Penyimpanan internal", 10f, soft))
+
+                    val calendar = card("▦  KALENDER")
+                    calendar.addView(label(now("d MMMM yyyy", Locale("id", "ID")), 16f, ink).apply { tag = "saku_calendar_date" })
+                    calendar.addView(label(now("EEEE", Locale("id", "ID")), 10f, soft).apply { tag = "saku_calendar_day" })
+
+                    fun actionCard(title: String, subtitle: String? = null, action: () -> Unit) {
+                        val item = card()
+                        item.orientation = LinearLayout.HORIZONTAL
+                        item.gravity = android.view.Gravity.CENTER_VERTICAL
+                        item.isClickable = true
+                        item.isFocusable = true
+                        item.setOnClickListener { action() }
+                        val textColumn = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+                        textColumn.addView(label(title, 11f, ink, true))
+                        if (subtitle != null) textColumn.addView(label(subtitle, 8f, soft))
+                        item.addView(textColumn)
+                        item.background = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(android.graphics.Color.rgb(42, 74, 105))
+                            cornerRadius = dp(14).toFloat()
                         }
                     }
+                    actionCard("⚙  Pengaturan Android") { openSettings() }
+                    actionCard("⚙  Pengaturan Simple", "Tampilan, font, ikon, label") { showSimpleSettings = true }
+
+                    root.addView(column, android.widget.ScrollView.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+                    ))
+                    root.tag = column
+                    root
+                },
+                update = { view ->
+                    val column = view.tag as? LinearLayout
+                    column?.findViewWithTag<TextView>("saku_clock")?.text = clock
+                    column?.findViewWithTag<TextView>("saku_date")?.text = now("EEEE, d MMMM", Locale("id", "ID"))
+                    column?.findViewWithTag<TextView>("saku_calendar_date")?.text = now("d MMMM yyyy", Locale("id", "ID"))
+                    column?.findViewWithTag<TextView>("saku_calendar_day")?.text = now("EEEE", Locale("id", "ID"))
+                    column?.findViewWithTag<TextView>("metric_BAT")?.text = "${info.battery}%"
+                    column?.findViewWithTag<TextView>("metric_RAM")?.text = String.format(Locale.US, "%.1f GB", info.usedRam)
+                    column?.findViewWithTag<TextView>("metric_ROM")?.text = "${info.usedStorage} GB"
                 }
-                item(key = "calendar", contentType = "widget") {
-                    GlassCard {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.CalendarMonth, null, tint = Glow, modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("KALENDER", color = TextMain, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Text(now("d MMMM yyyy", Locale("id", "ID")), color = TextMain, fontSize = 16.sp)
-                        Text(now("EEEE", Locale("id", "ID")), color = TextSoft, fontSize = 10.sp)
-                    }
-                }
-                item(key = "android_settings", contentType = "widget") {
-                    Surface(
-                        color = Color(0x663C7FA7), shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.fillMaxWidth().clickable { openSettings() }
-                    ) {
-                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Settings, null, tint = TextMain, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Pengaturan Android", color = TextMain, fontSize = 11.sp)
-                        }
-                    }
-                }
-                item(key = "simple_settings", contentType = "widget") {
-                    Surface(color = Color(0x663C7FA7), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().clickable { showSimpleSettings = true }) {
-                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Settings, null, tint = Glow, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Column { Text("Pengaturan Simple", color = TextMain, fontSize = 11.sp, fontWeight = FontWeight.SemiBold); Text("Tampilan, font, ikon, label", color = TextSoft, fontSize = 8.sp) }
-                        }
-                    }
-                }
-            }
+            )
         }
     }
     }
