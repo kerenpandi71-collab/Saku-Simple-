@@ -45,6 +45,12 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -59,6 +65,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -75,6 +83,8 @@ private val TextSoft = Color(0xFFBBD0E8)
 private val Panel = Color(0xFF102C4B)
 private val Stroke = Color(0x003EBEFF)
 private val Glow = Color(0xFF69DDF5)
+private val LocalGlassEnabled = androidx.compose.runtime.staticCompositionLocalOf { true }
+private val LocalGlassOpacity = androidx.compose.runtime.staticCompositionLocalOf { 0.82f }
 
 data class AppEntry(val label: String, val packageName: String, val icon: ImageBitmap)
 
@@ -149,6 +159,15 @@ private fun SakuDesktop(
     var clock by remember { mutableStateOf(now("HH:mm")) }
     var note by remember { mutableStateOf("Selesaikan build Saku Simple\nRapikan widget Liquid Glass") }
     var info by remember { mutableStateOf(DeviceInfo(0, 0.0, 4, 0, 128)) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val prefs = remember { context.getSharedPreferences("saku_simple_settings", android.content.Context.MODE_PRIVATE) }
+    var showSimpleSettings by remember { mutableStateOf(false) }
+    var glassEnabled by remember { mutableStateOf(prefs.getBoolean("glass_enabled", true)) }
+    var glassOpacity by remember { mutableFloatStateOf(prefs.getFloat("glass_opacity", 0.82f)) }
+    var fontScale by remember { mutableFloatStateOf(prefs.getFloat("font_scale", 1f).coerceIn(0.8f, 1.4f)) }
+    var fontChoice by remember { mutableStateOf(prefs.getString("font_choice", "Sans") ?: "Sans") }
+    var iconSize by remember { mutableFloatStateOf(prefs.getFloat("icon_size", 34f).coerceIn(24f, 64f)) }
+    var hideGridLabels by remember { mutableStateOf(prefs.getBoolean("hide_grid_labels", false)) }
 
     LaunchedEffect(Unit) {
         apps = withContext(Dispatchers.IO) { loadApps() }
@@ -164,6 +183,7 @@ private fun SakuDesktop(
     BackHandler(enabled = allApps) { allApps = false; search = "" }
     val filtered = apps.filter { it.label.contains(search, true) }
 
+    CompositionLocalProvider(LocalDensity provides LocalDensity.current.copy(fontScale = fontScale), LocalGlassEnabled provides glassEnabled, LocalGlassOpacity provides glassOpacity) {
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize().background(Color(0xFF07182D)).windowInsetsPadding(WindowInsets.statusBars).windowInsetsPadding(WindowInsets.navigationBars).padding(10.dp)
     ) {
@@ -217,7 +237,7 @@ private fun SakuDesktop(
                         AndroidView(
                             modifier = Modifier.weight(1f).fillMaxWidth(),
                             factory = { context ->
-                                val adapter = AppShelfAdapter(context, listMode) { packageName -> openApp(packageName) }
+                                val adapter = AppShelfAdapter(context, listMode, iconSize.toInt(), hideGridLabels) { packageName -> openApp(packageName) }
                                 if (listMode) {
                                     ListView(context).apply {
                                         id = View.generateViewId()
@@ -245,9 +265,7 @@ private fun SakuDesktop(
                                 }
                             },
                             update = { view ->
-                                (view.tag as? AppShelfAdapter)?.submitItems(
-                                    if (allApps || search.isNotEmpty()) filtered else apps.take(if (listMode) 10 else 12)
-                                )
+                                (view.tag as? AppShelfAdapter)?.apply { configure(iconSize.toInt(), hideGridLabels); submitItems(if (allApps || search.isNotEmpty()) filtered else apps.take(if (listMode) 10 else 12)) }
                                 if (view is GridView) view.numColumns = if (compact) 2 else 3
                             }
                         )
@@ -376,17 +394,30 @@ private fun SakuDesktop(
                         }
                     }
                 }
+                item {
+                    Surface(color = Color(0x663C7FA7), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().clickable { showSimpleSettings = true }) {
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Settings, null, tint = Glow, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Column { Text("Pengaturan Simple", color = TextMain, fontSize = 11.sp, fontWeight = FontWeight.SemiBold); Text("Tampilan, font, ikon, label", color = TextSoft, fontSize = 8.sp) }
+                        }
+                    }
+                }
             }
         }
     }
+    }
+    if (showSimpleSettings) SimpleSettingsDialog(glassEnabled, { glassEnabled=it; prefs.edit().putBoolean("glass_enabled",it).apply() }, glassOpacity, { glassOpacity=it; prefs.edit().putFloat("glass_opacity",it).apply() }, fontScale, { fontScale=it; prefs.edit().putFloat("font_scale",it).apply() }, fontChoice, { fontChoice=it; prefs.edit().putString("font_choice",it).apply() }, iconSize, { iconSize=it; prefs.edit().putFloat("icon_size",it).apply() }, hideGridLabels, { hideGridLabels=it; prefs.edit().putBoolean("hide_grid_labels",it).apply() }, { showSimpleSettings=false })
 }
 
 @Composable
 private fun GlassCard(content: @Composable ColumnScope.() -> Unit) {
+    val glass = LocalGlassEnabled.current
+    val opacity = LocalGlassOpacity.current
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        color = Panel,
+        color = if (glass) Panel.copy(alpha = opacity) else Panel,
         border = androidx.compose.foundation.BorderStroke(1.dp, Stroke),
         content = { Column(Modifier.padding(12.dp), content = content) }
     )
@@ -427,10 +458,15 @@ private fun AppIcon(app: AppEntry, compact: Boolean = false, onClick: () -> Unit
 private class AppShelfAdapter(
     private val context: android.content.Context,
     private val listMode: Boolean,
+    initialIconSize: Int,
+    initialHideGridLabels: Boolean,
     private val onLaunch: (String) -> Unit
 ) : BaseAdapter() {
     private var entries: List<AppEntry> = emptyList()
+    private var iconSize = initialIconSize
+    private var hideGridLabels = initialHideGridLabels
     private val density = context.resources.displayMetrics.density
+    fun configure(size: Int, hideLabels: Boolean) { if (iconSize != size || hideGridLabels != hideLabels) { iconSize=size; hideGridLabels=hideLabels; notifyDataSetChanged() } }
 
     fun submitItems(items: List<AppEntry>) {
         if (entries === items || entries == items) return
@@ -464,7 +500,7 @@ private class AppShelfAdapter(
                 layoutParams = if (listMode) {
                     LinearLayout.LayoutParams(dp(30), dp(30))
                 } else {
-                    LinearLayout.LayoutParams(dp(34), dp(34)).apply { gravity = android.view.Gravity.CENTER_HORIZONTAL }
+                    LinearLayout.LayoutParams(dp(iconSize), dp(iconSize)).apply { gravity = android.view.Gravity.CENTER_HORIZONTAL }
                 }
                 scaleType = ImageView.ScaleType.FIT_CENTER
             }
@@ -493,7 +529,9 @@ private class AppShelfAdapter(
         }
 
         val entry = getItem(position)
+        holder.icon.layoutParams = holder.icon.layoutParams.apply { width = dp(if (listMode) 30 else iconSize); height = dp(if (listMode) 30 else iconSize) }
         holder.icon.setImageBitmap(entry.icon.asAndroidBitmap())
+        holder.label.visibility = if (!listMode && hideGridLabels) View.GONE else View.VISIBLE
         holder.label.text = entry.label
         root.contentDescription = entry.label
         root.setOnClickListener { onLaunch(entry.packageName) }
@@ -502,6 +540,37 @@ private class AppShelfAdapter(
 
     private fun dp(value: Int): Int = (value * density).toInt()
 }
+
+@Composable
+private fun SimpleSettingsDialog(glass: Boolean, onGlass: (Boolean)->Unit, opacity: Float, onOpacity: (Float)->Unit, scale: Float, onScale: (Float)->Unit, font: String, onFont: (String)->Unit, icon: Float, onIcon: (Float)->Unit, hide: Boolean, onHide: (Boolean)->Unit, dismiss: ()->Unit) {
+ AlertDialog(onDismissRequest=dismiss, containerColor=Color(0xFF102C4B),
+  title={ Column { Text("Pengaturan Simple",color=TextMain,fontWeight=FontWeight.Bold); Text("Personalisasi Saku Desktop",color=TextSoft,fontSize=11.sp) } },
+  text={ Column(Modifier.fillMaxWidth().heightIn(max=520.dp).verticalScroll(rememberScrollState())) {
+   SettingsSwitchRow("Liquid Glass","Efek panel kaca",glass,onGlass)
+   if(glass){ Text("Transparansi "+(opacity*100).toInt()+"%",color=TextSoft,fontSize=11.sp); Slider(value=opacity,onValueChange=onOpacity,valueRange=0.35f..1f) }
+   SettingsDivider()
+   Text("Ukuran font Saku: "+(scale*100).toInt()+"%",color=TextMain,fontWeight=FontWeight.SemiBold)
+   Text("Terpisah dari ukuran font Android",color=TextSoft,fontSize=10.sp)
+   Slider(value=scale,onValueChange=onScale,valueRange=0.8f..1.4f)
+   Text("Jenis font",color=TextMain,fontWeight=FontWeight.SemiBold)
+   Row(horizontalArrangement=Arrangement.spacedBy(5.dp)){ listOf("Sans","Serif","Monospace").forEach { choice -> FilterChip(selected=font==choice,onClick={onFont(choice)},label={Text(choice,fontSize=10.sp)}) } }
+   Text("Font custom dari file belum tersedia; pilihan ini memakai font sistem.",color=TextSoft,fontSize=9.sp)
+   SettingsDivider()
+   Text("Ukuran ikon grid: "+icon.toInt()+" dp",color=TextMain,fontWeight=FontWeight.SemiBold)
+   Slider(value=icon,onValueChange=onIcon,valueRange=24f..64f)
+   Text("List memakai ukuran ikon tetap.",color=TextSoft,fontSize=9.sp)
+   SettingsDivider()
+   SettingsSwitchRow("Sembunyikan label grid","Hanya grid; list tetap menampilkan nama",hide,onHide)
+  } },
+  confirmButton={ TextButton(onClick=dismiss){Text("Selesai",color=Glow)} })
+}
+@Composable private fun SettingsSwitchRow(title:String,subtitle:String,checked:Boolean,onChecked:(Boolean)->Unit){
+ Row(Modifier.fillMaxWidth().padding(vertical=5.dp),verticalAlignment=Alignment.CenterVertically){
+  Column(Modifier.weight(1f)){Text(title,color=TextMain,fontWeight=FontWeight.SemiBold,fontSize=12.sp);Text(subtitle,color=TextSoft,fontSize=9.sp)}
+  Switch(checked=checked,onCheckedChange=onChecked)
+ }
+}
+@Composable private fun SettingsDivider(){Spacer(Modifier.height(8.dp));HorizontalDivider(color=Glow.copy(alpha=0.25f));Spacer(Modifier.height(8.dp))}
 
 private fun drawableToBitmap(drawable: Drawable): ImageBitmap {
     // Small app icons are prepared while the app list loads on Dispatchers.IO.
