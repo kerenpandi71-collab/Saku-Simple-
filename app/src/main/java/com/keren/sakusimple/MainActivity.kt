@@ -52,22 +52,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.graphics.Canvas
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.ImageBitmapConfig
-import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.foundation.Image
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -77,7 +67,6 @@ import java.util.Locale
 
 private val Night = Color(0xFF071426)
 private val Glass = Color(0xBFFFFFFF)
-private val Accent = Color(0xFF9BD6FF)
 
 data class AppEntry(
     val label: String,
@@ -186,7 +175,7 @@ private fun SakuHome(
             Spacer(Modifier.height(26.dp))
             Surface(
                 shape = RoundedCornerShape(28.dp),
-                color = Color(0x332FFFFFFF),
+                color = Color(0x33FFFFFF),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(Modifier.padding(18.dp)) {
@@ -276,7 +265,6 @@ private fun SakuHome(
 
 @Composable
 private fun AppIcon(app: AppEntry, compact: Boolean = false, onClick: () -> Unit) {
-    val context = LocalContext.current
     val bitmap = remember(app.packageName) {
         val drawable = app.icon
         val width = 96
