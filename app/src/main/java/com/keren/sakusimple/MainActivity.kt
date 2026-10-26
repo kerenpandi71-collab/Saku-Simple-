@@ -411,7 +411,7 @@ private fun SakuDesktop(
                     actionCard("⚙  Pengaturan Android") { openSettings() }
                     actionCard("⚙  Pengaturan Simple", "Tampilan, font, ikon, label") { showSimpleSettings = true }
 
-                    root.addView(column, android.widget.ScrollView.LayoutParams(
+                    root.addView(column, ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
                     ))
                     root.tag = column
