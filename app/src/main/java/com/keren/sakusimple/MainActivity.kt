@@ -66,7 +66,9 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -183,7 +185,7 @@ private fun SakuDesktop(
     BackHandler(enabled = allApps) { allApps = false; search = "" }
     val filtered = apps.filter { it.label.contains(search, true) }
 
-    CompositionLocalProvider(LocalDensity provides LocalDensity.current.copy(fontScale = fontScale), LocalGlassEnabled provides glassEnabled, LocalGlassOpacity provides glassOpacity) {
+    CompositionLocalProvider(LocalDensity provides Density(density = LocalDensity.current.density, fontScale = fontScale), LocalGlassEnabled provides glassEnabled, LocalGlassOpacity provides glassOpacity) {
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize().background(Color(0xFF07182D)).windowInsetsPadding(WindowInsets.statusBars).windowInsetsPadding(WindowInsets.navigationBars).padding(10.dp)
     ) {
