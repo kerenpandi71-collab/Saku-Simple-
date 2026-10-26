@@ -108,9 +108,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun launchPackage(packageName: String) {
-        packageManager.getLaunchIntentForPackage(packageName)?.let {
-            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            runCatching { startActivity(it) }
+        packageManager.getLaunchIntentForPackage(packageName)?.let { launchIntent ->
+            // Launch from the current launcher activity/task. Adding NEW_TASK here can
+            // make Back return to another task (for example, the stock launcher).
+            runCatching { startActivity(launchIntent) }
         }
     }
 
