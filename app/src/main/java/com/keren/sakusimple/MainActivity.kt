@@ -19,8 +19,11 @@ import android.os.Bundle
 import android.os.StatFs
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -170,6 +173,26 @@ private fun SakuDesktop(
     var fontChoice by remember { mutableStateOf(prefs.getString("font_choice", "Sans") ?: "Sans") }
     var iconSize by remember { mutableFloatStateOf(prefs.getFloat("icon_size", 34f).coerceIn(24f, 64f)) }
     var hideGridLabels by remember { mutableStateOf(prefs.getBoolean("hide_grid_labels", false)) }
+    var wallpaper by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    var wallpaperUri by remember { mutableStateOf(prefs.getString("wallpaper_uri", null)) }
+    val wallpaperPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            wallpaperUri = uri.toString()
+            prefs.edit().putString("wallpaper_uri", wallpaperUri).apply()
+        }
+    }
+    LaunchedEffect(wallpaperUri) {
+        wallpaper = withContext(Dispatchers.IO) {
+            runCatching {
+                wallpaperUri?.let { saved ->
+                    context.contentResolver.openInputStream(android.net.Uri.parse(saved))?.use { stream ->
+                        android.graphics.BitmapFactory.decodeStream(stream)?.asImageBitmap()
+                    }
+                }
+            }.getOrNull()
+        }
+    }
 
     LaunchedEffect(Unit) {
         apps = withContext(Dispatchers.IO) { loadApps() }
@@ -189,6 +212,10 @@ private fun SakuDesktop(
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize().background(Color(0xFF07182D)).windowInsetsPadding(WindowInsets.statusBars).windowInsetsPadding(WindowInsets.navigationBars).padding(10.dp)
     ) {
+        wallpaper?.let { image ->
+            Image(bitmap = image, contentDescription = "Wallpaper Saku", contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize())
+        }
         val compact = maxWidth < 600.dp
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             // App shelf: always on the left, with grid/list switching.
@@ -230,7 +257,7 @@ private fun SakuDesktop(
                     }
                     Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (allApps) "APLIKASI" else "FAVORIT", color = TextSoft, fontSize = 9.sp, letterSpacing = 1.sp, modifier = Modifier.weight(1f))
+                        Text("APLIKASI", color = TextSoft, fontSize = 9.sp, letterSpacing = 1.sp, modifier = Modifier.weight(1f))
                         Icon(if (listMode) Icons.Default.GridView else Icons.Default.List, "Ubah mode tampilan",
                             tint = Glow, modifier = Modifier.size(20.dp).clickable { listMode = !listMode; allApps = true })
                     }
@@ -267,7 +294,7 @@ private fun SakuDesktop(
                                 }
                             },
                             update = { view ->
-                                (view.tag as? AppShelfAdapter)?.apply { configure(iconSize.toInt(), hideGridLabels); submitItems(if (allApps || search.isNotEmpty()) filtered else apps.take(if (listMode) 10 else 12)) }
+                                (view.tag as? AppShelfAdapter)?.apply { configure(iconSize.toInt(), hideGridLabels); submitItems(filtered) }
                                 if (view is GridView) view.numColumns = if (compact) 2 else 3
                             }
                         )
@@ -431,7 +458,7 @@ private fun SakuDesktop(
         }
     }
     }
-    if (showSimpleSettings) SimpleSettingsDialog(glassEnabled, { glassEnabled=it; prefs.edit().putBoolean("glass_enabled",it).apply() }, glassOpacity, { glassOpacity=it; prefs.edit().putFloat("glass_opacity",it).apply() }, fontScale, { fontScale=it; prefs.edit().putFloat("font_scale",it).apply() }, fontChoice, { fontChoice=it; prefs.edit().putString("font_choice",it).apply() }, iconSize, { iconSize=it; prefs.edit().putFloat("icon_size",it).apply() }, hideGridLabels, { hideGridLabels=it; prefs.edit().putBoolean("hide_grid_labels",it).apply() }, { showSimpleSettings=false })
+    if (showSimpleSettings) SimpleSettingsDialog(glassEnabled, { glassEnabled=it; prefs.edit().putBoolean("glass_enabled",it).apply() }, glassOpacity, { glassOpacity=it; prefs.edit().putFloat("glass_opacity",it).apply() }, fontScale, { fontScale=it; prefs.edit().putFloat("font_scale",it).apply() }, fontChoice, { fontChoice=it; prefs.edit().putString("font_choice",it).apply() }, iconSize, { iconSize=it; prefs.edit().putFloat("icon_size",it).apply() }, hideGridLabels, { hideGridLabels=it; prefs.edit().putBoolean("hide_grid_labels",it).apply() }, wallpaperUri != null, { wallpaperPicker.launch(arrayOf("image/*")) }, { wallpaperUri=null; wallpaper=null; prefs.edit().remove("wallpaper_uri").apply() }, { showSimpleSettings=false })
 }
 
 @Composable
@@ -567,7 +594,7 @@ private class AppShelfAdapter(
 }
 
 @Composable
-private fun SimpleSettingsDialog(glass: Boolean, onGlass: (Boolean)->Unit, opacity: Float, onOpacity: (Float)->Unit, scale: Float, onScale: (Float)->Unit, font: String, onFont: (String)->Unit, icon: Float, onIcon: (Float)->Unit, hide: Boolean, onHide: (Boolean)->Unit, dismiss: ()->Unit) {
+private fun SimpleSettingsDialog(glass: Boolean, onGlass: (Boolean)->Unit, opacity: Float, onOpacity: (Float)->Unit, scale: Float, onScale: (Float)->Unit, font: String, onFont: (String)->Unit, icon: Float, onIcon: (Float)->Unit, hide: Boolean, onHide: (Boolean)->Unit, hasWallpaper: Boolean, chooseWallpaper: ()->Unit, clearWallpaper: ()->Unit, dismiss: ()->Unit) {
  AlertDialog(onDismissRequest=dismiss, containerColor=Color(0xFF102C4B),
   title={ Column { Text("Pengaturan Simple",color=TextMain,fontWeight=FontWeight.Bold); Text("Personalisasi Saku Desktop",color=TextSoft,fontSize=11.sp) } },
   text={ Column(Modifier.fillMaxWidth().heightIn(max=520.dp).verticalScroll(rememberScrollState())) {
@@ -586,6 +613,13 @@ private fun SimpleSettingsDialog(glass: Boolean, onGlass: (Boolean)->Unit, opaci
    Text("List memakai ukuran ikon tetap.",color=TextSoft,fontSize=9.sp)
    SettingsDivider()
    SettingsSwitchRow("Sembunyikan label grid","Hanya grid; list tetap menampilkan nama",hide,onHide)
+   SettingsDivider()
+   Text("Wallpaper kustom",color=TextMain,fontWeight=FontWeight.SemiBold)
+   Text("Pilih gambar dari penyimpanan untuk latar Saku Desktop.",color=TextSoft,fontSize=10.sp)
+   Row(horizontalArrangement=Arrangement.spacedBy(8.dp), verticalAlignment=Alignment.CenterVertically) {
+    androidx.compose.material3.OutlinedButton(onClick=chooseWallpaper) { Text(if (hasWallpaper) "Ganti wallpaper" else "Pilih wallpaper", color=Glow) }
+    if (hasWallpaper) TextButton(onClick=clearWallpaper) { Text("Hapus",color=TextSoft) }
+   }
   } },
   confirmButton={ TextButton(onClick=dismiss){Text("Selesai",color=Glow)} })
 }
