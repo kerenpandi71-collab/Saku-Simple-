@@ -91,7 +91,7 @@ private val Glow = Color(0xFF69DDF5)
 private val LocalGlassEnabled = androidx.compose.runtime.staticCompositionLocalOf { true }
 private val LocalGlassOpacity = androidx.compose.runtime.staticCompositionLocalOf { 0.62f }
 
-data class AppEntry(val label: String, val packageName: String, val icon: ImageBitmap)
+data class AppEntry(val label: String, val packageName: String, val icon: ImageBitmap, val activityName: String = "", val profile: android.os.UserHandle? = null)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -107,7 +107,7 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 SakuDesktop(
                     loadApps = { loadLaunchableApps() },
-                    openApp = { launchPackage(it) },
+                    openApp = { launchAppEntry(it) },
                     openSettings = { startActivity(Intent(android.provider.Settings.ACTION_SETTINGS)) },
                     deviceInfo = { readDeviceInfo() }
                 )
@@ -117,19 +117,64 @@ class MainActivity : ComponentActivity() {
 
     private fun loadLaunchableApps(): List<AppEntry> {
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        return packageManager.queryIntentActivities(intent, PackageManager.MATCH_ALL)
-            .mapNotNull { info ->
-                val pkg = info.activityInfo?.packageName ?: return@mapNotNull null
-                AppEntry(info.loadLabel(packageManager).toString(), pkg, drawableToBitmap(info.loadIcon(packageManager)))
-            }.distinctBy { it.packageName }.sortedBy { it.label.lowercase(Locale.getDefault()) }
+        val entries = mutableListOf<AppEntry>()
+
+        // Preserve PackageManager discovery for ordinary apps.
+        packageManager.queryIntentActivities(intent, PackageManager.MATCH_ALL).forEach { info ->
+            val activity = info.activityInfo ?: return@forEach
+            runCatching {
+                entries += AppEntry(
+                    info.loadLabel(packageManager).toString(),
+                    activity.packageName,
+                    drawableToBitmap(info.loadIcon(packageManager)),
+                    activity.name,
+                    android.os.Process.myUserHandle()
+                )
+            }
+        }
+
+        // Cloned/Dual Apps may live in another Android profile while sharing the
+        // original package name. Enumerate launch activities profile-by-profile.
+        val launcherApps = getSystemService(android.content.pm.LauncherApps::class.java)
+        if (launcherApps != null) {
+            runCatching {
+                launcherApps.profiles.forEach { user ->
+                    launcherApps.getActivityList(null, user).forEach { activityInfo ->
+                        val component = activityInfo.componentName
+                        val isCurrentUser = user == android.os.Process.myUserHandle()
+                        val label = activityInfo.label?.toString().orEmpty().ifBlank { component.packageName }
+                        val displayLabel = if (isCurrentUser) label else "$label (Clone)"
+                        entries += AppEntry(
+                            displayLabel,
+                            component.packageName,
+                            drawableToBitmap(activityInfo.getBadgedIcon(0)),
+                            component.className,
+                            user
+                        )
+                    }
+                }
+            }
+        }
+
+        // Deduplicate only the same activity within the same profile, not by package.
+        return entries.distinctBy { "${it.packageName}|${it.activityName}|${it.profile?.hashCode()}" }
+            .sortedBy { it.label.lowercase(Locale.getDefault()) }
     }
 
-    private fun launchPackage(packageName: String) {
-        packageManager.getLaunchIntentForPackage(packageName)?.let { launchIntent ->
-            // Launch from the current launcher activity/task. Adding NEW_TASK here can
-            // make Back return to another task (for example, the stock launcher).
-            runCatching { startActivity(launchIntent) }
+    private fun launchAppEntry(entry: AppEntry) {
+        val user = entry.profile ?: android.os.Process.myUserHandle()
+        if (user != android.os.Process.myUserHandle() && entry.activityName.isNotBlank()) {
+            val launcherApps = getSystemService(android.content.pm.LauncherApps::class.java)
+            val component = android.content.ComponentName(entry.packageName, entry.activityName)
+            runCatching {
+                launcherApps?.startMainActivity(component, user, null, android.os.Bundle())
+            }.onSuccess { return }
         }
+        val launchIntent = if (entry.activityName.isNotBlank()) {
+            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+                .setClassName(entry.packageName, entry.activityName)
+        } else packageManager.getLaunchIntentForPackage(entry.packageName)
+        launchIntent?.let { runCatching { startActivity(it) } }
     }
 
     @Suppress("DEPRECATION")
@@ -580,7 +625,7 @@ private class AppShelfAdapter(
     private val listMode: Boolean,
     initialIconSize: Int,
     initialHideGridLabels: Boolean,
-    private val onLaunch: (String) -> Unit
+    private val onLaunch: (AppEntry) -> Unit
 ) : BaseAdapter() {
     private var entries: List<AppEntry> = emptyList()
     private var iconSize = initialIconSize
@@ -596,7 +641,7 @@ private class AppShelfAdapter(
 
     override fun getCount(): Int = entries.size
     override fun getItem(position: Int): AppEntry = entries[position]
-    override fun getItemId(position: Int): Long = entries[position].packageName.hashCode().toLong()
+    override fun getItemId(position: Int): Long = "${entries[position].packageName}|${entries[position].activityName}|${entries[position].profile?.hashCode()}".hashCode().toLong()
     override fun hasStableIds(): Boolean = true
 
     private data class Holder(val icon: ImageView, val label: TextView)
@@ -655,7 +700,7 @@ private class AppShelfAdapter(
         holder.label.visibility = if (!listMode && hideGridLabels) View.GONE else View.VISIBLE
         holder.label.text = entry.label
         root.contentDescription = entry.label
-        root.setOnClickListener { onLaunch(entry.packageName) }
+        root.setOnClickListener { onLaunch(entry) }
         return root
     }
 
