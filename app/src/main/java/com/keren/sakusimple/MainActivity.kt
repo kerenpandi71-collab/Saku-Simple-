@@ -170,6 +170,14 @@ private fun SakuDesktop(
     var info by remember { mutableStateOf(DeviceInfo(0, 0.0, 4, 0, 128)) }
     val context = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember { context.getSharedPreferences("saku_simple_settings", android.content.Context.MODE_PRIVATE) }
+    var showSimpleSettings by remember { mutableStateOf(false) }
+    var glassEnabled by remember { mutableStateOf(prefs.getBoolean("glass_enabled", true)) }
+    var glassOpacity by remember { mutableFloatStateOf(prefs.getFloat("glass_opacity", 0.62f)) }
+    var fontScale by remember { mutableFloatStateOf(prefs.getFloat("font_scale", 1f).coerceIn(0.8f, 1.4f)) }
+    var iconSize by remember { mutableFloatStateOf(prefs.getFloat("icon_size", 34f).coerceIn(24f, 64f)) }
+    var gridColumns by remember { mutableIntStateOf(prefs.getInt("grid_columns", 3).coerceIn(2, 3)) }
+    var hideGridLabels by remember { mutableStateOf(prefs.getBoolean("hide_grid_labels", false)) }
+    var wallpaperBlur by remember { mutableFloatStateOf(prefs.getFloat("wallpaper_blur", 0f).coerceIn(0f, 30f)) }
     val activityWindow = remember(context) { (context as? android.app.Activity)?.window }
     SideEffect {
         // The system wallpaper behind a transparent window remains sharp. When blur is
@@ -180,14 +188,6 @@ private fun SakuDesktop(
             )
         )
     }
-    var showSimpleSettings by remember { mutableStateOf(false) }
-    var glassEnabled by remember { mutableStateOf(prefs.getBoolean("glass_enabled", true)) }
-    var glassOpacity by remember { mutableFloatStateOf(prefs.getFloat("glass_opacity", 0.62f)) }
-    var fontScale by remember { mutableFloatStateOf(prefs.getFloat("font_scale", 1f).coerceIn(0.8f, 1.4f)) }
-    var iconSize by remember { mutableFloatStateOf(prefs.getFloat("icon_size", 34f).coerceIn(24f, 64f)) }
-    var gridColumns by remember { mutableIntStateOf(prefs.getInt("grid_columns", 3).coerceIn(2, 3)) }
-    var hideGridLabels by remember { mutableStateOf(prefs.getBoolean("hide_grid_labels", false)) }
-    var wallpaperBlur by remember { mutableFloatStateOf(prefs.getFloat("wallpaper_blur", 0f).coerceIn(0f, 30f)) }
     var systemWallpaper by remember { mutableStateOf<ImageBitmap?>(null) }
 
     LaunchedEffect(Unit) {
