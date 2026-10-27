@@ -371,17 +371,20 @@ private fun SakuDesktop(
                     weather.addView(label(weatherDetails, 8f, soft).apply { tag = "weather_details" })
 
                     val quick = card("⚡  QUICK CONTROLS")
-                    val quickRow = LinearLayout(context).apply {
+                    fun newQuickRow() = LinearLayout(context).apply {
                         orientation = LinearLayout.HORIZONTAL
                         gravity = android.view.Gravity.CENTER
                     }
-                    fun quickButton(title: String, subtitle: String, intentAction: String) {
+                    val quickRowTop = newQuickRow()
+                    val quickRowBottom = newQuickRow()
+                    fun quickButton(row: LinearLayout, title: String, subtitle: String, intentAction: String, componentClass: String? = null) {
                         val button = LinearLayout(context).apply {
                             orientation = LinearLayout.VERTICAL
                             gravity = android.view.Gravity.CENTER
-                            setPadding(dp(7), dp(9), dp(7), dp(9))
+                            setPadding(dp(3), dp(8), dp(3), dp(8))
                             isClickable = true
                             isFocusable = true
+                            contentDescription = "$title — $subtitle"
                             background = android.graphics.drawable.GradientDrawable().apply {
                                 setColor(android.graphics.Color.argb(if (glassEnabled) 85 else 220, 65, 111, 151))
                                 cornerRadius = dp(12).toFloat()
@@ -389,20 +392,36 @@ private fun SakuDesktop(
                             }
                             setOnClickListener {
                                 val intent = Intent(intentAction)
+                                if (componentClass != null) {
+                                    intent.setClassName("com.android.settings", componentClass)
+                                }
                                 runCatching { context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                                    .onFailure {
+                                        runCatching {
+                                            context.startActivity(Intent(android.provider.Settings.ACTION_SETTINGS)
+                                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                        }
+                                    }
                             }
                         }
                         button.addView(label(title, 10f, ink, true))
-                        button.addView(label(subtitle, 8f, soft))
+                        button.addView(label(subtitle, 7f, soft))
                         val params = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                        params.marginEnd = dp(5)
-                        quickRow.addView(button, params)
+                        params.marginEnd = dp(4)
+                        row.addView(button, params)
                     }
-                    quickButton("Wi-Fi", "Jaringan", android.provider.Settings.Panel.ACTION_INTERNET_CONNECTIVITY)
-                    quickButton("Bluetooth", "Perangkat", android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)
-                    quickButton("Suara", "Volume", android.provider.Settings.ACTION_SOUND_SETTINGS)
-                    quickButton("Layar", "Kecerahan", android.provider.Settings.ACTION_DISPLAY_SETTINGS)
-                    quick.addView(quickRow)
+                    quickButton(quickRowTop, "Wi-Fi", "Jaringan", android.provider.Settings.Panel.ACTION_INTERNET_CONNECTIVITY)
+                    quickButton(quickRowTop, "Bluetooth", "Perangkat", android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)
+                    quickButton(quickRowTop, "Suara", "Volume", android.provider.Settings.ACTION_SOUND_SETTINGS)
+                    quickButton(quickRowTop, "Layar", "Tampilan", android.provider.Settings.ACTION_DISPLAY_SETTINGS)
+                    quickButton(quickRowBottom, "Hotspot", "Tethering", android.provider.Settings.ACTION_WIRELESS_SETTINGS, "com.android.settings.TetherSettings")
+                    quickButton(quickRowBottom, "Rotasi", "Auto-rotate", android.provider.Settings.ACTION_DISPLAY_SETTINGS)
+                    quickButton(quickRowBottom, "Senter", "Kamera", android.provider.Settings.ACTION_SETTINGS)
+                    quickButton(quickRowBottom, "Hening", "Jangan ganggu", android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
+                    val rowParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    rowParams.bottomMargin = dp(5)
+                    quick.addView(quickRowTop, rowParams)
+                    quick.addView(quickRowBottom)
 
                     val device = card("INFO PERANGKAT")
                     val metrics = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
