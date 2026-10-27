@@ -367,6 +367,40 @@ private fun SakuDesktop(
                     weather.addView(label(weatherSummary, 10f, soft, true).apply { tag = "weather_summary" })
                     weather.addView(label(weatherDetails, 8f, soft).apply { tag = "weather_details" })
 
+                    val quick = card("⚡  QUICK CONTROLS")
+                    val quickRow = LinearLayout(context).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = android.view.Gravity.CENTER
+                    }
+                    fun quickButton(title: String, subtitle: String, intentAction: String) {
+                        val button = LinearLayout(context).apply {
+                            orientation = LinearLayout.VERTICAL
+                            gravity = android.view.Gravity.CENTER
+                            setPadding(dp(7), dp(9), dp(7), dp(9))
+                            isClickable = true
+                            isFocusable = true
+                            background = android.graphics.drawable.GradientDrawable().apply {
+                                setColor(android.graphics.Color.argb(if (glassEnabled) 85 else 220, 65, 111, 151))
+                                cornerRadius = dp(12).toFloat()
+                                setStroke(dp(1), android.graphics.Color.argb(90, 210, 240, 255))
+                            }
+                            setOnClickListener {
+                                val intent = Intent(intentAction)
+                                runCatching { context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                            }
+                        }
+                        button.addView(label(title, 10f, ink, true))
+                        button.addView(label(subtitle, 8f, soft))
+                        val params = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                        params.marginEnd = dp(5)
+                        quickRow.addView(button, params)
+                    }
+                    quickButton("Wi-Fi", "Jaringan", android.provider.Settings.Panel.ACTION_INTERNET_CONNECTIVITY)
+                    quickButton("Bluetooth", "Perangkat", android.provider.Settings.Panel.ACTION_BLUETOOTH)
+                    quickButton("Suara", "Volume", android.provider.Settings.ACTION_SOUND_SETTINGS)
+                    quickButton("Layar", "Kecerahan", android.provider.Settings.ACTION_DISPLAY_SETTINGS)
+                    quick.addView(quickRow)
+
                     val device = card("INFO PERANGKAT")
                     val metrics = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
                     fun metric(title: String, value: String, detail: String): LinearLayout {
