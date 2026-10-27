@@ -396,7 +396,7 @@ private fun SakuDesktop(
                         quickRow.addView(button, params)
                     }
                     quickButton("Wi-Fi", "Jaringan", android.provider.Settings.Panel.ACTION_INTERNET_CONNECTIVITY)
-                    quickButton("Bluetooth", "Perangkat", android.provider.Settings.Panel.ACTION_BLUETOOTH)
+                    quickButton("Bluetooth", "Perangkat", android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)
                     quickButton("Suara", "Volume", android.provider.Settings.ACTION_SOUND_SETTINGS)
                     quickButton("Layar", "Kecerahan", android.provider.Settings.ACTION_DISPLAY_SETTINGS)
                     quick.addView(quickRow)
