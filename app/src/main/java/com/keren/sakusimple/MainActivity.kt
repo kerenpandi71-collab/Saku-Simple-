@@ -180,12 +180,9 @@ private fun SakuDesktop(
     var wallpaperBlur by remember { mutableFloatStateOf(prefs.getFloat("wallpaper_blur", 0f).coerceIn(0f, 30f)) }
     val activityWindow = remember(context) { (context as? android.app.Activity)?.window }
     SideEffect {
-        // The system wallpaper behind a transparent window remains sharp. When blur is
-        // enabled, cover that layer so only the blurred wallpaper bitmap is visible.
+        // Keep the launcher window transparent; never replace the wallpaper with a black screen.
         activityWindow?.setBackgroundDrawable(
-            android.graphics.drawable.ColorDrawable(
-                if (wallpaperBlur > 0f) android.graphics.Color.BLACK else android.graphics.Color.TRANSPARENT
-            )
+            android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT)
         )
     }
     var systemWallpaper by remember { mutableStateOf<ImageBitmap?>(null) }
