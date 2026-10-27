@@ -18,9 +18,8 @@
             android:name=".MainActivity"
             android:configChanges="keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize"
             android:exported="true"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:resizeableActivity="true"
-            android:stateNotNeeded="true"
             android:windowSoftInputMode="adjustResize">
 
             <!-- Home launcher for the phone's primary display. -->
