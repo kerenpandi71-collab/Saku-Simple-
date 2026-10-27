@@ -33,7 +33,8 @@
             </intent-filter>
 
             <!-- Lets Android resolve Saku Simple as the Home activity on a secondary display. -->
-            <intent-filter>
+            <!-- Prefer Saku Simple when Android resolves the Home app on secondary displays. -->
+            <intent-filter android:priority="1000">
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.SECONDARY_HOME" />
                 <category android:name="android.intent.category.DEFAULT" />
