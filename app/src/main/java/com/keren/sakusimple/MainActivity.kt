@@ -62,6 +62,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Color
@@ -175,6 +176,23 @@ private fun SakuDesktop(
     var iconSize by remember { mutableFloatStateOf(prefs.getFloat("icon_size", 34f).coerceIn(24f, 64f)) }
     var gridColumns by remember { mutableIntStateOf(prefs.getInt("grid_columns", 3).coerceIn(2, 3)) }
     var hideGridLabels by remember { mutableStateOf(prefs.getBoolean("hide_grid_labels", false)) }
+    var wallpaperBlur by remember { mutableFloatStateOf(prefs.getFloat("wallpaper_blur", 0f).coerceIn(0f, 30f)) }
+    var systemWallpaper by remember { mutableStateOf<ImageBitmap?>(null) }
+
+    LaunchedEffect(Unit) {
+        systemWallpaper = withContext(Dispatchers.IO) {
+            runCatching {
+                val drawable = android.app.WallpaperManager.getInstance(context).drawable
+                val width = drawable.intrinsicWidth.coerceIn(1, 1600)
+                val height = drawable.intrinsicHeight.coerceIn(1, 3000)
+                val bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
+                val canvas = android.graphics.Canvas(bitmap)
+                drawable.setBounds(0, 0, width, height)
+                drawable.draw(canvas)
+                bitmap.asImageBitmap()
+            }.getOrNull()
+        }
+    }
 
     LaunchedEffect(Unit) {
         apps = withContext(Dispatchers.IO) { loadApps() }
@@ -204,6 +222,23 @@ private fun SakuDesktop(
         modifier = Modifier.fillMaxSize().background(Color.Transparent).windowInsetsPadding(WindowInsets.statusBars).windowInsetsPadding(WindowInsets.navigationBars).padding(10.dp)
     ) {
         val compact = maxWidth < 600.dp
+        systemWallpaper?.let { wallpaperImage ->
+            Image(
+                bitmap = wallpaperImage,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().graphicsLayer {
+                    if (android.os.Build.VERSION.SDK_INT >= 31 && wallpaperBlur > 0f) {
+                        renderEffect = android.graphics.RenderEffect.createBlurEffect(
+                            wallpaperBlur * density, wallpaperBlur * density,
+                            android.graphics.Shader.TileMode.CLAMP
+                        ).asComposeRenderEffect()
+                    } else {
+                        renderEffect = null
+                    }
+                }
+            )
+        }
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             // App shelf: always on the left, with grid/list switching.
             Surface(
@@ -446,7 +481,7 @@ private fun SakuDesktop(
         }
     }
     }
-    if (showSimpleSettings) SimpleSettingsDialog(glassEnabled, { glassEnabled=it; prefs.edit().putBoolean("glass_enabled",it).apply() }, glassOpacity, { glassOpacity=it; prefs.edit().putFloat("glass_opacity",it).apply() }, fontScale, { fontScale=it; prefs.edit().putFloat("font_scale",it).apply() }, iconSize, { iconSize=it; prefs.edit().putFloat("icon_size",it).apply() }, gridColumns, { gridColumns=it; prefs.edit().putInt("grid_columns",it).apply() }, hideGridLabels, { hideGridLabels=it; prefs.edit().putBoolean("hide_grid_labels",it).apply() }, { showSimpleSettings=false })
+    if (showSimpleSettings) SimpleSettingsDialog(glassEnabled, { glassEnabled=it; prefs.edit().putBoolean("glass_enabled",it).apply() }, glassOpacity, { glassOpacity=it; prefs.edit().putFloat("glass_opacity",it).apply() }, fontScale, { fontScale=it; prefs.edit().putFloat("font_scale",it).apply() }, iconSize, { iconSize=it; prefs.edit().putFloat("icon_size",it).apply() }, gridColumns, { gridColumns=it; prefs.edit().putInt("grid_columns",it).apply() }, hideGridLabels, { hideGridLabels=it; prefs.edit().putBoolean("hide_grid_labels",it).apply() }, wallpaperBlur, { wallpaperBlur=it; prefs.edit().putFloat("wallpaper_blur",it).apply() }, { showSimpleSettings=false })
 }
 
 @Composable
@@ -582,7 +617,7 @@ private class AppShelfAdapter(
 }
 
 @Composable
-private fun SimpleSettingsDialog(glass: Boolean, onGlass: (Boolean)->Unit, opacity: Float, onOpacity: (Float)->Unit, scale: Float, onScale: (Float)->Unit, icon: Float, onIcon: (Float)->Unit, columns: Int, onColumns: (Int)->Unit, hide: Boolean, onHide: (Boolean)->Unit, dismiss: ()->Unit) {
+private fun SimpleSettingsDialog(glass: Boolean, onGlass: (Boolean)->Unit, opacity: Float, onOpacity: (Float)->Unit, scale: Float, onScale: (Float)->Unit, icon: Float, onIcon: (Float)->Unit, columns: Int, onColumns: (Int)->Unit, hide: Boolean, onHide: (Boolean)->Unit, blur: Float, onBlur: (Float)->Unit, dismiss: ()->Unit) {
  AlertDialog(onDismissRequest=dismiss, containerColor=Color(0xFF102C4B),
   title={ Column { Text("Pengaturan Simple",color=TextMain,fontWeight=FontWeight.Bold); Text("Personalisasi Saku Desktop",color=TextSoft,fontSize=11.sp) } },
   text={ Column(Modifier.fillMaxWidth().heightIn(max=520.dp).verticalScroll(rememberScrollState())) {
@@ -606,8 +641,12 @@ private fun SimpleSettingsDialog(glass: Boolean, onGlass: (Boolean)->Unit, opaci
    SettingsDivider()
    SettingsSwitchRow("Sembunyikan label grid","Hanya grid; list tetap menampilkan nama",hide,onHide)
    SettingsDivider()
+   Text("Blur wallpaper: "+blur.toInt()+" dp",color=TextMain,fontWeight=FontWeight.SemiBold)
+   Slider(value=blur,onValueChange=onBlur,valueRange=0f..30f)
+   Text("0 = tajam • 30 = blur kuat. Efek berlaku pada wallpaper di belakang launcher.",color=TextSoft,fontSize=10.sp)
+   SettingsDivider()
    Text("Wallpaper sistem Android",color=TextMain,fontWeight=FontWeight.SemiBold)
-   Text("Saku Simple sekarang menampilkan wallpaper Android yang sedang aktif. Wallpaper tidak ditimpa gambar pilihan di aplikasi. Untuk menggantinya, buka Pengaturan Android > Wallpaper & gaya.",color=TextSoft,fontSize=10.sp)
+   Text("Wallpaper Android aktif digunakan sebagai latar Saku Simple.",color=TextSoft,fontSize=10.sp)
   } },
   confirmButton={ TextButton(onClick=dismiss){Text("Selesai",color=Glow)} })
 }
