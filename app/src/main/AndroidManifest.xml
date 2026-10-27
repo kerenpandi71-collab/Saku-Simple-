@@ -21,7 +21,6 @@
             android:excludeFromRecents="true"
             android:configChanges="keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize"
             android:exported="true"
-            android:launchMode="singleTask"
             android:resizeableActivity="true"
             android:windowSoftInputMode="adjustResize">
 
@@ -32,8 +31,9 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
-            <!-- Lets Android resolve Saku Simple as the Home activity on a secondary display. -->
-            <!-- Prefer Saku Simple when Android resolves the Home app on secondary displays. -->
+            <!-- Secondary display Home. Keep the default standard launch mode so Android
+                 can create a separate launcher instance per display. singleTask could
+                 reuse the phone's existing instance instead of showing a second surface. -->
             <intent-filter android:priority="1000">
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.SECONDARY_HOME" />
