@@ -76,6 +76,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -165,6 +170,7 @@ private fun SakuDesktop(
     var note by remember { mutableStateOf("Selesaikan build Saku Simple\nRapikan widget Liquid Glass") }
     var info by remember { mutableStateOf(DeviceInfo(0, 0.0, 4, 0, 128)) }
     val context = androidx.compose.ui.platform.LocalContext.current
+    val hazeState = remember { HazeState() }
     val prefs = remember { context.getSharedPreferences("saku_simple_settings", android.content.Context.MODE_PRIVATE) }
     var showSimpleSettings by remember { mutableStateOf(false) }
     var glassEnabled by remember { mutableStateOf(prefs.getBoolean("glass_enabled", true)) }
@@ -224,14 +230,22 @@ private fun SakuDesktop(
     ) {
         wallpaper?.let { image ->
             Image(bitmap = image, contentDescription = "Wallpaper Saku", contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize())
+                modifier = Modifier.fillMaxSize().hazeSource(state = hazeState))
         }
         val compact = maxWidth < 600.dp
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             // App shelf: always on the left, with grid/list switching.
             Surface(
-                modifier = Modifier.fillMaxHeight().weight(if (compact) 0.82f else 0.78f),
-                shape = RoundedCornerShape(24.dp), color = if (glassEnabled) Panel.copy(alpha = glassOpacity) else Color(0xFF102C4B), border = androidx.compose.foundation.BorderStroke(1.dp, if (glassEnabled) Stroke else Stroke.copy(alpha = 0.35f))
+                modifier = Modifier.fillMaxHeight().weight(if (compact) 0.82f else 0.78f).then(
+                    if (glassEnabled) Modifier.hazeEffect(
+                        state = hazeState,
+                        style = HazeStyle(
+                            blurRadius = 22.dp,
+                            tint = HazeTint(Color(0x99102C4B))
+                        )
+                    ) else Modifier
+                ),
+                shape = RoundedCornerShape(24.dp), color = if (glassEnabled) Panel.copy(alpha = glassOpacity * 0.62f) else Color(0xFF102C4B), border = androidx.compose.foundation.BorderStroke(1.dp, if (glassEnabled) Stroke else Stroke.copy(alpha = 0.35f))
             ) {
                 Column(Modifier.fillMaxSize().padding(if (compact) 8.dp else 14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
