@@ -61,6 +61,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Color
@@ -205,10 +206,10 @@ private fun SakuDesktop(
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             // App shelf: always on the left, with grid/list switching.
             Surface(
-                modifier = Modifier.fillMaxHeight().weight(if (compact) 0.82f else 0.78f),
+                modifier = Modifier.fillMaxHeight().weight(if (compact) 0.82f else 0.78f).shadow(18.dp, RoundedCornerShape(24.dp)),
                 shape = RoundedCornerShape(24.dp), color = if (glassEnabled) Panel.copy(alpha = glassOpacity * 0.62f) else Color(0xFF102C4B), border = androidx.compose.foundation.BorderStroke(1.dp, if (glassEnabled) Stroke else Stroke.copy(alpha = 0.35f))
             ) {
-                Column(Modifier.fillMaxSize().padding(if (compact) 8.dp else 14.dp)) {
+                Column(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color.White.copy(alpha = 0.09f), Color.White.copy(alpha = 0.025f), Color.Transparent)), RoundedCornerShape(24.dp)).padding(if (compact) 8.dp else 14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(if (compact) 28.dp else 38.dp).clip(RoundedCornerShape(12.dp))
                             .background(Brush.linearGradient(listOf(Glow, Color(0xFF7D8CFF)))),
@@ -417,8 +418,9 @@ private fun SakuDesktop(
                         if (subtitle != null) textColumn.addView(label(subtitle, 8f, soft))
                         item.addView(textColumn)
                         item.background = android.graphics.drawable.GradientDrawable().apply {
-                            setColor(android.graphics.Color.rgb(42, 74, 105))
+                            setColor(android.graphics.Color.argb(if (glassEnabled) (glassOpacity * 255).toInt().coerceIn(90, 220) else 255, 42, 74, 105))
                             cornerRadius = dp(14).toFloat()
+                            setStroke(dp(1), android.graphics.Color.argb(95, 225, 245, 255))
                         }
                     }
                     actionCard("⚙  Pengaturan Android") { openSettings() }
@@ -444,7 +446,15 @@ private fun SakuDesktop(
         }
     }
     }
-    if (showSimpleSettings) SimpleSettingsDialog(glassEnabled, { glassEnabled=it; prefs.edit().putBoolean("glass_enabled",it).apply() }, glassOpacity, { glassOpacity=it; prefs.edit().putFloat("glass_opacity",it).apply() }, fontScale, { fontScale=it; prefs.edit().putFloat("font_scale",it).apply() }, iconSize, { iconSize=it; prefs.edit().putFloat("icon_size",it).apply() }, gridColumns, { gridColumns=it; prefs.edit().putInt("grid_columns",it).apply() }, hideGridLabels, { hideGridLabels=it; prefs.edit().putBoolean("hide_grid_labels",it).apply()
+    if (showSimpleSettings) SimpleSettingsDialog(
+        glassEnabled, { glassEnabled=it; prefs.edit().putBoolean("glass_enabled",it).apply() },
+        glassOpacity, { glassOpacity=it; prefs.edit().putFloat("glass_opacity",it).apply() },
+        fontScale, { fontScale=it; prefs.edit().putFloat("font_scale",it).apply() },
+        iconSize, { iconSize=it; prefs.edit().putFloat("icon_size",it).apply() },
+        gridColumns, { gridColumns=it; prefs.edit().putInt("grid_columns",it).apply() },
+        hideGridLabels, { hideGridLabels=it; prefs.edit().putBoolean("hide_grid_labels",it).apply() },
+        { showSimpleSettings=false }
+    )
 }
 
 @Composable
@@ -580,7 +590,7 @@ private class AppShelfAdapter(
 }
 
 @Composable
- {
+private fun SimpleSettingsDialog(glass: Boolean, onGlass: (Boolean)->Unit, opacity: Float, onOpacity: (Float)->Unit, scale: Float, onScale: (Float)->Unit, icon: Float, onIcon: (Float)->Unit, columns: Int, onColumns: (Int)->Unit, hide: Boolean, onHide: (Boolean)->Unit, dismiss: ()->Unit) {
  AlertDialog(onDismissRequest=dismiss, containerColor=Color(0xFF102C4B),
   title={ Column { Text("Pengaturan Simple",color=TextMain,fontWeight=FontWeight.Bold); Text("Personalisasi Saku Desktop",color=TextSoft,fontSize=11.sp) } },
   text={ Column(Modifier.fillMaxWidth().heightIn(max=520.dp).verticalScroll(rememberScrollState())) {
