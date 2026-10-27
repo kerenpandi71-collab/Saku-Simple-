@@ -170,6 +170,16 @@ private fun SakuDesktop(
     var info by remember { mutableStateOf(DeviceInfo(0, 0.0, 4, 0, 128)) }
     val context = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember { context.getSharedPreferences("saku_simple_settings", android.content.Context.MODE_PRIVATE) }
+    val activityWindow = remember(context) { (context as? android.app.Activity)?.window }
+    SideEffect {
+        // The system wallpaper behind a transparent window remains sharp. When blur is
+        // enabled, cover that layer so only the blurred wallpaper bitmap is visible.
+        activityWindow?.setBackgroundDrawable(
+            android.graphics.drawable.ColorDrawable(
+                if (wallpaperBlur > 0f) android.graphics.Color.BLACK else android.graphics.Color.TRANSPARENT
+            )
+        )
+    }
     var showSimpleSettings by remember { mutableStateOf(false) }
     var glassEnabled by remember { mutableStateOf(prefs.getBoolean("glass_enabled", true)) }
     var glassOpacity by remember { mutableFloatStateOf(prefs.getFloat("glass_opacity", 0.62f)) }
