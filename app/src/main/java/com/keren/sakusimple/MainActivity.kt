@@ -172,6 +172,7 @@ private fun SakuDesktop(
     var fontScale by remember { mutableFloatStateOf(prefs.getFloat("font_scale", 1f).coerceIn(0.8f, 1.4f)) }
     var fontChoice by remember { mutableStateOf(prefs.getString("font_choice", "Sans") ?: "Sans") }
     var iconSize by remember { mutableFloatStateOf(prefs.getFloat("icon_size", 34f).coerceIn(24f, 64f)) }
+    var gridColumns by remember { mutableIntStateOf(prefs.getInt("grid_columns", 3).coerceIn(2, 3)) }
     var hideGridLabels by remember { mutableStateOf(prefs.getBoolean("hide_grid_labels", false)) }
     var wallpaper by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
     var wallpaperUri by remember { mutableStateOf(prefs.getString("wallpaper_uri", null)) }
@@ -290,7 +291,7 @@ private fun SakuDesktop(
                                 } else {
                                     GridView(context).apply {
                                         id = View.generateViewId()
-                                        numColumns = if (compact) 2 else 3
+                                        numColumns = gridColumns
                                         horizontalSpacing = (3 * resources.displayMetrics.density).toInt()
                                         verticalSpacing = (8 * resources.displayMetrics.density).toInt()
                                         stretchMode = GridView.STRETCH_COLUMN_WIDTH
@@ -304,7 +305,7 @@ private fun SakuDesktop(
                             },
                             update = { view ->
                                 (view.tag as? AppShelfAdapter)?.apply { configure(iconSize.toInt(), hideGridLabels); submitItems(filtered) }
-                                if (view is GridView) view.numColumns = if (compact) 2 else 3
+                                if (view is GridView) view.numColumns = gridColumns
                             }
                         )
                     }
@@ -468,7 +469,7 @@ private fun SakuDesktop(
         }
     }
     }
-    if (showSimpleSettings) SimpleSettingsDialog(glassEnabled, { glassEnabled=it; prefs.edit().putBoolean("glass_enabled",it).apply() }, glassOpacity, { glassOpacity=it; prefs.edit().putFloat("glass_opacity",it).apply() }, fontScale, { fontScale=it; prefs.edit().putFloat("font_scale",it).apply() }, fontChoice, { fontChoice=it; prefs.edit().putString("font_choice",it).apply() }, iconSize, { iconSize=it; prefs.edit().putFloat("icon_size",it).apply() }, hideGridLabels, { hideGridLabels=it; prefs.edit().putBoolean("hide_grid_labels",it).apply() }, wallpaperUri != null, { wallpaperPicker.launch(arrayOf("image/*")) }, { wallpaperUri=null; wallpaper=null; prefs.edit().remove("wallpaper_uri").apply() }, { showSimpleSettings=false })
+    if (showSimpleSettings) SimpleSettingsDialog(glassEnabled, { glassEnabled=it; prefs.edit().putBoolean("glass_enabled",it).apply() }, glassOpacity, { glassOpacity=it; prefs.edit().putFloat("glass_opacity",it).apply() }, fontScale, { fontScale=it; prefs.edit().putFloat("font_scale",it).apply() }, fontChoice, { fontChoice=it; prefs.edit().putString("font_choice",it).apply() }, iconSize, { iconSize=it; prefs.edit().putFloat("icon_size",it).apply() }, gridColumns, { gridColumns=it; prefs.edit().putInt("grid_columns",it).apply() }, hideGridLabels, { hideGridLabels=it; prefs.edit().putBoolean("hide_grid_labels",it).apply() }, wallpaperUri != null, { wallpaperPicker.launch(arrayOf("image/*")) }, { wallpaperUri=null; wallpaper=null; prefs.edit().remove("wallpaper_uri").apply() }, { showSimpleSettings=false })
 }
 
 @Composable
@@ -604,7 +605,7 @@ private class AppShelfAdapter(
 }
 
 @Composable
-private fun SimpleSettingsDialog(glass: Boolean, onGlass: (Boolean)->Unit, opacity: Float, onOpacity: (Float)->Unit, scale: Float, onScale: (Float)->Unit, font: String, onFont: (String)->Unit, icon: Float, onIcon: (Float)->Unit, hide: Boolean, onHide: (Boolean)->Unit, hasWallpaper: Boolean, chooseWallpaper: ()->Unit, clearWallpaper: ()->Unit, dismiss: ()->Unit) {
+private fun SimpleSettingsDialog(glass: Boolean, onGlass: (Boolean)->Unit, opacity: Float, onOpacity: (Float)->Unit, scale: Float, onScale: (Float)->Unit, font: String, onFont: (String)->Unit, icon: Float, onIcon: (Float)->Unit, columns: Int, onColumns: (Int)->Unit, hide: Boolean, onHide: (Boolean)->Unit, hasWallpaper: Boolean, chooseWallpaper: ()->Unit, clearWallpaper: ()->Unit, dismiss: ()->Unit) {
  AlertDialog(onDismissRequest=dismiss, containerColor=Color(0xFF102C4B),
   title={ Column { Text("Pengaturan Simple",color=TextMain,fontWeight=FontWeight.Bold); Text("Personalisasi Saku Desktop",color=TextSoft,fontSize=11.sp) } },
   text={ Column(Modifier.fillMaxWidth().heightIn(max=520.dp).verticalScroll(rememberScrollState())) {
