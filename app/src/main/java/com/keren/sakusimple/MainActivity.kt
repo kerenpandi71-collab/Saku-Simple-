@@ -172,7 +172,6 @@ private fun SakuDesktop(
     var glassEnabled by remember { mutableStateOf(prefs.getBoolean("glass_enabled", true)) }
     var glassOpacity by remember { mutableFloatStateOf(prefs.getFloat("glass_opacity", 0.62f)) }
     var fontScale by remember { mutableFloatStateOf(prefs.getFloat("font_scale", 1f).coerceIn(0.8f, 1.4f)) }
-    var fontChoice by remember { mutableStateOf(prefs.getString("font_choice", "Sans") ?: "Sans") }
     var iconSize by remember { mutableFloatStateOf(prefs.getFloat("icon_size", 34f).coerceIn(24f, 64f)) }
     var gridColumns by remember { mutableIntStateOf(prefs.getInt("grid_columns", 3).coerceIn(2, 3)) }
     var hideGridLabels by remember { mutableStateOf(prefs.getBoolean("hide_grid_labels", false)) }
@@ -447,7 +446,7 @@ private fun SakuDesktop(
         }
     }
     }
-    if (showSimpleSettings) SimpleSettingsDialog(glassEnabled, { glassEnabled=it; prefs.edit().putBoolean("glass_enabled",it).apply() }, glassOpacity, { glassOpacity=it; prefs.edit().putFloat("glass_opacity",it).apply() }, fontScale, { fontScale=it; prefs.edit().putFloat("font_scale",it).apply() }, fontChoice, { fontChoice=it; prefs.edit().putString("font_choice",it).apply() }, iconSize, { iconSize=it; prefs.edit().putFloat("icon_size",it).apply() }, gridColumns, { gridColumns=it; prefs.edit().putInt("grid_columns",it).apply() }, hideGridLabels, { hideGridLabels=it; prefs.edit().putBoolean("hide_grid_labels",it).apply() }, { showSimpleSettings=false })
+    if (showSimpleSettings) SimpleSettingsDialog(glassEnabled, { glassEnabled=it; prefs.edit().putBoolean("glass_enabled",it).apply() }, glassOpacity, { glassOpacity=it; prefs.edit().putFloat("glass_opacity",it).apply() }, fontScale, { fontScale=it; prefs.edit().putFloat("font_scale",it).apply() }, iconSize, { iconSize=it; prefs.edit().putFloat("icon_size",it).apply() }, gridColumns, { gridColumns=it; prefs.edit().putInt("grid_columns",it).apply() }, hideGridLabels, { hideGridLabels=it; prefs.edit().putBoolean("hide_grid_labels",it).apply() }, { showSimpleSettings=false })
 }
 
 @Composable
@@ -583,7 +582,7 @@ private class AppShelfAdapter(
 }
 
 @Composable
-private fun SimpleSettingsDialog(glass: Boolean, onGlass: (Boolean)->Unit, opacity: Float, onOpacity: (Float)->Unit, scale: Float, onScale: (Float)->Unit, font: String, onFont: (String)->Unit, icon: Float, onIcon: (Float)->Unit, columns: Int, onColumns: (Int)->Unit, hide: Boolean, onHide: (Boolean)->Unit, dismiss: ()->Unit) {
+private fun SimpleSettingsDialog(glass: Boolean, onGlass: (Boolean)->Unit, opacity: Float, onOpacity: (Float)->Unit, scale: Float, onScale: (Float)->Unit, icon: Float, onIcon: (Float)->Unit, columns: Int, onColumns: (Int)->Unit, hide: Boolean, onHide: (Boolean)->Unit, dismiss: ()->Unit) {
  AlertDialog(onDismissRequest=dismiss, containerColor=Color(0xFF102C4B),
   title={ Column { Text("Pengaturan Simple",color=TextMain,fontWeight=FontWeight.Bold); Text("Personalisasi Saku Desktop",color=TextSoft,fontSize=11.sp) } },
   text={ Column(Modifier.fillMaxWidth().heightIn(max=520.dp).verticalScroll(rememberScrollState())) {
@@ -593,9 +592,13 @@ private fun SimpleSettingsDialog(glass: Boolean, onGlass: (Boolean)->Unit, opaci
    Text("Ukuran font Saku: "+(scale*100).toInt()+"%",color=TextMain,fontWeight=FontWeight.SemiBold)
    Text("Terpisah dari ukuran font Android",color=TextSoft,fontSize=10.sp)
    Slider(value=scale,onValueChange=onScale,valueRange=0.8f..1.4f)
-   Text("Jenis font",color=TextMain,fontWeight=FontWeight.SemiBold)
-   Row(horizontalArrangement=Arrangement.spacedBy(5.dp)){ listOf("Sans","Serif","Monospace").forEach { choice -> FilterChip(selected=font==choice,onClick={onFont(choice)},label={Text(choice,fontSize=10.sp)}) } }
-   Text("Font custom dari file belum tersedia; pilihan ini memakai font sistem.",color=TextSoft,fontSize=9.sp)
+   SettingsDivider()
+   Text("Kolom grid aplikasi",color=TextMain,fontWeight=FontWeight.SemiBold)
+   Row(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+    FilterChip(selected=columns==2,onClick={onColumns(2)},label={Text("2 kolom",fontSize=10.sp)})
+    FilterChip(selected=columns==3,onClick={onColumns(3)},label={Text("3 kolom",fontSize=10.sp)})
+   }
+   Text("Pilih jumlah kolom saat mode grid aktif.",color=TextSoft,fontSize=9.sp)
    SettingsDivider()
    Text("Ukuran ikon grid: "+icon.toInt()+" dp",color=TextMain,fontWeight=FontWeight.SemiBold)
    Slider(value=icon,onValueChange=onIcon,valueRange=24f..64f)
