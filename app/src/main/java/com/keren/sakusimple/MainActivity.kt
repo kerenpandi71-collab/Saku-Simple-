@@ -184,6 +184,7 @@ private fun SakuDesktop(
         systemWallpaper = withContext(Dispatchers.IO) {
             runCatching {
                 val drawable = android.app.WallpaperManager.getInstance(context).drawable
+                    ?: return@withContext null
                 val width = drawable.intrinsicWidth.coerceIn(1, 1600)
                 val height = drawable.intrinsicHeight.coerceIn(1, 3000)
                 val bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
