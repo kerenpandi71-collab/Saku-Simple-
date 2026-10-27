@@ -203,7 +203,7 @@ private data class DeviceInfo(val battery: Int, val usedRam: Double, val totalRa
 @Composable
 private fun SakuDesktop(
     loadApps: suspend () -> List<AppEntry>,
-    openApp: (String) -> Unit,
+    openApp: (AppEntry) -> Unit,
     openSettings: () -> Unit,
     deviceInfo: () -> DeviceInfo
 ) {
@@ -312,7 +312,7 @@ private fun SakuDesktop(
                         AndroidView(
                             modifier = Modifier.weight(1f).fillMaxWidth(),
                             factory = { context ->
-                                val adapter = AppShelfAdapter(context, listMode, iconSize.toInt(), hideGridLabels) { packageName -> openApp(packageName) }
+                                val adapter = AppShelfAdapter(context, listMode, iconSize.toInt(), hideGridLabels) { entry -> openApp(entry) }
                                 if (listMode) {
                                     ListView(context).apply {
                                         id = View.generateViewId()
