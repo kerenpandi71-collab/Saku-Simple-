@@ -85,11 +85,11 @@ import java.util.Locale
 private val Ink = Color(0xFF07182D)
 private val TextMain = Color(0xFFF3F8FF)
 private val TextSoft = Color(0xFFBBD0E8)
-private val Panel = Color(0xFF102C4B)
-private val Stroke = Color(0x003EBEFF)
+private val Panel = Color(0xB8102C4B)
+private val Stroke = Color(0x66B8E8FF)
 private val Glow = Color(0xFF69DDF5)
 private val LocalGlassEnabled = androidx.compose.runtime.staticCompositionLocalOf { true }
-private val LocalGlassOpacity = androidx.compose.runtime.staticCompositionLocalOf { 0.82f }
+private val LocalGlassOpacity = androidx.compose.runtime.staticCompositionLocalOf { 0.62f }
 
 data class AppEntry(val label: String, val packageName: String, val icon: ImageBitmap)
 
@@ -168,7 +168,7 @@ private fun SakuDesktop(
     val prefs = remember { context.getSharedPreferences("saku_simple_settings", android.content.Context.MODE_PRIVATE) }
     var showSimpleSettings by remember { mutableStateOf(false) }
     var glassEnabled by remember { mutableStateOf(prefs.getBoolean("glass_enabled", true)) }
-    var glassOpacity by remember { mutableFloatStateOf(prefs.getFloat("glass_opacity", 0.82f)) }
+    var glassOpacity by remember { mutableFloatStateOf(prefs.getFloat("glass_opacity", 0.62f)) }
     var fontScale by remember { mutableFloatStateOf(prefs.getFloat("font_scale", 1f).coerceIn(0.8f, 1.4f)) }
     var fontChoice by remember { mutableStateOf(prefs.getString("font_choice", "Sans") ?: "Sans") }
     var iconSize by remember { mutableFloatStateOf(prefs.getFloat("icon_size", 34f).coerceIn(24f, 64f)) }
@@ -221,7 +221,7 @@ private fun SakuDesktop(
             // App shelf: always on the left, with grid/list switching.
             Surface(
                 modifier = Modifier.fillMaxHeight().weight(if (compact) 0.82f else 0.78f),
-                shape = RoundedCornerShape(24.dp), color = Panel, border = androidx.compose.foundation.BorderStroke(1.dp, Stroke)
+                shape = RoundedCornerShape(24.dp), color = if (glassEnabled) Panel.copy(alpha = glassOpacity) else Color(0xFF102C4B), border = androidx.compose.foundation.BorderStroke(1.dp, if (glassEnabled) Stroke else Stroke.copy(alpha = 0.35f))
             ) {
                 Column(Modifier.fillMaxSize().padding(if (compact) 8.dp else 14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -311,7 +311,7 @@ private fun SakuDesktop(
                     val ink = android.graphics.Color.rgb(235, 244, 255)
                     val soft = android.graphics.Color.rgb(157, 179, 205)
                     val glow = android.graphics.Color.rgb(91, 207, 255)
-                    val panel = android.graphics.Color.rgb(20, 35, 58)
+                    val panel = android.graphics.Color.argb(if (glassEnabled) (glassOpacity * 255).toInt().coerceIn(90, 220) else 255, 20, 35, 58)
                     val root = android.widget.ScrollView(context).apply {
                         isFillViewport = false
                         clipToPadding = false
@@ -331,11 +331,12 @@ private fun SakuDesktop(
                             background = android.graphics.drawable.GradientDrawable().apply {
                                 setColor(panel)
                                 cornerRadius = dp(18).toFloat()
-                                setStroke(dp(1), android.graphics.Color.rgb(55, 84, 116))
+                                setStroke(dp(1), if (glassEnabled) android.graphics.Color.argb(125, 190, 232, 255) else android.graphics.Color.rgb(55, 84, 116))
                             }
                         }
                         val params = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                         params.bottomMargin = dp(8)
+                        box.elevation = dp(if (glassEnabled) 3 else 0).toFloat()
                         column.addView(box, params)
                         if (title != null) {
                             val heading = TextView(context).apply {
@@ -373,7 +374,7 @@ private fun SakuDesktop(
                             orientation = LinearLayout.VERTICAL
                             setPadding(dp(6), dp(7), dp(4), dp(7))
                             background = android.graphics.drawable.GradientDrawable().apply {
-                                setColor(android.graphics.Color.rgb(34, 65, 94))
+                                setColor(android.graphics.Color.argb(if (glassEnabled) 125 else 255, 34, 65, 94))
                                 cornerRadius = dp(10).toFloat()
                             }
                         }
@@ -599,7 +600,7 @@ private fun SimpleSettingsDialog(glass: Boolean, onGlass: (Boolean)->Unit, opaci
   title={ Column { Text("Pengaturan Simple",color=TextMain,fontWeight=FontWeight.Bold); Text("Personalisasi Saku Desktop",color=TextSoft,fontSize=11.sp) } },
   text={ Column(Modifier.fillMaxWidth().heightIn(max=520.dp).verticalScroll(rememberScrollState())) {
    SettingsSwitchRow("Liquid Glass","Efek panel kaca",glass,onGlass)
-   if(glass){ Text("Transparansi "+(opacity*100).toInt()+"%",color=TextSoft,fontSize=11.sp); Slider(value=opacity,onValueChange=onOpacity,valueRange=0.35f..1f) }
+   if(glass){ Text("Transparansi "+(opacity*100).toInt()+"%",color=TextSoft,fontSize=11.sp); Slider(value=opacity,onValueChange=onOpacity,valueRange=0.35f..0.88f) }
    SettingsDivider()
    Text("Ukuran font Saku: "+(scale*100).toInt()+"%",color=TextMain,fontWeight=FontWeight.SemiBold)
    Text("Terpisah dari ukuran font Android",color=TextSoft,fontSize=10.sp)
