@@ -141,16 +141,19 @@ class MainActivity : ComponentActivity() {
         val manager = getSystemService(ACTIVITY_SERVICE) as ActivityManager
         val memory = ActivityManager.MemoryInfo()
         manager.getMemoryInfo(memory)
-        val totalRam = memory.totalMem / (1024L * 1024L * 1024L)
-        val usedRam = ((memory.totalMem - memory.availMem) / (1024L * 1024L * 10L)).toDouble() / 100.0
-        val stat = StatFs(filesDir.absolutePath)
-        val total = stat.totalBytes / (1024L * 1024L * 1024L)
-        val free = stat.availableBytes / (1024L * 1024L * 1024L)
-        return DeviceInfo(batteryPct, usedRam, totalRam, total - free, total)
+        val gib = 1024.0 * 1024.0 * 1024.0
+        val totalRam = memory.totalMem / gib
+        val usedRam = (memory.totalMem - memory.availMem).coerceAtLeast(0L) / gib
+        // Measure actual internal user-storage usage from /data, not the app sandbox.
+        val stat = StatFs(android.os.Environment.getDataDirectory().absolutePath)
+        val usedStorage = ((stat.totalBytes - stat.availableBytes).coerceAtLeast(0L) / gib)
+        // Device capacity reported by the user: 64 GB nominal; Android reserves part for system/data layout.
+        val totalStorage = 64.0
+        return DeviceInfo(batteryPct, usedRam, totalRam, usedStorage, totalStorage)
     }
 }
 
-private data class DeviceInfo(val battery: Int, val usedRam: Double, val totalRam: Long, val usedStorage: Long, val totalStorage: Long)
+private data class DeviceInfo(val battery: Int, val usedRam: Double, val totalRam: Double, val usedStorage: Double, val totalStorage: Double)
 
 @Composable
 private fun SakuDesktop(
@@ -168,7 +171,7 @@ private fun SakuDesktop(
     var weatherSummary by remember { mutableStateOf("Memuat cuaca Wajak…") }
     var weatherDetails by remember { mutableStateOf("Prakiraan dari Open-Meteo") }
     var note by remember { mutableStateOf("Selesaikan build Saku Simple\nRapikan widget Liquid Glass") }
-    var info by remember { mutableStateOf(DeviceInfo(0, 0.0, 4, 0, 128)) }
+    var info by remember { mutableStateOf(DeviceInfo(0, 0.0, 0.0, 0.0, 64.0)) }
     val context = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember { context.getSharedPreferences("saku_simple_settings", android.content.Context.MODE_PRIVATE) }
     var showSimpleSettings by remember { mutableStateOf(false) }
@@ -421,8 +424,8 @@ private fun SakuDesktop(
                         return item
                     }
                     metric("BAT", "${info.battery}%", "Baterai")
-                    metric("RAM", String.format(Locale.US, "%.1f GB", info.usedRam), "dari ${info.totalRam} GB")
-                    metric("ROM", "${info.usedStorage} GB", "dari ${info.totalStorage} GB")
+                    metric("RAM", String.format(Locale.US, "%.1f GB", info.usedRam), "dari ${String.format(Locale.US, "%.1f", info.totalRam)} GB")
+                    metric("ROM", String.format(Locale.US, "%.1f GB", info.usedStorage), "dari ${String.format(Locale.US, "%.0f", info.totalStorage)} GB")
                     device.addView(metrics)
 
                     val notes = card("✎  CATATAN")
@@ -491,7 +494,7 @@ private fun SakuDesktop(
                     column?.findViewWithTag<TextView>("saku_calendar_day")?.text = now("EEEE", Locale("id", "ID"))
                     column?.findViewWithTag<TextView>("metric_BAT")?.text = "${info.battery}%"
                     column?.findViewWithTag<TextView>("metric_RAM")?.text = String.format(Locale.US, "%.1f GB", info.usedRam)
-                    column?.findViewWithTag<TextView>("metric_ROM")?.text = "${info.usedStorage} GB"
+                    column?.findViewWithTag<TextView>("metric_ROM")?.text = String.format(Locale.US, "%.1f GB", info.usedStorage)
                 }
             )
         }
