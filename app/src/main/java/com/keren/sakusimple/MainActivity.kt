@@ -205,7 +205,16 @@ private fun SakuDesktop(
             info = withContext(Dispatchers.IO) { deviceInfo() }
         }
     }
-    BackHandler(enabled = allApps) { allApps = false; search = "" }
+    // Keep the launcher Activity alive when Back is pressed on the desktop.
+    // Handle transient UI first, then consume Back on the home surface.
+    BackHandler(enabled = true) {
+        when {
+            showSimpleSettings -> showSimpleSettings = false
+            allApps -> { allApps = false; search = "" }
+            search.isNotEmpty() -> search = ""
+            else -> Unit // Stay on the launcher desktop instead of finishing/recreating it.
+        }
+    }
     val filtered = apps.filter { it.label.contains(search, true) }
 
     CompositionLocalProvider(LocalDensity provides Density(density = LocalDensity.current.density, fontScale = fontScale), LocalGlassEnabled provides glassEnabled, LocalGlassOpacity provides glassOpacity) {
