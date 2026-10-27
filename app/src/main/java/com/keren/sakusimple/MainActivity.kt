@@ -62,7 +62,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ImageBitmap
@@ -237,16 +237,9 @@ private fun SakuDesktop(
                 bitmap = wallpaperImage,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().graphicsLayer {
-                    if (android.os.Build.VERSION.SDK_INT >= 31 && wallpaperBlur > 0f) {
-                        renderEffect = android.graphics.RenderEffect.createBlurEffect(
-                            wallpaperBlur * density, wallpaperBlur * density,
-                            android.graphics.Shader.TileMode.CLAMP
-                        ).asComposeRenderEffect()
-                    } else {
-                        renderEffect = null
-                    }
-                }
+                // Blur the actual wallpaper image in Compose, not the transparent window.
+                // This modifier updates directly whenever the slider value changes.
+                modifier = Modifier.fillMaxSize().blur(wallpaperBlur.dp)
             )
         }
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
