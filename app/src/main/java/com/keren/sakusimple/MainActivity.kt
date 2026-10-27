@@ -164,6 +164,9 @@ private fun SakuDesktop(
     var listMode by remember { mutableStateOf(false) }
     var allApps by remember { mutableStateOf(false) }
     var clock by remember { mutableStateOf(now("HH:mm")) }
+    var weatherTemp by remember { mutableStateOf("--°C") }
+    var weatherSummary by remember { mutableStateOf("Memuat cuaca Wajak…") }
+    var weatherDetails by remember { mutableStateOf("Prakiraan dari Open-Meteo") }
     var note by remember { mutableStateOf("Selesaikan build Saku Simple\nRapikan widget Liquid Glass") }
     var info by remember { mutableStateOf(DeviceInfo(0, 0.0, 4, 0, 128)) }
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -178,6 +181,15 @@ private fun SakuDesktop(
     LaunchedEffect(Unit) {
         apps = withContext(Dispatchers.IO) { loadApps() }
         info = withContext(Dispatchers.IO) { deviceInfo() }
+    }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val result = withContext(Dispatchers.IO) { fetchWajakWeather() }
+            weatherTemp = result?.first ?: "--°C"
+            weatherSummary = result?.second ?: "Cuaca belum tersedia"
+            weatherDetails = result?.third ?: "Periksa koneksi internet lalu coba lagi"
+            kotlinx.coroutines.delay(30 * 60 * 1000L)
+        }
     }
     LaunchedEffect(Unit) {
         while (true) {
@@ -350,8 +362,10 @@ private fun SakuDesktop(
 
                     val weather = card()
                     weather.addView(label("☁  Cuaca", 15f, ink, true))
-                    weather.addView(label("Sumber cuaca belum tersambung", 9f, soft))
-                    weather.addView(label("Lokasi dan prakiraan akan tampil di sini", 8f, soft))
+                    weather.addView(label("Gentengan • Wajak, Malang", 9f, soft))
+                    weather.addView(label(weatherTemp, 28f, ink, true).apply { tag = "weather_temp" })
+                    weather.addView(label(weatherSummary, 10f, soft, true).apply { tag = "weather_summary" })
+                    weather.addView(label(weatherDetails, 8f, soft).apply { tag = "weather_details" })
 
                     val device = card("INFO PERANGKAT")
                     val metrics = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
@@ -434,6 +448,9 @@ private fun SakuDesktop(
                 },
                 update = { view ->
                     val column = view.tag as? LinearLayout
+                    column?.findViewWithTag<TextView>("weather_temp")?.text = weatherTemp
+                    column?.findViewWithTag<TextView>("weather_summary")?.text = weatherSummary
+                    column?.findViewWithTag<TextView>("weather_details")?.text = weatherDetails
                     column?.findViewWithTag<TextView>("saku_clock")?.text = clock
                     column?.findViewWithTag<TextView>("saku_date")?.text = now("EEEE, d MMMM", Locale("id", "ID"))
                     column?.findViewWithTag<TextView>("saku_calendar_date")?.text = now("d MMMM yyyy", Locale("id", "ID"))
@@ -639,3 +656,55 @@ private fun drawableToBitmap(drawable: Drawable): ImageBitmap {
 
 private fun now(pattern: String, locale: Locale = Locale.getDefault()): String =
     SimpleDateFormat(pattern, locale).format(Date())
+
+
+private suspend fun fetchWajakWeather(): Triple<String, String, String>? = withContext(Dispatchers.IO) {
+    // Approximate Wajak town coordinates; no GPS permission or device location is used.
+    val url = java.net.URL("https://api.open-meteo.com/v1/forecast?latitude=-8.1033&longitude=112.7346&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&timezone=Asia%2FJakarta")
+    try {
+        val connection = (url.openConnection() as java.net.HttpURLConnection).apply {
+            connectTimeout = 8000
+            readTimeout = 8000
+            requestMethod = "GET"
+        }
+        try {
+            val body = connection.inputStream.bufferedReader().use { it.readText() }
+            val current = org.json.JSONObject(body).getJSONObject("current")
+            val temp = current.optDouble("temperature_2m", Double.NaN)
+            val feels = current.optDouble("apparent_temperature", Double.NaN)
+            val humidity = current.optInt("relative_humidity_2m", -1)
+            val wind = current.optDouble("wind_speed_10m", Double.NaN)
+            val rain = current.optDouble("precipitation", 0.0)
+            val code = current.optInt("weather_code", -1)
+            val condition = when (code) {
+                0 -> "Cerah"
+                1 -> "Cerah berawan"
+                2 -> "Berawan sebagian"
+                3 -> "Mendung"
+                45, 48 -> "Berkabut"
+                51, 53, 55 -> "Gerimis"
+                56, 57 -> "Gerimis membeku"
+                61, 63, 65 -> "Hujan"
+                66, 67 -> "Hujan membeku"
+                71, 73, 75, 77 -> "Salju"
+                80, 81, 82 -> "Hujan lokal"
+                85, 86 -> "Hujan salju"
+                95 -> "Badai petir"
+                96, 99 -> "Badai petir dan hujan es"
+                else -> "Kondisi tidak diketahui"
+            }
+            val temperature = if (temp.isNaN()) "--°C" else String.format(Locale.US, "%.0f°C", temp)
+            val details = buildString {
+                if (!feels.isNaN()) append("Terasa ").append(String.format(Locale.US, "%.0f°C", feels))
+                if (humidity >= 0) { if (isNotEmpty()) append(" • "); append("Lembap ").append(humidity).append("%") }
+                if (!wind.isNaN()) { if (isNotEmpty()) append(" • "); append("Angin ").append(String.format(Locale.US, "%.0f km/j", wind)) }
+                if (rain > 0) { if (isNotEmpty()) append(" • "); append("Hujan ").append(String.format(Locale.US, "%.1f mm", rain)) }
+            }
+            Triple(temperature, condition, details.ifBlank { "Data cuaca terkini" })
+        } finally {
+            connection.disconnect()
+        }
+    } catch (_: Exception) {
+        null
+    }
+}
