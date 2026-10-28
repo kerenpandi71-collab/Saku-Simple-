@@ -146,6 +146,41 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         return accepted
     }
 
+    override fun injectTouchPoints(displayId: Int, action: Int, pointerIds: IntArray, xs: FloatArray, ys: FloatArray): Boolean {
+        if (pointerIds.isEmpty() || pointerIds.size > 5 || pointerIds.size != xs.size || pointerIds.size != ys.size) {
+            lastError = "Multi-touch perlu 1-5 pointer dengan array sama panjang."
+            return false
+        }
+        val masked = action and MotionEvent.ACTION_MASK
+        if (masked !in setOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP, MotionEvent.ACTION_MOVE, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_POINTER_UP)) {
+            lastError = "Aksi multi-touch tidak valid: $action"
+            return false
+        }
+        val now = SystemClock.uptimeMillis()
+        val downTime = if (masked == MotionEvent.ACTION_DOWN) now.also { touchDownTime = it } else touchDownTime.takeIf { it > 0L } ?: now
+        val points = ArrayList<Pair<Int, Int>>(pointerIds.size)
+        for (i in pointerIds.indices) points.add(parseDisplayPoint(displayId, xs[i], ys[i]) ?: return false)
+        var event: MotionEvent? = null
+        val identity = Binder.clearCallingIdentity()
+        try {
+            val props = Array(pointerIds.size) { i -> MotionEvent.PointerProperties().apply { id = pointerIds[i].coerceIn(0, 31); toolType = MotionEvent.TOOL_TYPE_FINGER } }
+            val coords = Array(pointerIds.size) { i -> MotionEvent.PointerCoords().apply { x = points[i].first.toFloat(); y = points[i].second.toFloat(); pressure = if (masked == MotionEvent.ACTION_UP || masked == MotionEvent.ACTION_POINTER_UP || masked == MotionEvent.ACTION_CANCEL) 0f else 1f; size = 1f } }
+            event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, pointerIds.size, props, coords, 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0)
+            setDisplayIdMethod.invoke(event, displayId)
+            val accepted = injectInputEventMethod.invoke(inputManagerService, event, INJECT_WAIT_FOR_RESULT) as? Boolean ?: false
+            lastError = if (accepted) "MULTITOUCH accepted • display=$displayId • pointers=${pointerIds.size}" else "MULTITOUCH rejected • display=$displayId • pointers=${pointerIds.size}"
+            if (!accepted) Log.w(TAG, lastError)
+            return accepted
+        } catch (error: Throwable) {
+            lastError = "Multi-touch gagal • ${error.javaClass.simpleName}: ${error.message}"
+            Log.w(TAG, lastError, error)
+            return false
+        } finally {
+            runCatching { event?.recycle() }
+            Binder.restoreCallingIdentity(identity)
+            if (masked == MotionEvent.ACTION_UP || masked == MotionEvent.ACTION_CANCEL) touchDownTime = 0L
+        }
+    }
     override fun injectTouchClick(displayId: Int, x: Float, y: Float): Boolean {
         val down = injectTouchEvent(displayId, MotionEvent.ACTION_DOWN, x, y)
         if (!down) return false
