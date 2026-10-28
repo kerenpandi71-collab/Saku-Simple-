@@ -54,8 +54,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var gestureStartX = targetWidth / 2f
     private var gestureStartY = targetHeight / 2f
     private var currentPreviewBitmap: Bitmap? = null
-    private var downX = 0f
-    private var downY = 0f
     private var moved = false
     private var receivedFrames = 0L
 
