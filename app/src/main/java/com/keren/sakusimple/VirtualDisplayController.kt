@@ -1,6 +1,5 @@
 package com.keren.sakusimple
 
-import android.app.Activity
 import android.app.Presentation
 import android.content.Context
 import android.graphics.Bitmap
@@ -161,8 +160,8 @@ class VirtualDisplayController(
         return shizukuBridge.injectSwipe(id, x1, y1, x2, y2, durationMs)
     }
 
-    fun launchSettings(activity: Activity): Boolean =
-        shizukuBridge.launchSettingsOnDisplay(activity, displayId)
+    fun launchSettings() =
+        shizukuBridge.launchSettingsOnDisplay(displayId)
 
     private fun reportStatus(message: String) {
         if (Looper.myLooper() == Looper.getMainLooper()) {
