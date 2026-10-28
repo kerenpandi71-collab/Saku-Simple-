@@ -16,6 +16,19 @@ android {
         versionName = "0.1.0"
     }
 
+    flavorDimensions += "app"
+
+    productFlavors {
+        create("sakuSimple") {
+            dimension = "app"
+            applicationId = "com.keren.sakusimple"
+        }
+        create("virtualDisplayTouch") {
+            dimension = "app"
+            applicationId = "com.keren.sakusimple.virtualdisplaytouch"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
