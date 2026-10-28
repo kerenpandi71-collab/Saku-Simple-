@@ -211,14 +211,14 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             @Suppress("DEPRECATION")
             display.getRealMetrics(metrics)
             val button = Button(this).apply {
-                text = "ID \${display.displayId}\n\${metrics.widthPixels}×\${metrics.heightPixels}"
+                text = "ID ${display.displayId}\n${metrics.widthPixels}×${metrics.heightPixels}"
                 textSize = 10f
                 isAllCaps = false
                 setOnClickListener {
                     selectedDisplayId = display.displayId
                     targetWidth = max(1, metrics.widthPixels)
                     targetHeight = max(1, metrics.heightPixels)
-                    status.text = "Target dipilih: display $selectedDisplayId • \${targetWidth}×\${targetHeight}"
+                    status.text = "Target dipilih: display $selectedDisplayId • ${targetWidth}×${targetHeight}"
                     refreshDisplays()
                 }
                 isSelected = display.displayId == selectedDisplayId
