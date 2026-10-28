@@ -1,16 +1,12 @@
 package com.keren.sakusimple
 
-import android.app.Activity
-import android.app.ActivityOptions
 import android.content.ComponentName
 import android.content.Context
-import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.provider.Settings
 import android.util.Log
 import android.view.Surface
 import rikka.shizuku.Shizuku
@@ -184,20 +180,29 @@ class ShizukuBridge(
         }
     }
 
-    fun launchSettingsOnDisplay(activity: Activity, displayId: Int): Boolean {
+    fun launchSettingsOnDisplay(displayId: Int) {
         if (displayId < 0) {
             onStatus("Buat virtual display terlebih dahulu.")
-            return false
+            return
         }
-        return try {
-            val intent = Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            val options = ActivityOptions.makeBasic().setLaunchDisplayId(displayId)
-            activity.startActivity(intent, options.toBundle())
-            true
-        } catch (error: Throwable) {
-            onStatus("Android menolak membuka Pengaturan di display $displayId: ${error.cause?.message ?: error.message}")
-            false
+
+        val service = remote
+        if (service == null) {
+            onStatus("Shizuku belum terhubung. Hubungkan Shizuku dahulu.")
+            return
         }
+
+        onStatus("Meminta ActivityTaskManager membuka Pengaturan pada display $displayId…")
+        Thread({
+            try {
+                val accepted = service.launchSettingsOnDisplay(displayId)
+                val details = service.getLastError()
+                onStatus(if (accepted) details else "Launch ditolak: $details")
+            } catch (error: Throwable) {
+                Log.e(TAG, "Shizuku display launch failed", error)
+                onStatus("Launch ke display $displayId gagal: ${error.cause?.message ?: error.message ?: error.javaClass.simpleName}")
+            }
+        }, "SakuDisplayLaunch").start()
     }
 
     fun releaseVirtualDisplay() {
