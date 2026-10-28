@@ -37,8 +37,17 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var runtimeLog: TextView
     private lateinit var runtimeLogScroll: ScrollView
     private val runtimeLogBuffer = StringBuilder()
-    private val targetWidth = 1280
-    private val targetHeight = 720
+    private var targetWidth = 1280
+    private var targetHeight = 720
+    private var targetDpi = 160
+    private var cursorSensitivity = 0.45f
+    private var touchpadHeightPercent = 36
+    private lateinit var resolutionWidthInput: EditText
+    private lateinit var resolutionHeightInput: EditText
+    private lateinit var resolutionDpiInput: EditText
+    private lateinit var touchpadSizeValue: TextView
+    private lateinit var sensitivityValue: TextView
+    private lateinit var touchpadSizeSeekBar: SeekBar
     private lateinit var shizukuBridge: ShizukuBridge
     private var virtualDisplayController: VirtualDisplayController? = null
     private var preview: SurfaceView? = null
@@ -263,10 +272,10 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             })
         }
         controlRow.addView(touchpadSizeSeekBar, LinearLayout.LayoutParams(0, dp(25), 1f))
-        sensitivityValue = TextView(this).apply { text = "Kursor 62%"; textSize = 9f; setTextColor(Color.WHITE) }
+        sensitivityValue = TextView(this).apply { text = "Kursor 45%"; textSize = 9f; setTextColor(Color.WHITE) }
         controlRow.addView(sensitivityValue, LinearLayout.LayoutParams(dp(76), dp(25)))
         val sensitivitySeekBar = SeekBar(this).apply {
-            max = 80; progress = 42
+            max = 80; progress = 25
             contentDescription = "Sensitivitas kursor"
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
@@ -757,9 +766,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                     pointerMoved = true
                     if (!dragActive) longPressTask?.let(gestureHandler::removeCallbacks)
                 }
-                cursorX = (cursorX + deltaX * targetWidth / width.toFloat())
+                cursorX = (cursorX + deltaX * targetWidth / width.toFloat() * cursorSensitivity)
                     .coerceIn(0f, (targetWidth - 1).toFloat())
-                cursorY = (cursorY + deltaY * targetHeight / height.toFloat())
+                cursorY = (cursorY + deltaY * targetHeight / height.toFloat() * cursorSensitivity)
                     .coerceIn(0f, (targetHeight - 1).toFloat())
                 lastTouchX = x
                 lastTouchY = y
@@ -869,7 +878,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         val panelParams = bottomPanel.layoutParams as? FrameLayout.LayoutParams
         if (panelParams != null) {
             val dockHeight = (topBarHeight()).coerceAtLeast(dp(150))
-            val panelHeight = dp(228)
+            val panelHeight = (rootHeight * touchpadHeightPercent / 100).coerceIn(dp(170), (rootHeight * 0.52f).toInt().coerceAtLeast(dp(170)))
             val minTop = desktopHeight + dp(8)
             val maxTop = (rootHeight - dockHeight - panelHeight - dp(8)).coerceAtLeast(minTop)
             val desiredTop = minTop + ((maxTop - minTop) * panelPositionPercent / 100)
