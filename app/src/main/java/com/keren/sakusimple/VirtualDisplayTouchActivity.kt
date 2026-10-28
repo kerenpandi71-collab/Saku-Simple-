@@ -34,6 +34,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var runtimeLog: TextView
     private lateinit var runtimeLogScroll: ScrollView
     private val runtimeLogBuffer = StringBuilder()
+    private val targetWidth = 1280
+    private val targetHeight = 720
     private lateinit var shizukuBridge: ShizukuBridge
     private var virtualDisplayController: VirtualDisplayController? = null
     private var preview: SurfaceView? = null
@@ -57,8 +59,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var moved = false
     private var receivedFrames = 0L
 
-    private val targetWidth = 1280
-    private val targetHeight = 720
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
