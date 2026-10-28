@@ -24,16 +24,5 @@
             android:multiprocess="false"
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
-        <activity
-            android:name=".VirtualDisplayTouchActivity"
-            android:label="Virtual Display Touch"
-            android:exported="true"
-            android:screenOrientation="unspecified">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-
     </application>
 </manifest>
