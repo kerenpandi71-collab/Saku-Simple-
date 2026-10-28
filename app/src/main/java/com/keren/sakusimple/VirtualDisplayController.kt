@@ -8,7 +8,9 @@ import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.media.ImageReader
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.view.Display
 import android.widget.TextView
@@ -27,6 +29,10 @@ class VirtualDisplayController(
     private val appContext = context
     private val displayManager = appContext.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var frameThread: HandlerThread? = null
+    private var frameHandler: Handler? = null
+    private val framePostPending = AtomicBoolean(false)
+    private var lastFrameAtMs = 0L
     private var imageReader: ImageReader? = null
     private var presentation: Presentation? = null
     private val closed = AtomicBoolean(false)
@@ -41,6 +47,7 @@ class VirtualDisplayController(
         val safeWidth = width.coerceIn(320, 2560)
         val safeHeight = height.coerceIn(320, 2560)
         val safeDpi = densityDpi.coerceIn(120, 640)
+        ensureFrameThread()
 
         try {
             val reader = ImageReader.newInstance(
@@ -54,6 +61,13 @@ class VirtualDisplayController(
                     Log.w(TAG, "Unable to acquire virtual display frame", error)
                     null
                 } ?: return@setOnImageAvailableListener
+
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastFrameAtMs < 83L) {
+                    image.close()
+                    return@setOnImageAvailableListener
+                }
+                lastFrameAtMs = now
 
                 try {
                     val plane = image.planes.firstOrNull() ?: return@setOnImageAvailableListener
@@ -69,15 +83,20 @@ class VirtualDisplayController(
                     val frame = if (rowPadding == 0) padded else Bitmap.createBitmap(
                         padded, 0, 0, image.width, image.height
                     ).also { if (it !== padded) padded.recycle() }
-                    mainHandler.post {
-                        if (!closed.get()) onFrame(frame) else frame.recycle()
+                    if (framePostPending.compareAndSet(false, true)) {
+                        mainHandler.post {
+                            framePostPending.set(false)
+                            if (!closed.get()) onFrame(frame) else frame.recycle()
+                        }
+                    } else {
+                        frame.recycle()
                     }
                 } catch (error: Throwable) {
                     Log.w(TAG, "Could not convert virtual display frame", error)
                 } finally {
                     image.close()
                 }
-            }, mainHandler)
+            }, frameHandler)
 
             onStatus("Meminta Shizuku membuat display virtual…")
             shizukuBridge.createVirtualDisplay(
@@ -148,6 +167,17 @@ class VirtualDisplayController(
     override fun close() {
         closed.set(true)
         releaseDisplayAndReader()
+        frameThread?.quitSafely()
+        frameThread = null
+        frameHandler = null
+        framePostPending.set(false)
+    }
+
+    private fun ensureFrameThread() {
+        if (frameThread?.isAlive == true && frameHandler != null) return
+        val worker = HandlerThread("SakuVirtualDisplayFrames").apply { start() }
+        frameThread = worker
+        frameHandler = Handler(worker.looper)
     }
 
     private fun releaseDisplayAndReader() {
