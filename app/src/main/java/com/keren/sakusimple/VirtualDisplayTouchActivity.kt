@@ -111,6 +111,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+        applyImmersiveMode()
 
         // SurfaceView tetap memenuhi root; toolbar, kursor, touchpad, dan log adalah overlay.
         val root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(7, 24, 45)) }
@@ -319,6 +320,14 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         panelHeader.addView(actionButton("Sembunyi") { toggleInputPanel() },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)))
         bottomPanel.addView(panelHeader)
+        val virtualNavRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        virtualNavRow.addView(actionButton("◀ Back") { sendVirtualNavigationKey(android.view.KeyEvent.KEYCODE_BACK) },
+            LinearLayout.LayoutParams(0, dp(30), 1f))
+        virtualNavRow.addView(actionButton("⌂ Home") { sendVirtualNavigationKey(android.view.KeyEvent.KEYCODE_HOME) },
+            LinearLayout.LayoutParams(0, dp(30), 1f))
+        virtualNavRow.addView(actionButton("▢ Recent") { sendVirtualNavigationKey(android.view.KeyEvent.KEYCODE_APP_SWITCH) },
+            LinearLayout.LayoutParams(0, dp(30), 1f))
+        bottomPanel.addView(virtualNavRow)
         val stage = FrameLayout(this).apply {
             setBackgroundColor(Color.rgb(19, 39, 56))
             contentDescription = "Touchpad: gerak 1 jari, tap klik, 2 jari scroll, tahan 1 detik lalu geser untuk drag"
@@ -386,11 +395,17 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             addTextChangedListener(object : android.text.TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                    if (suppressKeyboardWatcher || count <= 0 || s == null) return
-                    val typed = s.subSequence(start, (start + count).coerceAtMost(s.length)).toString()
-                    if (typed.isNotEmpty()) sendTypedText(typed)
-                    post {
-                        if (keyboardInput.text.isNotEmpty()) {
+                    if (suppressKeyboardWatcher || s == null) return
+                    if (count > 0) {
+                        val typed = s.subSequence(start, (start + count).coerceAtMost(s.length)).toString()
+                        if (typed.isNotEmpty()) sendTypedText(typed)
+                    } else if (before > 0) {
+                        sendVirtualKey(android.view.KeyEvent.KEYCODE_DEL)
+                    }
+                    // Do not clear EditText after every character: resetting the composing buffer
+                    // causes several IMEs to dismiss/reopen the keyboard while typing.
+                    if (keyboardInput.text.length > 256) {
+                        post {
                             suppressKeyboardWatcher = true
                             keyboardInput.setText("")
                             suppressKeyboardWatcher = false
@@ -408,6 +423,55 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         setColor(Color.argb(alpha.coerceIn(0, 255), 7, 25, 45))
         cornerRadius = dp(radius).toFloat()
         setStroke(dp(1), Color.argb(105, 182, 225, 247))
+    }
+
+    private fun applyImmersiveMode() {
+        @Suppress("DEPRECATION")
+        window.decorView.systemUiVisibility = (
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                View.SYSTEM_UI_FLAG_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            )
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) applyImmersiveMode()
+    }
+
+    private fun sendVirtualNavigationKey(keyCode: Int) {
+        val displayId = virtualDisplayController?.displayId ?: -1
+        if (displayId < 0) {
+            status.text = "Mulai virtual display dahulu."
+            return
+        }
+        sendVirtualKey(keyCode)
+    }
+
+    private fun sendVirtualKey(keyCode: Int) {
+        val displayId = virtualDisplayController?.displayId ?: -1
+        if (displayId < 0) {
+            status.text = "Virtual display belum aktif."
+            return
+        }
+        mouseInputExecutor.execute {
+            val accepted = virtualDisplayController?.injectKeyEvents(
+                intArrayOf(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.ACTION_UP),
+                intArrayOf(keyCode, keyCode),
+                intArrayOf(0, 0)
+            ) ?: false
+            runOnUiThread {
+                if (!accepted) {
+                    status.text = "Tombol tidak diterima display virtual."
+                    appendRuntimeLog("KeyEvent keyCode=$keyCode gagal: ${shizukuBridge.getLastError()}")
+                } else {
+                    status.text = "Tombol dikirim ke display virtual • keyCode=$keyCode"
+                }
+            }
+        }
     }
 
     private fun toggleDirectTouch() {
@@ -751,8 +815,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         lastScrollCentroidY = centroid.second
                         queueNativeMouseScroll(
                             cursorX, cursorY,
-                            horizontal = -dx / dp(32).toFloat(),
-                            vertical = -dy / dp(32).toFloat()
+                            horizontal = -dx / dp(12).toFloat(),
+                            vertical = -dy / dp(12).toFloat()
                         )
                     }
                     return true
@@ -780,7 +844,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
             MotionEvent.ACTION_POINTER_UP -> {
                 hadMultiTouch = true
-                scrollGestureActive = false
+                scrollGestureActive = event.pointerCount > 2
                 return true
             }
 
