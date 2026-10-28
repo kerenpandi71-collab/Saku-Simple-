@@ -30,7 +30,7 @@ class ShizukuBridge(
         ComponentName(context.packageName, ShizukuUserService::class.java.name)
     ).processNameSuffix("saku_virtual_display")
         .tag("saku-virtual-display-v2")
-        .version(4)
+        .version(5)
         .daemon(false)
 
     private val serviceConnection = object : ServiceConnection {
@@ -192,6 +192,19 @@ class ShizukuBridge(
         } catch (error: Throwable) {
             Log.e(TAG, "injectTouchEvent failed", error)
             onStatus("Sentuhan gagal: ${error.cause?.message ?: error.message}")
+            false
+        }
+    }
+
+    fun injectTouchPoints(displayId: Int, action: Int, pointerIds: IntArray, xs: FloatArray, ys: FloatArray): Boolean {
+        return try {
+            val service = remote ?: throw IllegalStateException("Shizuku UserService belum terhubung.")
+            val accepted = service.injectTouchPoints(displayId, action, pointerIds, xs, ys)
+            if (!accepted) onStatus("Multi-touch ditolak: ${service.getLastError()}")
+            accepted
+        } catch (error: Throwable) {
+            Log.e(TAG, "injectTouchPoints failed", error)
+            onStatus("Multi-touch gagal: ${error.cause?.message ?: error.message}")
             false
         }
     }
