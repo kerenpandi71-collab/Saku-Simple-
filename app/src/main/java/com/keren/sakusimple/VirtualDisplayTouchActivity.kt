@@ -7,8 +7,6 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
@@ -51,10 +49,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var keyboardInput: EditText
     private lateinit var runtimeLogPanel: LinearLayout
     private var suppressKeyboardWatcher = false
-    private val mainHandler = Handler(Looper.getMainLooper())
-    private var fingerDown = false
-    private var dragActive = false
-    private var longPressTask: Runnable? = null
     private val cursorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
         color = Color.WHITE
@@ -109,7 +103,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 override fun surfaceDestroyed(holder: SurfaceHolder) = Unit
             })
         }
-        root.addView(preview, FrameLayout.LayoutParams(-1, -1))
+        root.addView(preview, FrameLayout.LayoutParams(-1, dp(300), Gravity.TOP))
         cursorOverlay = object : View(this) {
             override fun onDraw(canvas: Canvas) { super.onDraw(canvas); drawDextopCursor(canvas) }
         }.apply {
@@ -183,13 +177,14 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         topBar.addView(status, LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT))
         root.addView(topBar, FrameLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP).apply {
-            leftMargin = dp(7); rightMargin = dp(7); topMargin = dp(6)
+            leftMargin = dp(7); rightMargin = dp(7)
+            topMargin = statusBarHeight() + dp(6)
         })
 
         bottomPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(7), dp(4), dp(7), dp(7))
-            background = roundedPanel(226, 15)
+            background = roundedPanel(250, 15)
             elevation = dp(8).toFloat()
         }
         val panelHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
@@ -206,14 +201,32 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)))
         bottomPanel.addView(panelHeader)
         val stage = FrameLayout(this).apply {
-            setBackgroundColor(Color.argb(105, 25, 74, 111))
+            setBackgroundColor(Color.rgb(19, 39, 56))
             contentDescription = "Touchpad: gerak 1 jari, scroll 2 jari, tahan 500ms lalu geser untuk drag"
         }
         stage.setOnTouchListener { _, event -> handleTouch(event, stage.width, stage.height) }
         bottomPanel.addView(stage, LinearLayout.LayoutParams(-1, 0, 1f))
-        root.addView(bottomPanel, FrameLayout.LayoutParams(-1, dp(148), Gravity.BOTTOM).apply {
-            leftMargin = dp(7); rightMargin = dp(7); bottomMargin = dp(7)
+        root.addView(bottomPanel, FrameLayout.LayoutParams(-1, -1, Gravity.TOP).apply {
+            leftMargin = dp(7); rightMargin = dp(7); topMargin = dp(300); bottomMargin = dp(7)
         })
+        // Keep the 1280x720 desktop at its native 16:9 aspect ratio. The trackpad panel
+        // starts directly beneath it instead of stretching the desktop over the phone.
+        root.addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
+            val width = right - left
+            if (width > 0) {
+                val viewportHeight = (width * targetHeight.toFloat() / targetWidth).toInt().coerceAtLeast(1)
+                val surfaceParams = preview?.layoutParams as? FrameLayout.LayoutParams
+                if (surfaceParams != null && surfaceParams.height != viewportHeight) {
+                    surfaceParams.height = viewportHeight
+                    preview?.layoutParams = surfaceParams
+                }
+                val panelParams = bottomPanel.layoutParams as? FrameLayout.LayoutParams
+                if (panelParams != null && panelParams.topMargin != viewportHeight) {
+                    panelParams.topMargin = viewportHeight
+                    bottomPanel.layoutParams = panelParams
+                }
+            }
+        }
 
         runtimeLog = TextView(this).apply {
             textSize = 9f
@@ -363,8 +376,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        longPressTask?.let(mainHandler::removeCallbacks)
-        if (dragActive) virtualDisplayController?.injectMouseButton(MotionEvent.ACTION_UP, cursorX, cursorY)
         mouseInputExecutor.shutdownNow()
         virtualDisplayController?.close()
         virtualDisplayController = null
@@ -520,96 +531,102 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         if (width <= 0 || height <= 0) return true
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                fingerDown = true
-                lastTouchX = event.x; lastTouchY = event.y
-                downX = event.x; downY = event.y
+                lastTouchX = event.x
+                lastTouchY = event.y
+                downX = event.x
+                downY = event.y
                 pointerMoved = false
                 hadMultiTouch = false
                 scrollGestureActive = false
-                longPressTask?.let(mainHandler::removeCallbacks)
-                longPressTask = Runnable {
-                    if (fingerDown && !hadMultiTouch && !pointerMoved && !dragActive &&
-                        (virtualDisplayController?.displayId ?: -1) >= 0
-                    ) {
-                        dragActive = true
-                        queueNativeMouseButton(MotionEvent.ACTION_DOWN, cursorX, cursorY)
-                        status.text = "Drag aktif • geser jari, lalu lepaskan."
-                    }
-                }.also { mainHandler.postDelayed(it, 500L) }
                 return true
             }
+
             MotionEvent.ACTION_POINTER_DOWN -> {
-                longPressTask?.let(mainHandler::removeCallbacks)
-                if (dragActive) {
-                    queueNativeMouseButton(MotionEvent.ACTION_UP, cursorX, cursorY)
-                    dragActive = false
-                }
                 if (event.pointerCount >= 2) {
                     hadMultiTouch = true
                     scrollGestureActive = true
-                    val c = touchCentroid(event)
-                    lastScrollCentroidX = c.first; lastScrollCentroidY = c.second
+                    val centroid = touchCentroid(event)
+                    lastScrollCentroidX = centroid.first
+                    lastScrollCentroidY = centroid.second
                 }
                 return true
             }
+
             MotionEvent.ACTION_MOVE -> {
                 if (hadMultiTouch) {
                     if (scrollGestureActive && event.pointerCount >= 2) {
-                        val c = touchCentroid(event)
-                        val dx = c.first - lastScrollCentroidX
-                        val dy = c.second - lastScrollCentroidY
-                        lastScrollCentroidX = c.first; lastScrollCentroidY = c.second
-                        // Dua jari hanya mengirim ACTION_SCROLL; posisi kursor tidak ikut bergerak.
-                        queueNativeMouseScroll(cursorX, cursorY, -dx / dp(32).toFloat(), -dy / dp(32).toFloat())
+                        val centroid = touchCentroid(event)
+                        val dx = centroid.first - lastScrollCentroidX
+                        val dy = centroid.second - lastScrollCentroidY
+                        lastScrollCentroidX = centroid.first
+                        lastScrollCentroidY = centroid.second
+                        queueNativeMouseScroll(
+                            cursorX,
+                            cursorY,
+                            horizontal = -dx / dp(32).toFloat(),
+                            vertical = -dy / dp(32).toFloat()
+                        )
                     }
                     return true
                 }
-                val x = event.x; val y = event.y
-                val dx = x - lastTouchX; val dy = y - lastTouchY
+
+                val x = event.x
+                val y = event.y
+                val deltaX = x - lastTouchX
+                val deltaY = y - lastTouchY
                 if (kotlin.math.abs(x - downX) > dp(6) || kotlin.math.abs(y - downY) > dp(6)) {
                     pointerMoved = true
-                    if (!dragActive) longPressTask?.let(mainHandler::removeCallbacks)
                 }
-                cursorX = (cursorX + dx * targetWidth / width.toFloat() * 1.25f).coerceIn(0f, (targetWidth - 1).toFloat())
-                cursorY = (cursorY + dy * targetHeight / height.toFloat() * 1.25f).coerceIn(0f, (targetHeight - 1).toFloat())
-                lastTouchX = x; lastTouchY = y
+                cursorX = (cursorX + deltaX * targetWidth / width.toFloat())
+                    .coerceIn(0f, (targetWidth - 1).toFloat())
+                cursorY = (cursorY + deltaY * targetHeight / height.toFloat())
+                    .coerceIn(0f, (targetHeight - 1).toFloat())
+                lastTouchX = x
+                lastTouchY = y
                 cursorOverlay?.invalidate()
-                if (dragActive) queueNativeMouseButton(MotionEvent.ACTION_MOVE, cursorX, cursorY)
-                else queueNativeMouseMove(cursorX, cursorY)
+                queueNativeMouseMove(cursorX, cursorY)
                 return true
             }
+
             MotionEvent.ACTION_POINTER_UP -> {
                 hadMultiTouch = true
                 scrollGestureActive = false
                 return true
             }
+
             MotionEvent.ACTION_UP -> {
-                fingerDown = false
-                longPressTask?.let(mainHandler::removeCallbacks)
-                if (dragActive) {
-                    queueNativeMouseButton(MotionEvent.ACTION_UP, cursorX, cursorY)
-                    dragActive = false
-                } else if (!hadMultiTouch && !pointerMoved) {
-                    if ((virtualDisplayController?.displayId ?: -1) < 0) {
-                        status.text = "Mulai virtual display lewat Shizuku sebelum mengklik."
+                if (!hadMultiTouch && !pointerMoved) {
+                    val controller = virtualDisplayController
+                    if (controller == null || controller.displayId < 0) {
+                        status.text = "Buat virtual display lewat Shizuku sebelum mengklik."
                     } else {
-                        queueNativeMouseClick(
-                            cursorX.coerceIn(0f, (targetWidth - 1).toFloat()),
-                            cursorY.coerceIn(0f, (targetHeight - 1).toFloat())
-                        )
+                        val clickX = cursorX.coerceIn(0f, (targetWidth - 1).toFloat())
+                        val clickY = cursorY.coerceIn(0f, (targetHeight - 1).toFloat())
+                        mouseInputExecutor.execute {
+                            val clicked = controller.injectMouseClick(clickX, clickY)
+                            runOnUiThread {
+                                if (clicked) {
+                                    pulseDextopCursor()
+                                    status.text = "Klik mouse • x=${clickX.toInt()} y=${clickY.toInt()}"
+                                } else {
+                                    status.text = "Klik mouse ditolak InputManager. Periksa Runtime Log."
+                                    appendRuntimeLog("InputManager menolak klik mouse di x=${clickX.toInt()} y=${clickY.toInt()}")
+                                }
+                            }
+                        }
                     }
                 }
-                pointerMoved = false; hadMultiTouch = false; scrollGestureActive = false
+                // Finger-up only ends the gesture. There is deliberately no swipe/drag injection.
+                pointerMoved = false
+                hadMultiTouch = false
+                scrollGestureActive = false
                 return true
             }
+
             MotionEvent.ACTION_CANCEL -> {
-                fingerDown = false
-                longPressTask?.let(mainHandler::removeCallbacks)
-                if (dragActive) {
-                    queueNativeMouseButton(MotionEvent.ACTION_UP, cursorX, cursorY)
-                    dragActive = false
-                }
-                pointerMoved = false; hadMultiTouch = false; scrollGestureActive = false
+                pointerMoved = false
+                hadMultiTouch = false
+                scrollGestureActive = false
                 return true
             }
         }
@@ -618,6 +635,11 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
     private fun touchCentroid(event: MotionEvent): Pair<Float, Float> =
         ((event.getX(0) + event.getX(1)) / 2f) to ((event.getY(0) + event.getY(1)) / 2f)
+
+    private fun statusBarHeight(): Int {
+        val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
+        return if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else dp(24)
+    }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt().coerceAtLeast(1)
 }
