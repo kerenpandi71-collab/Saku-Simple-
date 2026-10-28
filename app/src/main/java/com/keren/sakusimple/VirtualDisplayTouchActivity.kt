@@ -722,14 +722,14 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         val clickX = cursorX.coerceIn(0f, (targetWidth - 1).toFloat())
                         val clickY = cursorY.coerceIn(0f, (targetHeight - 1).toFloat())
                         mouseInputExecutor.execute {
-                            val clicked = controller.injectMouseClick(clickX, clickY)
+                            val clicked = controller.injectTouchClick(clickX, clickY)
                             runOnUiThread {
                                 if (clicked) {
                                     pulseDextopCursor()
-                                    status.text = "Klik mouse • x=${clickX.toInt()} y=${clickY.toInt()}"
+                                    status.text = "Tap layar • x=${clickX.toInt()} y=${clickY.toInt()}"
                                 } else {
                                     status.text = "Klik mouse ditolak InputManager. Periksa Runtime Log."
-                                    appendRuntimeLog("InputManager menolak klik mouse di x=${clickX.toInt()} y=${clickY.toInt()}")
+                                    appendRuntimeLog("Injeksi tap layar gagal di x=${clickX.toInt()} y=${clickY.toInt()}: ${shizukuBridge.getLastError()}")
                                 }
                             }
                         }
