@@ -1,202 +1,104 @@
 package com.keren.sakusimple
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
-import android.media.ImageReader
 import android.os.Handler
-import android.os.HandlerThread
 import android.os.Looper
-import android.os.SystemClock
 import android.util.Log
 import android.view.Display
+import android.view.Surface
 import java.util.concurrent.atomic.AtomicBoolean
 
-/**
- * Coordinates the app-side ImageReader/preview with a virtual display created by Shizuku.
- * The Surface passed to the Shizuku UserService is the target for frames from this display.
- */
+/** Uses the preview SurfaceView as the virtual-display output, without an ImageReader/Bitmap copy. */
 class VirtualDisplayController(
     context: Context,
     private val shizukuBridge: ShizukuBridge,
-    private val onFrame: (Bitmap) -> Unit,
     private val onStatus: (String) -> Unit
 ) : AutoCloseable {
     private val appContext = context
     private val displayManager = appContext.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var frameThread: HandlerThread? = null
-    private var frameHandler: Handler? = null
-    private val framePostPending = AtomicBoolean(false)
-    private var lastFrameAtMs = 0L
-    private var imageReader: ImageReader? = null
     private val closed = AtomicBoolean(false)
 
     @Volatile
     var displayId: Int = Display.INVALID_DISPLAY
         private set
 
-    fun start(width: Int, height: Int, densityDpi: Int) {
-        releaseDisplayAndReader()
+    fun start(width: Int, height: Int, densityDpi: Int, outputSurface: Surface) {
+        releaseDisplay()
         closed.set(false)
+        if (!outputSurface.isValid) {
+            reportStatus("Surface preview belum siap. Coba buat layar virtual lagi.")
+            return
+        }
         val safeWidth = width.coerceIn(320, 2560)
         val safeHeight = height.coerceIn(320, 2560)
         val safeDpi = densityDpi.coerceIn(120, 640)
-        ensureFrameThread()
-
-        try {
-            val reader = ImageReader.newInstance(
-                safeWidth, safeHeight, PixelFormat.RGBA_8888, 2
-            )
-            imageReader = reader
-            reader.setOnImageAvailableListener({ source ->
-                val image = try {
-                    source.acquireLatestImage()
-                } catch (error: Throwable) {
-                    Log.w(TAG, "Unable to acquire virtual display frame", error)
-                    null
-                } ?: return@setOnImageAvailableListener
-
-                val now = SystemClock.elapsedRealtime()
-                // Limit preview conversion to about 20 frames per second; the SurfaceView keeps the 1280×720 ratio.
-                if (now - lastFrameAtMs < 50L) {
-                    image.close()
-                    return@setOnImageAvailableListener
-                }
-                lastFrameAtMs = now
-
-                try {
-                    val plane = image.planes.firstOrNull() ?: return@setOnImageAvailableListener
-                    val buffer = plane.buffer
-                    val pixelStride = plane.pixelStride
-                    val rowStride = plane.rowStride
-                    val rowPadding = (rowStride - pixelStride * image.width) / pixelStride
-                    val padded = Bitmap.createBitmap(
-                        image.width + rowPadding, image.height, Bitmap.Config.ARGB_8888
-                    )
-                    buffer.rewind()
-                    padded.copyPixelsFromBuffer(buffer)
-                    val frame = if (rowPadding == 0) padded else Bitmap.createBitmap(
-                        padded, 0, 0, image.width, image.height
-                    ).also { if (it !== padded) padded.recycle() }
-                    if (framePostPending.compareAndSet(false, true)) {
-                        mainHandler.post {
-                            framePostPending.set(false)
-                            if (!closed.get()) onFrame(frame) else frame.recycle()
-                        }
-                    } else {
-                        frame.recycle()
-                    }
-                } catch (error: Throwable) {
-                    Log.w(TAG, "Could not convert virtual display frame", error)
-                } finally {
-                    image.close()
-                }
-            }, frameHandler)
-
-            reportStatus("Meminta Shizuku membuat display virtual…")
-            shizukuBridge.createVirtualDisplay(
-                safeWidth,
-                safeHeight,
-                safeDpi,
-                reader.surface
-            ) { createdId, error ->
-                if (createdId < 0) {
-                    displayId = Display.INVALID_DISPLAY
-                    reportStatus("Pembuatan virtual display gagal: $error")
-                    releaseReaderOnly()
-                    return@createVirtualDisplay
-                }
-
-                displayId = createdId
-                mainHandler.post {
-                    if (closed.get()) {
-                        shizukuBridge.releaseVirtualDisplay()
-                        return@post
-                    }
-                    try {
-                        val display = displayManager.getDisplay(createdId)
-                            ?: throw IllegalStateException("Display ID $createdId belum terlihat oleh aplikasi.")
-                        reportStatus(
-                            "Virtual display aktif • ID $createdId • ${safeWidth}×${safeHeight} • " +
-                                "state=${display.state} • surfaceValid=${reader.surface.isValid} • " +
-                                "launcher sekunder dikelola Android • $error"
-                        )
-                    } catch (displayError: Throwable) {
-                        reportStatus("Display dibuat (ID $createdId), tetapi diagnostik display gagal: ${displayError.message ?: displayError.javaClass.simpleName}")
-                        Log.e(TAG, "Unable to inspect system secondary display", displayError)
-                    }
-                }
+        reportStatus("Membuat display langsung ke SurfaceView • ${safeWidth}×${safeHeight} • ${safeDpi}dpi…")
+        shizukuBridge.createVirtualDisplay(safeWidth, safeHeight, safeDpi, outputSurface) { createdId, error ->
+            if (closed.get()) {
+                if (createdId >= 0) shizukuBridge.releaseVirtualDisplay()
+                return@createVirtualDisplay
             }
-        } catch (error: Throwable) {
-            Log.e(TAG, "Virtual display setup failed", error)
-            reportStatus("Gagal menyiapkan virtual display: ${error.message ?: error.javaClass.simpleName}")
-            releaseDisplayAndReader()
+            if (createdId < 0) {
+                displayId = Display.INVALID_DISPLAY
+                reportStatus("Pembuatan virtual display gagal: $error")
+                return@createVirtualDisplay
+            }
+            displayId = createdId
+            mainHandler.post {
+                if (closed.get()) {
+                    shizukuBridge.releaseVirtualDisplay()
+                    return@post
+                }
+                val display = displayManager.getDisplay(createdId)
+                val mode = display?.mode
+                reportStatus(
+                    "Virtual display aktif • ID $createdId • ${safeWidth}×${safeHeight} • " +
+                        "state=${display?.state ?: -1} • surfaceValid=${outputSurface.isValid} • " +
+                        "output langsung SurfaceView • $error"
+                )
+                Log.i(TAG, "Display $createdId output direct to preview SurfaceView mode=$mode")
+            }
         }
     }
 
-    fun injectTap(x: Float, y: Float): Boolean {
-        val id = displayId
-        if (id < 0) {
-            reportStatus("Buat virtual display terlebih dahulu.")
-            return false
-        }
-        return shizukuBridge.injectTap(id, x, y)
+    fun updateSurface(surface: Surface): Boolean {
+        if (displayId < 0 || !surface.isValid) return false
+        return shizukuBridge.setVirtualDisplaySurface(surface)
     }
 
-    fun injectSwipe(x1: Float, y1: Float, x2: Float, y2: Float, durationMs: Long = 220L): Boolean {
+    fun injectMouseMove(x: Float, y: Float): Boolean {
         val id = displayId
-        if (id < 0) {
-            reportStatus("Buat virtual display terlebih dahulu.")
-            return false
-        }
-        return shizukuBridge.injectSwipe(id, x1, y1, x2, y2, durationMs)
-    }
-
-    fun injectHover(x: Float, y: Float): Boolean {
-        val id = displayId
-        if (id < 0) {
-            reportStatus("Buat virtual display terlebih dahulu.")
-            return false
-        }
+        if (id < 0) return false
         return shizukuBridge.injectHover(id, x, y)
     }
 
+    fun injectMouseClick(x: Float, y: Float): Boolean {
+        val id = displayId
+        if (id < 0) return false
+        return shizukuBridge.injectMouseClick(id, x, y)
+    }
+
+    fun injectMouseScroll(x: Float, y: Float, horizontal: Float, vertical: Float): Boolean {
+        val id = displayId
+        if (id < 0) return false
+        return shizukuBridge.injectMouseScroll(id, x, y, horizontal, vertical)
+    }
+
     private fun reportStatus(message: String) {
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            onStatus(message)
-        } else {
-            mainHandler.post { onStatus(message) }
-        }
+        if (Looper.myLooper() == Looper.getMainLooper()) onStatus(message)
+        else mainHandler.post { onStatus(message) }
     }
 
     override fun close() {
         closed.set(true)
-        releaseDisplayAndReader()
-        frameThread?.quitSafely()
-        frameThread = null
-        frameHandler = null
-        framePostPending.set(false)
+        releaseDisplay()
     }
 
-    private fun ensureFrameThread() {
-        if (frameThread?.isAlive == true && frameHandler != null) return
-        val worker = HandlerThread("SakuVirtualDisplayFrames").apply { start() }
-        frameThread = worker
-        frameHandler = Handler(worker.looper)
-    }
-
-    private fun releaseDisplayAndReader() {
+    private fun releaseDisplay() {
         if (displayId >= 0) shizukuBridge.releaseVirtualDisplay()
         displayId = Display.INVALID_DISPLAY
-        releaseReaderOnly()
-    }
-
-    private fun releaseReaderOnly() {
-        try { imageReader?.setOnImageAvailableListener(null, null) } catch (_: Throwable) {}
-        try { imageReader?.close() } catch (_: Throwable) {}
-        imageReader = null
     }
 
     companion object {

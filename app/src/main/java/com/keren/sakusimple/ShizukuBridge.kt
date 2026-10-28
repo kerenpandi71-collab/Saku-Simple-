@@ -160,34 +160,6 @@ class ShizukuBridge(
         }
     }
 
-    fun injectTap(displayId: Int, x: Float, y: Float): Boolean {
-        return try {
-            val service = remote ?: throw IllegalStateException("Shizuku UserService belum terhubung.")
-            val accepted = service.injectTap(displayId, x, y)
-            val details = service.getLastError()
-            onStatus(if (accepted) details else "Tap shell ditolak: $details")
-            accepted
-        } catch (error: Throwable) {
-            Log.e(TAG, "injectTap failed", error)
-            onStatus("Tap shell gagal: ${error.cause?.message ?: error.message}")
-            false
-        }
-    }
-
-    fun injectSwipe(displayId: Int, x1: Float, y1: Float, x2: Float, y2: Float, durationMs: Long = 220L): Boolean {
-        return try {
-            val service = remote ?: throw IllegalStateException("Shizuku UserService belum terhubung.")
-            val accepted = service.injectSwipe(displayId, x1, y1, x2, y2, durationMs)
-            val details = service.getLastError()
-            onStatus(if (accepted) details else "Swipe shell ditolak: $details")
-            accepted
-        } catch (error: Throwable) {
-            Log.e(TAG, "injectSwipe failed", error)
-            onStatus("Swipe shell gagal: ${error.cause?.message ?: error.message}")
-            false
-        }
-    }
-
     fun injectHover(displayId: Int, x: Float, y: Float): Boolean {
         return try {
             remote?.injectHover(displayId, x, y) ?: false
@@ -207,6 +179,26 @@ class ShizukuBridge(
         } catch (error: Throwable) {
             Log.e(TAG, "injectMouseClick failed", error)
             onStatus("Klik mouse gagal: ${error.cause?.message ?: error.message}")
+            false
+        }
+    }
+
+    fun injectMouseScroll(displayId: Int, x: Float, y: Float, horizontal: Float, vertical: Float): Boolean {
+        return try {
+            val service = remote ?: throw IllegalStateException("Shizuku UserService belum terhubung.")
+            service.injectMouseScroll(displayId, x, y, horizontal, vertical)
+        } catch (error: Throwable) {
+            Log.e(TAG, "injectMouseScroll failed", error)
+            false
+        }
+    }
+
+    fun setVirtualDisplaySurface(surface: Surface): Boolean {
+        return try {
+            val service = remote ?: throw IllegalStateException("Shizuku UserService belum terhubung.")
+            service.setVirtualDisplaySurface(surface)
+        } catch (error: Throwable) {
+            Log.e(TAG, "setVirtualDisplaySurface failed", error)
             false
         }
     }
