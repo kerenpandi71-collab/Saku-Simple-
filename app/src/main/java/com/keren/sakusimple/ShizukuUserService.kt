@@ -214,18 +214,13 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                 } else {
                     injectedKeyDownTimes.remove(code) ?: now
                 }
-                var event: android.view.KeyEvent? = null
-                try {
-                    event = android.view.KeyEvent(downTime, now, action, code, 0, metaStates[index])
-                    setDisplayIdMethod.invoke(event, displayId)
-                    val accepted = injectInputEventMethod.invoke(inputManagerService, event, INJECT_WAIT_FOR_RESULT) as? Boolean ?: false
-                    if (!accepted) {
-                        allAccepted = false
-                        lastError = "KeyEvent ditolak • display=$displayId • action=$action keyCode=$code"
-                        Log.w(TAG, lastError)
-                    }
-                } finally {
-                    runCatching { event?.recycle() }
+                val event = android.view.KeyEvent(downTime, now, action, code, 0, metaStates[index])
+                setDisplayIdMethod.invoke(event, displayId)
+                val accepted = injectInputEventMethod.invoke(inputManagerService, event, INJECT_WAIT_FOR_RESULT) as? Boolean ?: false
+                if (!accepted) {
+                    allAccepted = false
+                    lastError = "KeyEvent ditolak • display=$displayId • action=$action keyCode=$code"
+                    Log.w(TAG, lastError)
                 }
                 if (!allAccepted) break
             }

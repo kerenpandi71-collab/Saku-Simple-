@@ -256,7 +256,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
         // Text sink untuk IME Android; huruf diubah jadi KeyCharacterMap events lalu dikirim ke Shizuku.
         keyboardInput = EditText(this).apply {
-            singleLine = true
+            setSingleLine(true)
             textSize = 12f
             hint = "Ketik ke layar virtual"
             setTextColor(Color.WHITE)
