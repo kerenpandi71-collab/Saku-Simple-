@@ -16,6 +16,7 @@ import android.view.InputEvent
 import android.view.MotionEvent
 import android.view.Surface
 import java.lang.reflect.Method
+import java.util.concurrent.TimeUnit
 import org.lsposed.hiddenapibypass.HiddenApiBypass
 import kotlin.math.max
 import kotlin.math.min
@@ -201,6 +202,50 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             lastError = "${error.javaClass.simpleName}: ${error.message ?: "gagal menutup display"}"
             Log.e(TAG, "Release virtual display failed", error)
         } finally {
+            Binder.restoreCallingIdentity(identity)
+        }
+    }
+
+    override fun launchSettingsOnDisplay(displayId: Int): Boolean {
+        if (displayId < 0 || displayId > 10000) {
+            lastError = "Display ID tidak valid: $displayId"
+            return false
+        }
+
+        val identity = Binder.clearCallingIdentity()
+        var process: Process? = null
+        return try {
+            // Use the system ActivityTaskManager shell entry point. This is the same
+            // display-routing path used by "am start --display", but it executes with
+            // the Shizuku UserService identity instead of the app process identity.
+            val command = "am start -W --display $displayId -a android.settings.SETTINGS -f 0x10000000"
+            process = ProcessBuilder("sh", "-c", command)
+                .redirectErrorStream(true)
+                .start()
+
+            if (!process.waitFor(12, TimeUnit.SECONDS)) {
+                process.destroyForcibly()
+                lastError = "Timeout saat meluncurkan Pengaturan pada display $displayId."
+                false
+            } else {
+                val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
+                val success = process.exitValue() == 0 &&
+                    !output.contains("Error:", ignoreCase = true) &&
+                    !output.contains("Exception", ignoreCase = true)
+                lastError = if (success) {
+                    "Pengaturan diminta melalui ActivityTaskManager pada display $displayId. $output".take(1000)
+                } else {
+                    "ActivityTaskManager menolak launch display $displayId: $output".take(1000)
+                }
+                Log.i(TAG, lastError)
+                success
+            }
+        } catch (error: Throwable) {
+            lastError = "Launch ke display $displayId gagal: ${error.javaClass.simpleName}: ${error.message ?: "tanpa detail"}"
+            Log.e(TAG, lastError, error)
+            false
+        } finally {
+            try { process?.destroy() } catch (_: Throwable) {}
             Binder.restoreCallingIdentity(identity)
         }
     }
