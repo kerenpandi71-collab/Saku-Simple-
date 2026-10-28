@@ -106,7 +106,15 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
     override fun injectHover(displayId: Int, x: Float, y: Float): Boolean {
         val point = parseDisplayPoint(displayId, x, y) ?: return false
         val command = "input mouse -d $displayId motionevent MOVE ${point.first} ${point.second}"
-        return runInputCommand(displayId, command, "HOVER")
+        return runInputCommand(displayId, command, "MOUSE_MOVE")
+    }
+
+    override fun injectMouseClick(displayId: Int, x: Float, y: Float): Boolean {
+        val point = parseDisplayPoint(displayId, x, y) ?: return false
+        val px = point.first
+        val py = point.second
+        val command = "input mouse -d $displayId motionevent DOWN $px $py; input mouse -d $displayId motionevent UP $px $py"
+        return runInputCommand(displayId, command, "MOUSE_CLICK")
     }
 
     private fun parseDisplayPoint(displayId: Int, x: Float, y: Float): Pair<Int, Int>? {

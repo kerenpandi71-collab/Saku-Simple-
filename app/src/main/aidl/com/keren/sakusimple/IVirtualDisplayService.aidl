@@ -10,5 +10,6 @@ interface IVirtualDisplayService {
     void releaseVirtualDisplay() = 4;
     String getLastError() = 5;
     boolean injectHover(int displayId, float x, float y) = 7;
+    boolean injectMouseClick(int displayId, float x, float y) = 9;
     String getDisplayDiagnostics(int displayId) = 8;
 }

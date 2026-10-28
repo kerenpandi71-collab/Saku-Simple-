@@ -197,6 +197,20 @@ class ShizukuBridge(
         }
     }
 
+    fun injectMouseClick(displayId: Int, x: Float, y: Float): Boolean {
+        return try {
+            val service = remote ?: throw IllegalStateException("Shizuku UserService belum terhubung.")
+            val accepted = service.injectMouseClick(displayId, x, y)
+            val details = service.getLastError()
+            onStatus(if (accepted) details else "Klik mouse ditolak: $details")
+            accepted
+        } catch (error: Throwable) {
+            Log.e(TAG, "injectMouseClick failed", error)
+            onStatus("Klik mouse gagal: ${error.cause?.message ?: error.message}")
+            false
+        }
+    }
+
     fun getDisplayDiagnostics(displayId: Int): String {
         return try {
             remote?.getDisplayDiagnostics(displayId) ?: "Shizuku belum terhubung."
