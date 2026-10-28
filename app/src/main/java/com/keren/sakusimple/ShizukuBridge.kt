@@ -41,7 +41,8 @@ class ShizukuBridge(
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             remote = IVirtualDisplayService.Stub.asInterface(binder)
             binding = false
-            onStatus("Shizuku terhubung (${runCatching { "UID ${Shizuku.getUid()}" }.getOrDefault("UID tidak diketahui")}).")
+            val uid = runCatching { Shizuku.getUid() }.getOrNull()
+            onStatus(if (uid != null) "Shizuku terhubung (UID $uid)." else "Shizuku terhubung.")
             finishPending(remote != null)
         }
 
