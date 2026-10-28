@@ -5,6 +5,8 @@ import android.content.Context
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.hardware.input.InputManager
+import android.os.Binder
+import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.SystemClock
@@ -14,6 +16,7 @@ import android.view.InputEvent
 import android.view.MotionEvent
 import android.view.Surface
 import java.lang.reflect.Method
+import org.lsposed.hiddenapibypass.HiddenApiBypass
 import kotlin.math.max
 import kotlin.math.min
 
@@ -43,7 +46,9 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         surface: Surface
     ): Int {
         releaseVirtualDisplay()
+        val identity = Binder.clearCallingIdentity()
         return try {
+            enableHiddenApiAccess()
             val context = serviceContext
                 ?: throw IllegalStateException("Shizuku UserService tidak memberikan Context.")
             val manager = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
@@ -73,6 +78,14 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             lastError = "${error.javaClass.simpleName}: ${error.message ?: "tidak ada detail"}"
             Log.e(TAG, "Virtual display creation failed: $lastError", error)
             -1
+        } finally {
+            Binder.restoreCallingIdentity(identity)
+        }
+    }
+
+    private fun enableHiddenApiAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            HiddenApiBypass.addHiddenApiExemptions("L")
         }
     }
 
@@ -138,7 +151,9 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         eventTime: Long
     ): Boolean {
         var event: MotionEvent? = null
+        val identity = Binder.clearCallingIdentity()
         return try {
+            enableHiddenApiAccess()
             event = MotionEvent.obtain(
                 downTime,
                 max(downTime, eventTime),
@@ -171,6 +186,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             false
         } finally {
             event?.recycle()
+            Binder.restoreCallingIdentity(identity)
         }
     }
 
