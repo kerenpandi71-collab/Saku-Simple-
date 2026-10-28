@@ -417,7 +417,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                     }
                 }
                 button.tag = label
-                row.addView(button, LinearLayout.LayoutParams(0, 0, weights[index]).apply {
+                row.addView(button, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, weights[index]).apply {
                     setMargins(dp(2), dp(2), dp(2), dp(2))
                 })
             }
