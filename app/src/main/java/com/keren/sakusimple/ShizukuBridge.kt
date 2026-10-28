@@ -155,7 +155,7 @@ class ShizukuBridge(
             try {
                 val service = remote ?: throw IllegalStateException("UserService belum siap.")
                 val id = service.createVirtualDisplay(width, height, densityDpi, surface)
-                val error = service.lastError ?: if (id >= 0) "OK" else "Pembuatan display gagal."
+                val error = service.getLastError().ifBlank { if (id >= 0) "OK" else "Pembuatan display gagal." }
                 callback(id, error)
             } catch (error: Throwable) {
                 Log.e(TAG, "createVirtualDisplay call failed", error)
