@@ -856,7 +856,10 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         val actions = IntArray(events.size) { events[it].action }
         val codes = IntArray(events.size) { events[it].keyCode }
-        val meta = IntArray(events.size) { events[it].metaState }
+        val modifierMeta = (if (cyberShift) android.view.KeyEvent.META_SHIFT_ON else 0) or
+            (if (cyberCtrl) android.view.KeyEvent.META_CTRL_ON else 0) or
+            (if (cyberAlt) android.view.KeyEvent.META_ALT_ON else 0)
+        val meta = IntArray(events.size) { events[it].metaState or modifierMeta }
         mouseInputExecutor.execute {
             val accepted = virtualDisplayController?.injectKeyEvents(actions, codes, meta) ?: false
             if (!accepted) runOnUiThread {
