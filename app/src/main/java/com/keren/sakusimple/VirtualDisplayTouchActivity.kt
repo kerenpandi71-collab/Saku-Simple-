@@ -7,6 +7,8 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
@@ -46,6 +48,12 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var runtimeLogToggle: Button
     private lateinit var bottomPanel: LinearLayout
     private lateinit var panelToggleButton: Button
+    private lateinit var directTouchButton: Button
+    private var directTouchEnabled = false
+    private val gestureHandler = Handler(Looper.getMainLooper())
+    private var longPressTask: Runnable? = null
+    private var touchpadFingerDown = false
+    private var dragActive = false
     private lateinit var keyboardInput: EditText
     private lateinit var runtimeLogPanel: LinearLayout
     private var suppressKeyboardWatcher = false
@@ -91,6 +99,10 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         val root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(7, 24, 45)) }
         preview = SurfaceView(this).apply {
             contentDescription = "Desktop virtual display 1280 x 720"
+            setOnTouchListener { view, event ->
+                if (!directTouchEnabled) return@setOnTouchListener false
+                handleDirectTouch(event, view.width, view.height)
+            }
             holder.setFixedSize(targetWidth, targetHeight)
             holder.addCallback(object : SurfaceHolder.Callback {
                 override fun surfaceCreated(holder: SurfaceHolder) {
@@ -167,6 +179,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         actions.addView(runtimeLogToggle, LinearLayout.LayoutParams(0, dp(34), 0.48f))
         panelToggleButton = actionButton("Panel") { toggleInputPanel() }
         actions.addView(panelToggleButton, LinearLayout.LayoutParams(0, dp(34), 0.58f))
+        directTouchButton = actionButton("Direct: OFF") { toggleDirectTouch() }
+        actions.addView(directTouchButton, LinearLayout.LayoutParams(0, dp(34), 0.78f))
         topBar.addView(actions)
         status = TextView(this).apply {
             text = "Hubungkan Shizuku, lalu tekan Mulai."
@@ -202,7 +216,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         bottomPanel.addView(panelHeader)
         val stage = FrameLayout(this).apply {
             setBackgroundColor(Color.rgb(19, 39, 56))
-            contentDescription = "Touchpad: gerak 1 jari, scroll 2 jari, tahan 500ms lalu geser untuk drag"
+            contentDescription = "Touchpad: gerak 1 jari, tap klik, 2 jari scroll, tahan 1 detik lalu geser untuk drag"
         }
         stage.setOnTouchListener { _, event -> handleTouch(event, stage.width, stage.height) }
         bottomPanel.addView(stage, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -306,6 +320,59 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         setStroke(dp(1), Color.argb(105, 182, 225, 247))
     }
 
+    private fun toggleDirectTouch() {
+        directTouchEnabled = !directTouchEnabled
+        directTouchButton.text = if (directTouchEnabled) "Direct: ON" else "Direct: OFF"
+        preview?.isClickable = directTouchEnabled
+        status.text = if (directTouchEnabled) {
+            bottomPanel.visibility = View.GONE
+            panelToggleButton.text = "Panel+"
+            "Direct Touch aktif • sentuh area desktop untuk klik langsung."
+        } else {
+            bottomPanel.visibility = View.VISIBLE
+            panelToggleButton.text = "Panel"
+            "Touchpad aktif • 1 jari kursor, 2 jari scroll."
+        }
+    }
+
+    private fun handleDirectTouch(event: MotionEvent, width: Int, height: Int): Boolean {
+        if (width <= 0 || height <= 0) return true
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP -> {
+                if (event.actionMasked == MotionEvent.ACTION_UP) {
+                    val x = (event.x / width.toFloat() * targetWidth)
+                        .coerceIn(0f, (targetWidth - 1).toFloat())
+                    val y = (event.y / height.toFloat() * targetHeight)
+                        .coerceIn(0f, (targetHeight - 1).toFloat())
+                    cursorX = x
+                    cursorY = y
+                    cursorOverlay?.invalidate()
+                    val controller = virtualDisplayController
+                    if (controller == null || controller.displayId < 0) {
+                        status.text = "Mulai virtual display melalui Shizuku dahulu."
+                    } else {
+                        mouseInputExecutor.execute {
+                            val clicked = controller.injectMouseClick(x, y)
+                            runOnUiThread {
+                                status.text = if (clicked) {
+                                    pulseDextopCursor()
+                                    "Direct Touch klik • x=${x.toInt()} y=${y.toInt()}"
+                                } else {
+                                    appendRuntimeLog("Direct Touch ditolak • x=${x.toInt()} y=${y.toInt()}")
+                                    "Direct Touch gagal • periksa Log."
+                                }
+                            }
+                        }
+                    }
+                }
+                return true
+            }
+            MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_MOVE, MotionEvent.ACTION_POINTER_UP -> return true
+            MotionEvent.ACTION_CANCEL -> return true
+        }
+        return true
+    }
+
     private fun toggleInputPanel() {
         val show = bottomPanel.visibility != View.VISIBLE
         bottomPanel.visibility = if (show) View.VISIBLE else View.GONE
@@ -376,6 +443,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        longPressTask?.let(gestureHandler::removeCallbacks)
+        if (dragActive) virtualDisplayController?.injectMouseButton(MotionEvent.ACTION_UP, cursorX, cursorY)
         mouseInputExecutor.shutdownNow()
         virtualDisplayController?.close()
         virtualDisplayController = null
@@ -531,6 +600,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         if (width <= 0 || height <= 0) return true
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                touchpadFingerDown = true
                 lastTouchX = event.x
                 lastTouchY = event.y
                 downX = event.x
@@ -538,10 +608,25 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 pointerMoved = false
                 hadMultiTouch = false
                 scrollGestureActive = false
+                longPressTask?.let(gestureHandler::removeCallbacks)
+                longPressTask = Runnable {
+                    if (touchpadFingerDown && !hadMultiTouch && !pointerMoved &&
+                        (virtualDisplayController?.displayId ?: -1) >= 0
+                    ) {
+                        dragActive = true
+                        queueNativeMouseButton(MotionEvent.ACTION_DOWN, cursorX, cursorY)
+                        status.text = "Drag aktif • geser jari lalu lepaskan."
+                    }
+                }.also { gestureHandler.postDelayed(it, 1000L) }
                 return true
             }
 
             MotionEvent.ACTION_POINTER_DOWN -> {
+                longPressTask?.let(gestureHandler::removeCallbacks)
+                if (dragActive) {
+                    queueNativeMouseButton(MotionEvent.ACTION_UP, cursorX, cursorY)
+                    dragActive = false
+                }
                 if (event.pointerCount >= 2) {
                     hadMultiTouch = true
                     scrollGestureActive = true
@@ -561,8 +646,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         lastScrollCentroidX = centroid.first
                         lastScrollCentroidY = centroid.second
                         queueNativeMouseScroll(
-                            cursorX,
-                            cursorY,
+                            cursorX, cursorY,
                             horizontal = -dx / dp(32).toFloat(),
                             vertical = -dy / dp(32).toFloat()
                         )
@@ -576,6 +660,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 val deltaY = y - lastTouchY
                 if (kotlin.math.abs(x - downX) > dp(6) || kotlin.math.abs(y - downY) > dp(6)) {
                     pointerMoved = true
+                    if (!dragActive) longPressTask?.let(gestureHandler::removeCallbacks)
                 }
                 cursorX = (cursorX + deltaX * targetWidth / width.toFloat())
                     .coerceIn(0f, (targetWidth - 1).toFloat())
@@ -584,7 +669,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 lastTouchX = x
                 lastTouchY = y
                 cursorOverlay?.invalidate()
-                queueNativeMouseMove(cursorX, cursorY)
+                if (dragActive) queueNativeMouseButton(MotionEvent.ACTION_MOVE, cursorX, cursorY)
+                else queueNativeMouseMove(cursorX, cursorY)
                 return true
             }
 
@@ -595,7 +681,12 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             }
 
             MotionEvent.ACTION_UP -> {
-                if (!hadMultiTouch && !pointerMoved) {
+                touchpadFingerDown = false
+                longPressTask?.let(gestureHandler::removeCallbacks)
+                if (dragActive) {
+                    queueNativeMouseButton(MotionEvent.ACTION_UP, cursorX, cursorY)
+                    dragActive = false
+                } else if (!hadMultiTouch && !pointerMoved) {
                     val controller = virtualDisplayController
                     if (controller == null || controller.displayId < 0) {
                         status.text = "Buat virtual display lewat Shizuku sebelum mengklik."
@@ -616,7 +707,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         }
                     }
                 }
-                // Finger-up only ends the gesture. There is deliberately no swipe/drag injection.
                 pointerMoved = false
                 hadMultiTouch = false
                 scrollGestureActive = false
@@ -624,6 +714,12 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             }
 
             MotionEvent.ACTION_CANCEL -> {
+                touchpadFingerDown = false
+                longPressTask?.let(gestureHandler::removeCallbacks)
+                if (dragActive) {
+                    queueNativeMouseButton(MotionEvent.ACTION_UP, cursorX, cursorY)
+                    dragActive = false
+                }
                 pointerMoved = false
                 hadMultiTouch = false
                 scrollGestureActive = false
