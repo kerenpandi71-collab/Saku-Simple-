@@ -25,6 +25,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -49,6 +50,13 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var bottomPanel: LinearLayout
     private lateinit var panelToggleButton: Button
     private lateinit var directTouchButton: Button
+    private lateinit var previewSizeSeekBar: SeekBar
+    private lateinit var panelPositionSeekBar: SeekBar
+    private lateinit var previewSizeValue: TextView
+    private lateinit var panelPositionValue: TextView
+    private var previewSizePercent = 100
+    private var panelPositionPercent = 0
+    private var directTouchDown = false
     private var directTouchEnabled = false
     private val gestureHandler = Handler(Looper.getMainLooper())
     private var longPressTask: Runnable? = null
@@ -115,7 +123,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 override fun surfaceDestroyed(holder: SurfaceHolder) = Unit
             })
         }
-        root.addView(preview, FrameLayout.LayoutParams(-1, dp(300), Gravity.TOP))
+        root.addView(preview, FrameLayout.LayoutParams(-1, dp(300), Gravity.TOP or Gravity.CENTER_HORIZONTAL))
         cursorOverlay = object : View(this) {
             override fun onDraw(canvas: Canvas) { super.onDraw(canvas); drawDextopCursor(canvas) }
         }.apply {
@@ -182,6 +190,44 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         directTouchButton = actionButton("Direct: OFF") { toggleDirectTouch() }
         actions.addView(directTouchButton, LinearLayout.LayoutParams(0, dp(34), 0.78f))
         topBar.addView(actions)
+        val previewSizeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        previewSizeValue = TextView(this).apply { text = "Desktop 100%"; textSize = 9f; setTextColor(Color.WHITE) }
+        previewSizeRow.addView(previewSizeValue, LinearLayout.LayoutParams(dp(84), dp(26)))
+        previewSizeSeekBar = SeekBar(this).apply {
+            max = 50
+            progress = 50
+            contentDescription = "Ukuran preview desktop 50 sampai 100 persen"
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    previewSizePercent = 50 + progress
+                    previewSizeValue.text = "Desktop ${previewSizePercent}%"
+                    updateDesktopLayout(root.width, root.height)
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+                override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+            })
+        }
+        previewSizeRow.addView(previewSizeSeekBar, LinearLayout.LayoutParams(0, dp(28), 1f))
+        topBar.addView(previewSizeRow)
+        val panelPositionRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        panelPositionValue = TextView(this).apply { text = "Panel 0%"; textSize = 9f; setTextColor(Color.WHITE) }
+        panelPositionRow.addView(panelPositionValue, LinearLayout.LayoutParams(dp(84), dp(26)))
+        panelPositionSeekBar = SeekBar(this).apply {
+            max = 100
+            progress = 0
+            contentDescription = "Posisi panel touchpad"
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    panelPositionPercent = progress
+                    panelPositionValue.text = "Panel ${panelPositionPercent}%"
+                    updateDesktopLayout(root.width, root.height)
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+                override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+            })
+        }
+        panelPositionRow.addView(panelPositionSeekBar, LinearLayout.LayoutParams(0, dp(28), 1f))
+        topBar.addView(panelPositionRow)
         status = TextView(this).apply {
             text = "Hubungkan Shizuku, lalu tekan Mulai."
             textSize = 9f
@@ -190,9 +236,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             setPadding(dp(2), dp(2), dp(2), 0)
         }
         topBar.addView(status, LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT))
-        root.addView(topBar, FrameLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP).apply {
-            leftMargin = dp(7); rightMargin = dp(7)
-            topMargin = statusBarHeight() + dp(6)
+        root.addView(topBar, FrameLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM).apply {
+            leftMargin = dp(7); rightMargin = dp(7); bottomMargin = dp(5)
         })
 
         bottomPanel = LinearLayout(this).apply {
@@ -220,26 +265,11 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         stage.setOnTouchListener { _, event -> handleTouch(event, stage.width, stage.height) }
         bottomPanel.addView(stage, LinearLayout.LayoutParams(-1, 0, 1f))
-        root.addView(bottomPanel, FrameLayout.LayoutParams(-1, -1, Gravity.TOP).apply {
-            leftMargin = dp(7); rightMargin = dp(7); topMargin = dp(300); bottomMargin = dp(7)
+        root.addView(bottomPanel, FrameLayout.LayoutParams(-1, dp(228), Gravity.TOP).apply {
+            leftMargin = dp(7); rightMargin = dp(7); topMargin = dp(300)
         })
-        // Keep the 1280x720 desktop at its native 16:9 aspect ratio. The trackpad panel
-        // starts directly beneath it instead of stretching the desktop over the phone.
         root.addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
-            val width = right - left
-            if (width > 0) {
-                val viewportHeight = (width * targetHeight.toFloat() / targetWidth).toInt().coerceAtLeast(1)
-                val surfaceParams = preview?.layoutParams as? FrameLayout.LayoutParams
-                if (surfaceParams != null && surfaceParams.height != viewportHeight) {
-                    surfaceParams.height = viewportHeight
-                    preview?.layoutParams = surfaceParams
-                }
-                val panelParams = bottomPanel.layoutParams as? FrameLayout.LayoutParams
-                if (panelParams != null && panelParams.topMargin != viewportHeight) {
-                    panelParams.topMargin = viewportHeight
-                    bottomPanel.layoutParams = panelParams
-                }
-            }
+            updateDesktopLayout(right - left, bottom - top)
         }
 
         runtimeLog = TextView(this).apply {
@@ -327,48 +357,46 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         status.text = if (directTouchEnabled) {
             bottomPanel.visibility = View.GONE
             panelToggleButton.text = "Panel+"
-            "Direct Touch aktif • sentuh area desktop untuk klik langsung."
+            "Direct Touch aktif • sentuh dan geser desktop seperti layar sentuh."
         } else {
             bottomPanel.visibility = View.VISIBLE
             panelToggleButton.text = "Panel"
-            "Touchpad aktif • 1 jari kursor, 2 jari scroll."
+            updateDesktopLayout((preview?.parent as? View)?.width ?: 0, (preview?.parent as? View)?.height ?: 0)
+            "Touchpad aktif • 1 jari kursor, tap layar, 2 jari scroll."
         }
     }
 
     private fun handleDirectTouch(event: MotionEvent, width: Int, height: Int): Boolean {
         if (width <= 0 || height <= 0) return true
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP -> {
-                if (event.actionMasked == MotionEvent.ACTION_UP) {
-                    val x = (event.x / width.toFloat() * targetWidth)
-                        .coerceIn(0f, (targetWidth - 1).toFloat())
-                    val y = (event.y / height.toFloat() * targetHeight)
-                        .coerceIn(0f, (targetHeight - 1).toFloat())
-                    cursorX = x
-                    cursorY = y
-                    cursorOverlay?.invalidate()
-                    val controller = virtualDisplayController
-                    if (controller == null || controller.displayId < 0) {
-                        status.text = "Mulai virtual display melalui Shizuku dahulu."
-                    } else {
-                        mouseInputExecutor.execute {
-                            val clicked = controller.injectMouseClick(x, y)
-                            runOnUiThread {
-                                status.text = if (clicked) {
-                                    pulseDextopCursor()
-                                    "Direct Touch klik • x=${x.toInt()} y=${y.toInt()}"
-                                } else {
-                                    appendRuntimeLog("Direct Touch ditolak • x=${x.toInt()} y=${y.toInt()}")
-                                    "Direct Touch gagal • periksa Log."
-                                }
-                            }
-                        }
-                    }
+        val x = (event.x / width.toFloat() * targetWidth).coerceIn(0f, (targetWidth - 1).toFloat())
+        val y = (event.y / height.toFloat() * targetHeight).coerceIn(0f, (targetHeight - 1).toFloat())
+        cursorX = x
+        cursorY = y
+        cursorOverlay?.invalidate()
+        val action = when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> MotionEvent.ACTION_DOWN
+            MotionEvent.ACTION_MOVE -> MotionEvent.ACTION_MOVE
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> MotionEvent.ACTION_UP
+            else -> return true
+        }
+        val controller = virtualDisplayController
+        if (controller == null || controller.displayId < 0) {
+            if (action == MotionEvent.ACTION_DOWN) status.text = "Mulai virtual display melalui Shizuku dahulu."
+            return true
+        }
+        if (action == MotionEvent.ACTION_DOWN) directTouchDown = true
+        if (action == MotionEvent.ACTION_MOVE && !directTouchDown) return true
+        mouseInputExecutor.execute {
+            val accepted = controller.injectTouchEvent(action, x, y)
+            runOnUiThread {
+                if (!accepted) {
+                    appendRuntimeLog("Direct Touch event gagal • action=$action • ${shizukuBridge.getLastError()}")
+                    status.text = "Direct Touch gagal • periksa Log."
+                } else if (action == MotionEvent.ACTION_UP) {
+                    directTouchDown = false
+                    pulseDextopCursor()
                 }
-                return true
             }
-            MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_MOVE, MotionEvent.ACTION_POINTER_UP -> return true
-            MotionEvent.ACTION_CANCEL -> return true
         }
         return true
     }
@@ -429,11 +457,11 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
     private fun queueNativeMouseClick(x: Float, y: Float) {
         mouseInputExecutor.execute {
-            val accepted = virtualDisplayController?.injectMouseClick(x, y) ?: false
+            val accepted = virtualDisplayController?.injectTouchClick(x, y) ?: false
             runOnUiThread {
                 if (accepted) {
                     pulseDextopCursor()
-                    status.text = "Klik • x=${x.toInt()} y=${y.toInt()}"
+                    status.text = "Tap layar • x=${x.toInt()} y=${y.toInt()}"
                 } else {
                     status.text = "Klik ditolak InputManager. Periksa Log."
                     appendRuntimeLog("Klik gagal: ${shizukuBridge.getLastError()}")
@@ -731,6 +759,40 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
     private fun touchCentroid(event: MotionEvent): Pair<Float, Float> =
         ((event.getX(0) + event.getX(1)) / 2f) to ((event.getY(0) + event.getY(1)) / 2f)
+
+    private fun updateDesktopLayout(rootWidth: Int, rootHeight: Int) {
+        if (rootWidth <= 0 || rootHeight <= 0 || !::bottomPanel.isInitialized) return
+        val desktopWidth = (rootWidth * previewSizePercent / 100).coerceIn(dp(180), rootWidth)
+        val desktopHeight = (desktopWidth * targetHeight.toFloat() / targetWidth).toInt().coerceAtLeast(dp(90))
+        val previewParams = preview?.layoutParams as? FrameLayout.LayoutParams
+        if (previewParams != null &&
+            (previewParams.width != desktopWidth || previewParams.height != desktopHeight ||
+                previewParams.gravity != (Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+        ) {
+            previewParams.width = desktopWidth
+            previewParams.height = desktopHeight
+            previewParams.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            preview?.layoutParams = previewParams
+        }
+        val panelParams = bottomPanel.layoutParams as? FrameLayout.LayoutParams
+        if (panelParams != null) {
+            val dockHeight = (topBarHeight()).coerceAtLeast(dp(150))
+            val panelHeight = dp(228)
+            val minTop = desktopHeight + dp(8)
+            val maxTop = (rootHeight - dockHeight - panelHeight - dp(8)).coerceAtLeast(minTop)
+            val desiredTop = minTop + ((maxTop - minTop) * panelPositionPercent / 100)
+            if (panelParams.topMargin != desiredTop || panelParams.height != panelHeight) {
+                panelParams.topMargin = desiredTop
+                panelParams.height = panelHeight
+                bottomPanel.layoutParams = panelParams
+            }
+        }
+    }
+
+    private fun topBarHeight(): Int {
+        val parent = status.parent as? View
+        return parent?.height ?: dp(170)
+    }
 
     private fun statusBarHeight(): Int {
         val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")

@@ -9,6 +9,8 @@ interface IVirtualDisplayService {
     String getLastError() = 5;
     boolean injectHover(int displayId, float x, float y) = 7;
     boolean injectMouseClick(int displayId, float x, float y) = 9;
+    boolean injectTouchEvent(int displayId, int action, float x, float y) = 14;
+    boolean injectTouchClick(int displayId, float x, float y) = 15;
     boolean injectMouseButton(int displayId, int action, float x, float y) = 12;
     boolean injectKeyEvents(int displayId, in int[] actions, in int[] keyCodes, in int[] metaStates) = 13;
     boolean injectMouseScroll(int displayId, float x, float y, float horizontal, float vertical) = 10;

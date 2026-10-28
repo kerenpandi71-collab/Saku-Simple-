@@ -30,6 +30,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
     private var virtualDisplay: VirtualDisplay? = null
     @Volatile private var lastError: String = "Belum ada operasi."
     private var mouseButtonDownTime: Long = 0L
+    private var touchDownTime: Long = 0L
     private val injectedKeyDownTimes = mutableMapOf<Int, Long>()
 
     constructor(context: Context) : this() {
@@ -125,6 +126,69 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             displayId, MotionEvent.ACTION_HOVER_MOVE, point.first.toFloat(), point.second.toFloat(),
             buttonState = 0, actionName = "MOUSE_MOVE"
         )
+    }
+
+    override fun injectTouchEvent(displayId: Int, action: Int, x: Float, y: Float): Boolean {
+        if (action != MotionEvent.ACTION_DOWN && action != MotionEvent.ACTION_MOVE &&
+            action != MotionEvent.ACTION_UP && action != MotionEvent.ACTION_CANCEL
+        ) {
+            lastError = "Aksi touchscreen tidak didukung: $action"
+            return false
+        }
+        val now = SystemClock.uptimeMillis()
+        val downTime = when (action) {
+            MotionEvent.ACTION_DOWN -> now.also { touchDownTime = it }
+            MotionEvent.ACTION_MOVE -> touchDownTime.takeIf { it > 0L } ?: now
+            else -> touchDownTime.takeIf { it > 0L } ?: now
+        }
+        val accepted = injectTouchMotionEvent(displayId, action, x, y, downTime)
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) touchDownTime = 0L
+        return accepted
+    }
+
+    override fun injectTouchClick(displayId: Int, x: Float, y: Float): Boolean {
+        val down = injectTouchEvent(displayId, MotionEvent.ACTION_DOWN, x, y)
+        if (!down) return false
+        SystemClock.sleep(35L)
+        return injectTouchEvent(displayId, MotionEvent.ACTION_UP, x, y)
+    }
+
+    private fun injectTouchMotionEvent(
+        displayId: Int, action: Int, x: Float, y: Float, downTime: Long
+    ): Boolean {
+        val point = parseDisplayPoint(displayId, x, y) ?: return false
+        var event: MotionEvent? = null
+        val identity = Binder.clearCallingIdentity()
+        try {
+            val properties = MotionEvent.PointerProperties().apply {
+                id = 0
+                toolType = MotionEvent.TOOL_TYPE_FINGER
+            }
+            val coordinates = MotionEvent.PointerCoords().apply {
+                this.x = point.first.toFloat()
+                this.y = point.second.toFloat()
+                pressure = if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) 0f else 1f
+                size = 1f
+            }
+            event = MotionEvent.obtain(
+                downTime, SystemClock.uptimeMillis(), action, 1,
+                arrayOf(properties), arrayOf(coordinates), 0, 0,
+                1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0
+            )
+            setDisplayIdMethod.invoke(event, displayId)
+            val accepted = injectInputEventMethod.invoke(inputManagerService, event, INJECT_WAIT_FOR_RESULT) as? Boolean ?: false
+            lastError = if (accepted) "TOUCH accepted • display=$displayId • action=$action • x=${point.first} y=${point.second}"
+                else "TOUCH rejected • display=$displayId • action=$action • x=${point.first} y=${point.second}"
+            if (!accepted) Log.w(TAG, lastError)
+            return accepted
+        } catch (error: Throwable) {
+            lastError = "TOUCH gagal • ${error.javaClass.simpleName}: ${error.message}"
+            Log.w(TAG, lastError, error)
+            return false
+        } finally {
+            runCatching { event?.recycle() }
+            Binder.restoreCallingIdentity(identity)
+        }
     }
 
     override fun injectMouseClick(displayId: Int, x: Float, y: Float): Boolean {

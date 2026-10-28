@@ -183,6 +183,32 @@ class ShizukuBridge(
         }
     }
 
+    fun injectTouchEvent(displayId: Int, action: Int, x: Float, y: Float): Boolean {
+        return try {
+            val service = remote ?: throw IllegalStateException("Shizuku UserService belum terhubung.")
+            val accepted = service.injectTouchEvent(displayId, action, x, y)
+            if (!accepted) onStatus("Sentuhan ditolak: ${service.getLastError()}")
+            accepted
+        } catch (error: Throwable) {
+            Log.e(TAG, "injectTouchEvent failed", error)
+            onStatus("Sentuhan gagal: ${error.cause?.message ?: error.message}")
+            false
+        }
+    }
+
+    fun injectTouchClick(displayId: Int, x: Float, y: Float): Boolean {
+        return try {
+            val service = remote ?: throw IllegalStateException("Shizuku UserService belum terhubung.")
+            val accepted = service.injectTouchClick(displayId, x, y)
+            if (!accepted) onStatus("Tap layar ditolak: ${service.getLastError()}")
+            accepted
+        } catch (error: Throwable) {
+            Log.e(TAG, "injectTouchClick failed", error)
+            onStatus("Tap layar gagal: ${error.cause?.message ?: error.message}")
+            false
+        }
+    }
+
     fun injectMouseButton(displayId: Int, action: Int, x: Float, y: Float): Boolean {
         return try {
             val service = remote ?: throw IllegalStateException("Shizuku UserService belum terhubung.")

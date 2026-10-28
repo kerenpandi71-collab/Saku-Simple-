@@ -80,6 +80,18 @@ class VirtualDisplayController(
         return shizukuBridge.injectMouseClick(id, x, y)
     }
 
+    fun injectTouchEvent(action: Int, x: Float, y: Float): Boolean {
+        val id = displayId
+        if (id < 0) return false
+        return shizukuBridge.injectTouchEvent(id, action, x, y)
+    }
+
+    fun injectTouchClick(x: Float, y: Float): Boolean {
+        val id = displayId
+        if (id < 0) return false
+        return shizukuBridge.injectTouchClick(id, x, y)
+    }
+
     fun injectMouseButton(action: Int, x: Float, y: Float): Boolean {
         val id = displayId
         if (id < 0) return false
