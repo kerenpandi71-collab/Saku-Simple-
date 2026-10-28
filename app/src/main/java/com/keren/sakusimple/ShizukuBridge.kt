@@ -41,7 +41,7 @@ class ShizukuBridge(
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             remote = IVirtualDisplayService.Stub.asInterface(binder)
             binding = false
-            onStatus("Shizuku terhubung (\${runCatching { "UID \${Shizuku.getUid()}" }.getOrDefault("UID tidak diketahui")}).")
+            onStatus("Shizuku terhubung (${runCatching { "UID ${Shizuku.getUid()}" }.getOrDefault("UID tidak diketahui")}).")
             finishPending(remote != null)
         }
 
@@ -104,7 +104,7 @@ class ShizukuBridge(
         val permissionGranted = try {
             Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
         } catch (error: Throwable) {
-            onStatus("Belum dapat memeriksa izin Shizuku: \${error.message ?: error.javaClass.simpleName}")
+            onStatus("Belum dapat memeriksa izin Shizuku: ${error.message ?: error.javaClass.simpleName}")
             false
         }
         if (!permissionGranted) {
@@ -115,7 +115,7 @@ class ShizukuBridge(
                     onStatus("Menunggu izin Shizuku…")
                 } catch (error: Throwable) {
                     permissionRequestPending = false
-                    onStatus("Tidak dapat meminta izin Shizuku: \${error.message ?: error.javaClass.simpleName}")
+                    onStatus("Tidak dapat meminta izin Shizuku: ${error.message ?: error.javaClass.simpleName}")
                     finishPending(false)
                 }
             }
@@ -128,7 +128,7 @@ class ShizukuBridge(
             onStatus("Memulai Shizuku UserService…")
         } catch (error: Throwable) {
             binding = false
-            onStatus("Gagal mengikat UserService: \${error.message ?: error.javaClass.simpleName}")
+            onStatus("Gagal mengikat UserService: ${error.message ?: error.javaClass.simpleName}")
             finishPending(false)
         }
     }
@@ -158,7 +158,7 @@ class ShizukuBridge(
                 callback(id, error)
             } catch (error: Throwable) {
                 Log.e(TAG, "createVirtualDisplay call failed", error)
-                callback(-1, "\${error.cause?.message ?: error.message ?: error.javaClass.simpleName}")
+                callback(-1, "${error.cause?.message ?: error.message ?: error.javaClass.simpleName}")
             }
         }
     }
@@ -168,7 +168,7 @@ class ShizukuBridge(
             remote?.injectTap(displayId, x, y) ?: false
         } catch (error: Throwable) {
             Log.e(TAG, "injectTap failed", error)
-            onStatus("Tap via Shizuku gagal: \${error.cause?.message ?: error.message}")
+            onStatus("Tap via Shizuku gagal: ${error.cause?.message ?: error.message}")
             false
         }
     }
@@ -178,7 +178,7 @@ class ShizukuBridge(
             remote?.injectSwipe(displayId, x1, y1, x2, y2, durationMs) ?: false
         } catch (error: Throwable) {
             Log.e(TAG, "injectSwipe failed", error)
-            onStatus("Swipe via Shizuku gagal: \${error.cause?.message ?: error.message}")
+            onStatus("Swipe via Shizuku gagal: ${error.cause?.message ?: error.message}")
             false
         }
     }
@@ -194,7 +194,7 @@ class ShizukuBridge(
             activity.startActivity(intent, options.toBundle())
             true
         } catch (error: Throwable) {
-            onStatus("Android menolak membuka Pengaturan di display $displayId: \${error.cause?.message ?: error.message}")
+            onStatus("Android menolak membuka Pengaturan di display $displayId: ${error.cause?.message ?: error.message}")
             false
         }
     }
