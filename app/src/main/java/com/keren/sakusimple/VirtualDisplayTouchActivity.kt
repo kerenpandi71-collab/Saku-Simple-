@@ -20,6 +20,10 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.ScrollView
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.activity.ComponentActivity
 import kotlin.math.max
 import kotlin.math.min
@@ -27,6 +31,9 @@ import kotlin.math.min
 /** Main touchpad UI. Preview fills its frame; touchpad maps to the fixed 720 x 1280 virtual display. */
 class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var status: TextView
+    private lateinit var runtimeLog: TextView
+    private lateinit var runtimeLogScroll: ScrollView
+    private val runtimeLogBuffer = StringBuilder()
     private lateinit var shizukuBridge: ShizukuBridge
     private var cursor: View? = null
     private var virtualDisplayController: VirtualDisplayController? = null
@@ -67,6 +74,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         shizukuBridge = ShizukuBridge(this) { message ->
             runOnUiThread {
                 if (::status.isInitialized) status.text = message
+                appendRuntimeLog(message)
             }
         }
 
@@ -182,6 +190,35 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
         ))
 
+        root.addView(TextView(this).apply {
+            text = "RUNTIME LOG • tahan lama untuk salin"
+            textSize = 11f
+            setTextColor(Color.LTGRAY)
+            setPadding(dp(2), dp(4), 0, dp(2))
+        })
+        runtimeLog = TextView(this).apply {
+            textSize = 10f
+            setTextColor(Color.rgb(180, 235, 248))
+            setTextIsSelectable(true)
+            text = "Log runtime siap. Hasil Shizuku dan error akan muncul di sini."
+            setPadding(dp(6), dp(5), dp(6), dp(5))
+            setOnLongClickListener {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Saku Simple runtime log", runtimeLogBuffer.toString()))
+                appendRuntimeLog("Log disalin ke clipboard.")
+                true
+            }
+        }
+        runtimeLogScroll = ScrollView(this).apply {
+            isFillViewport = true
+            addView(runtimeLog, ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT
+            ))
+        }
+        root.addView(runtimeLogScroll, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(112)
+        ))
+
         setContentView(root)
     }
 
@@ -215,16 +252,20 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                     }
                     if (old != null && old !== bitmap && !old.isRecycled) old.recycle()
                 },
-                onStatus = { message -> status.text = message }
+                onStatus = { message ->
+                    status.text = message
+                    appendRuntimeLog(message)
+                }
             )
         }
         receivedFrames = 0L
         displayDiagnostics = "memeriksa state display…"
-        status.text = "Meminta Shizuku membuat display 1280 × 720 landscape…"
+        status.text = "Meminta Shizuku membuat display 1280 × 720 landscape • densityDpi=160…"
+        appendRuntimeLog("Meminta display 1280×720 dengan densityDpi=160.")
         virtualDisplayController?.start(
             width = targetWidth,
             height = targetHeight,
-            densityDpi = resources.displayMetrics.densityDpi
+            densityDpi = 160
         )
         // If the display exists but no frame has arrived, expose that distinction explicitly.
         status.postDelayed({
@@ -234,6 +275,22 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 status.text = "ImageReader belum menerima frame • $displayDiagnostics"
             }
         }, 4000L)
+    }
+
+    private fun appendRuntimeLog(message: String) {
+        if (!::runtimeLog.isInitialized) return
+        val timestamp = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.getDefault())
+            .format(java.util.Date())
+        runtimeLogBuffer.append("[").append(timestamp).append("] ")
+            .append(message).append('
+')
+        if (runtimeLogBuffer.length > 12000) {
+            runtimeLogBuffer.delete(0, runtimeLogBuffer.length - 9000)
+        }
+        runtimeLog.text = runtimeLogBuffer.toString()
+        if (::runtimeLogScroll.isInitialized) {
+            runtimeLogScroll.post { runtimeLogScroll.fullScroll(View.FOCUS_DOWN) }
+        }
     }
 
     private fun clearPreview() {

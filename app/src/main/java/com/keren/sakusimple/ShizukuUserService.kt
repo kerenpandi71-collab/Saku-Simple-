@@ -3,8 +3,6 @@ package com.keren.sakusimple
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
-import android.app.ActivityOptions
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.hardware.input.InputManager
@@ -232,98 +230,58 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             return false
         }
         val candidates = listOf(
-            "Kalkulator" to Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_CALCULATOR),
-            "Browser" to Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_BROWSER),
-            "Browser contoh" to Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com"))
+            "Kalkulator" to "am start --display $displayId -W -a android.intent.action.MAIN -c android.intent.category.APP_CALCULATOR -f 0x1c000000",
+            "Browser" to "am start --display $displayId -W -a android.intent.action.MAIN -c android.intent.category.APP_BROWSER -f 0x1c000000",
+            "Browser contoh" to "am start --display $displayId -W -a android.intent.action.VIEW -d https://example.com -f 0x1c000000"
         )
-        val failures = mutableListOf<String>()
-        for ((label, intent) in candidates) {
-            val accepted = startIntentOnDisplay(displayId, intent)
-            val result = lastError
-            if (accepted) {
-                lastError = "$label • $result"
-                Log.i(TAG, lastError)
+        val attempts = mutableListOf<String>()
+        for ((label, command) in candidates) {
+            val result = runShizukuShell(command)
+            val detail = "$label • exit=${result.first} • ${result.second}"
+            attempts += detail
+            val output = result.second
+            val appearsSuccessful = result.first == 0 &&
+                output.contains("Status: ok", ignoreCase = true) &&
+                !output.contains("Warning: Activity not started", ignoreCase = true) &&
+                !output.contains("Error:", ignoreCase = true)
+            Log.i(TAG, "Launch candidate: $detail")
+            if (appearsSuccessful) {
+                lastError = "Shell launch diterima • target display=$displayId • flags=0x1c000000 • $detail"
                 return true
             }
-            failures += "$label: $result"
         }
-        lastError = "Kalkulator/Browser tidak berhasil dibuka pada display $displayId. " +
-            failures.joinToString(" | ").take(1200)
+        lastError = "Semua percobaan shell launch gagal atau ditolak • target display=$displayId • " +
+            attempts.joinToString(" || ").take(2400)
         Log.w(TAG, lastError)
         return false
     }
 
-    private fun startIntentOnDisplay(displayId: Int, sourceIntent: Intent): Boolean {
+    /**
+     * Run a bounded, literal Android shell command in the Shizuku UserService process.
+     * Commands are assembled only from the validated display ID and hard-coded intents.
+     */
+    private fun runShizukuShell(command: String): Pair<Int, String> {
+        var process: Process? = null
         return try {
-            enableHiddenApiAccess()
-            val launchIntent = Intent(sourceIntent).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            val identity = Binder.clearCallingIdentity()
+            try {
+                process = ProcessBuilder("/system/bin/sh", "-c", command)
+                    .redirectErrorStream(true)
+                    .start()
+                val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
+                val exitCode = process.waitFor()
+                val compact = output.ifBlank { "(output kosong)" }.take(900)
+                exitCode to compact
+            } finally {
+                Binder.restoreCallingIdentity(identity)
             }
-            val activityOptions = ActivityOptions.makeBasic()
-            val setter = ActivityOptions::class.java.getDeclaredMethod("setLaunchDisplayId", Int::class.javaPrimitiveType).apply { isAccessible = true }
-            setter.invoke(activityOptions, displayId)
-            val options = activityOptions.toBundle()
-            val managerClass = Class.forName("android.app.ActivityTaskManager")
-            val getService = managerClass.getDeclaredMethod("getService").apply { isAccessible = true }
-            val manager = getService.invoke(null) ?: throw IllegalStateException("ActivityTaskManager tidak tersedia.")
-            val interfaceClass = Class.forName("android.app.IActivityTaskManager")
-            val method = interfaceClass.declaredMethods.firstOrNull { candidate ->
-                candidate.name == "startActivity" &&
-                    candidate.parameterTypes.contains(Intent::class.java) &&
-                    candidate.parameterTypes.lastOrNull() == android.os.Bundle::class.java
-            } ?: throw NoSuchMethodException("IActivityTaskManager.startActivity tidak ditemukan.")
-            method.isAccessible = true
-            val types = method.parameterTypes
-            val intentIndex = types.indexOf(Intent::class.java)
-            if (intentIndex < 0) throw NoSuchMethodException("Parameter Intent tidak ditemukan.")
-            var preIntentStringIndex = 0
-            val args = arrayOfNulls<Any>(types.size)
-            for (index in types.indices) {
-                val type = types[index]
-                args[index] = when {
-                    type == Intent::class.java -> launchIntent
-                    type == String::class.java && index < intentIndex -> {
-                        preIntentStringIndex++
-                        when (preIntentStringIndex) {
-                            1 -> if (android.os.Process.myUid() == 2000) "com.android.shell" else null
-                            else -> "SakuShizuku"
-                        }
-                    }
-                    type == String::class.java -> null
-                    type == android.os.Bundle::class.java -> options
-                    type.name == "android.app.IApplicationThread" -> null
-                    type.name == "android.app.ProfilerInfo" -> null
-                    IBinder::class.java.isAssignableFrom(type) -> null
-                    type == Int::class.javaPrimitiveType -> 0
-                    type == Long::class.javaPrimitiveType -> 0L
-                    type == Boolean::class.javaPrimitiveType -> false
-                    type == Float::class.javaPrimitiveType -> 0f
-                    type == Double::class.javaPrimitiveType -> 0.0
-                    else -> null
-                }
-            }
-            val code = method.invoke(manager, *args) as? Int
-                ?: throw IllegalStateException("ActivityTaskManager tidak mengembalikan kode.")
-            val flags = "0x${(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP).toString(16)}"
-            val resultName = when (code) {
-                0 -> "START_SUCCESS"
-                2 -> "START_TASK_TO_FRONT"
-                3 -> "START_DELIVERED_TO_TOP"
-                else -> "START_RESULT_$code"
-            }
-            val accepted = code >= 0
-            lastError = if (accepted) {
-                "ActivityTaskManager menerima launch • display=$displayId • flags=$flags (NEW_TASK|MULTIPLE_TASK|CLEAR_TOP) • $resultName"
-            } else {
-                "ActivityTaskManager menolak intent • display=$displayId • $resultName"
-            }
-            if (!accepted) Log.w(TAG, lastError)
-            accepted
         } catch (error: Throwable) {
             val cause = error.cause ?: error
-            lastError = "Launch display $displayId gagal: ${cause.javaClass.simpleName}: ${cause.message ?: "tanpa detail"}"
-            Log.e(TAG, lastError, cause)
-            false
+            val detail = "${cause.javaClass.simpleName}: ${cause.message ?: "tanpa detail"}"
+            Log.e(TAG, "Shell command failed: $command", cause)
+            -1 to detail
+        } finally {
+            runCatching { process?.destroy() }
         }
     }
 
