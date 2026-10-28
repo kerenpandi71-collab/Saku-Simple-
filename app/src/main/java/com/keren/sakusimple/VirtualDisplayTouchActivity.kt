@@ -57,6 +57,11 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     }
     private lateinit var runtimeLogToggle: Button
     private lateinit var bottomPanel: LinearLayout
+    private lateinit var keyboardPanel: LinearLayout
+    private var keyboardPanelVisible = true
+    private var cyberShift = false
+    private var cyberCtrl = false
+    private var cyberAlt = false
     private lateinit var panelToggleButton: Button
     private lateinit var directTouchButton: Button
     private lateinit var previewSizeSeekBar: SeekBar
@@ -133,7 +138,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 override fun surfaceDestroyed(holder: SurfaceHolder) = Unit
             })
         }
-        root.addView(preview, FrameLayout.LayoutParams(-1, dp(300), Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+        root.addView(preview, FrameLayout.LayoutParams(-1, dp(240), Gravity.TOP or Gravity.CENTER_HORIZONTAL))
         cursorOverlay = object : View(this) {
             override fun onDraw(canvas: Canvas) { super.onDraw(canvas); drawDextopCursor(canvas) }
         }.apply {
@@ -358,6 +363,75 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         root.addView(assistantBall, ballParams)
 
+        // Panel keyboard berdiri sendiri: tidak digambar di SurfaceView preview dan tidak mengambil gesture trackpad.
+        keyboardPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(5), dp(4), dp(5), dp(4))
+            background = roundedPanel(238, 13)
+            elevation = dp(7).toFloat()
+            contentDescription = "Keyboard fisik virtual Cyberdeck"
+        }
+        val keyboardTitle = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        keyboardTitle.addView(TextView(this).apply {
+            text = "CYBERDECK  /  KEY INPUT"
+            textSize = 9f
+            typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
+            setTextColor(Color.rgb(83, 242, 219))
+            letterSpacing = 0.06f
+        }, LinearLayout.LayoutParams(0, dp(22), 1f))
+        keyboardTitle.addView(actionButton("⌨ Sembunyi") {
+            keyboardPanelVisible = false
+            keyboardPanel.visibility = View.GONE
+            updateDesktopLayout(root.width, root.height)
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(26)))
+        keyboardPanel.addView(keyboardTitle)
+
+        fun keyRow(labels: List<String>, weights: List<Float> = labels.map { 1f }) {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+            labels.forEachIndexed { index, label ->
+                val button = cyberKey(label, label.length > 1) {
+                    when (label) {
+                        "SHIFT" -> { cyberShift = !cyberShift; updateModifierLabels() }
+                        "CTRL" -> { cyberCtrl = !cyberCtrl; updateModifierLabels() }
+                        "ALT" -> { cyberAlt = !cyberAlt; updateModifierLabels() }
+                        "SPACE" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_SPACE)
+                        "TAB" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_TAB)
+                        "ESC" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_ESCAPE)
+                        "CAPS" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_CAPS_LOCK)
+                        "⌫" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_DEL)
+                        "ENTER" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_ENTER)
+                        "←" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_DPAD_LEFT)
+                        "↑" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_DPAD_UP)
+                        "↓" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_DPAD_DOWN)
+                        "→" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_DPAD_RIGHT)
+                        "FN" -> status.text = "Fn belum dipetakan ke fungsi sistem tertentu."
+                        else -> {
+                            val key = if (cyberShift) label.uppercase() else label.lowercase()
+                            if (key.length == 1 && key[0].isLetter()) sendTypedText(key)
+                            else {
+                                val code = android.view.KeyEvent.keyCodeFromString("KEYCODE_$key")
+                                if (code != android.view.KeyEvent.KEYCODE_UNKNOWN) sendKeyboardKey(code)
+                                else sendTypedText(key)
+                            }
+                        }
+                    }
+                }
+                button.tag = label
+                row.addView(button, LinearLayout.LayoutParams(0, 0, weights[index]).apply {
+                    setMargins(dp(2), dp(2), dp(2), dp(2))
+                })
+            }
+            keyboardPanel.addView(row, LinearLayout.LayoutParams(-1, 0, 1f))
+        }
+        keyRow(listOf("ESC", "F1", "F2", "F3", "F4", "F5", "F6"), listOf(1.15f, 1f, 1f, 1f, 1f, 1f, 1f))
+        keyRow(listOf("TAB", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"), listOf(1.25f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f))
+        keyRow(listOf("CAPS", "A", "S", "D", "F", "G", "H", "J", "K", "L"), listOf(1.4f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f))
+        keyRow(listOf("SHIFT", "Z", "X", "C", "V", "B", "N", "M", "⌫"), listOf(1.4f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1.4f))
+        keyRow(listOf("CTRL", "FN", "ALT", "SPACE", "←", "↑", "↓", "→"), listOf(1.05f, 0.85f, 0.9f, 2.5f, 0.8f, 0.8f, 0.8f, 0.8f))
+        root.addView(keyboardPanel, FrameLayout.LayoutParams(-1, dp(240), Gravity.TOP).apply {
+            leftMargin = dp(7); rightMargin = dp(7); topMargin = dp(248)
+        })
+
         bottomPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(7), dp(4), dp(7), dp(7))
@@ -366,16 +440,27 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         val panelHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         panelHeader.addView(TextView(this).apply {
-            text = "TOUCHPAD • 1 jari kursor / tap klik / 2 jari scroll"
+            text = "TRACKPAD • 1 jari kursor / tap klik / 2 jari scroll"
             textSize = 9f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
             maxLines = 1
-        }, LinearLayout.LayoutParams(0, dp(30), 1f))
-        panelHeader.addView(actionButton("⌨ Keyboard") { showVirtualKeyboard() },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)))
-        panelHeader.addView(actionButton("Sembunyi") { toggleInputPanel() },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)))
+        }, LinearLayout.LayoutParams(0, dp(28), 1f))
+        panelHeader.addView(actionButton("🖱 Kursor") {
+            directTouchEnabled = false
+            directTouchButton.text = "Touch: OFF"
+            bottomPanel.visibility = View.VISIBLE
+            status.text = "Mode trackpad aktif."
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(28)))
+        panelHeader.addView(actionButton("⌨") {
+            keyboardPanelVisible = !keyboardPanelVisible
+            keyboardPanel.visibility = if (keyboardPanelVisible) View.VISIBLE else View.GONE
+            updateDesktopLayout(root.width, root.height)
+        }, LinearLayout.LayoutParams(dp(38), dp(28)))
+        panelHeader.addView(actionButton("⚙") {
+            topBar.visibility = View.VISIBLE
+            status.text = "Pengaturan resolusi dan DPI tersedia di panel Saku Desktop."
+        }, LinearLayout.LayoutParams(dp(38), dp(28)))
         bottomPanel.addView(panelHeader)
         val virtualNavRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         virtualNavRow.addView(actionButton("◀ Back") { sendVirtualNavigationKey(android.view.KeyEvent.KEYCODE_BACK) },
@@ -391,8 +476,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         stage.setOnTouchListener { _, event -> handleTouch(event, stage.width, stage.height) }
         bottomPanel.addView(stage, LinearLayout.LayoutParams(-1, 0, 1f))
-        root.addView(bottomPanel, FrameLayout.LayoutParams(-1, dp(228), Gravity.TOP).apply {
-            leftMargin = dp(7); rightMargin = dp(7); topMargin = dp(300)
+        root.addView(bottomPanel, FrameLayout.LayoutParams(-1, dp(210), Gravity.BOTTOM).apply {
+            leftMargin = dp(7); rightMargin = dp(7); bottomMargin = dp(7)
         })
         root.addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
             updateDesktopLayout(right - left, bottom - top)
@@ -440,6 +525,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         // Text sink untuk IME Android; huruf diubah jadi KeyCharacterMap events lalu dikirim ke Shizuku.
         keyboardInput = EditText(this).apply {
             setSingleLine(true)
+            showSoftInputOnFocus = false
+            isFocusable = false
+            isFocusableInTouchMode = false
             textSize = 12f
             hint = "Ketik ke layar virtual"
             setTextColor(Color.WHITE)
@@ -607,10 +695,15 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
     }
 
-    private var cyberShift = false
     private var cyberSymbols = false
 
     private fun showVirtualKeyboard() {
+        keyboardPanelVisible = true
+        keyboardPanel.visibility = View.VISIBLE
+        updateDesktopLayout((preview?.parent as? View)?.width ?: 0, (preview?.parent as? View)?.height ?: 0)
+        status.text = "Keyboard Cyberdeck aktif • terpisah dari preview dan trackpad."
+        return
+        @Suppress("UNREACHABLE_CODE")
         val dialog = android.app.Dialog(this)
         val shell = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -716,6 +809,42 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             stateListAnimator = null
             setOnClickListener { action() }
         }
+
+    private fun updateModifierLabels() {
+        if (!::keyboardPanel.isInitialized) return
+        for (i in 0 until keyboardPanel.childCount) {
+            val row = keyboardPanel.getChildAt(i) as? LinearLayout ?: continue
+            for (j in 0 until row.childCount) {
+                val button = row.getChildAt(j) as? Button ?: continue
+                when (button.tag as? String) {
+                    "SHIFT" -> button.text = if (cyberShift) "SHIFT •" else "SHIFT"
+                    "CTRL" -> button.text = if (cyberCtrl) "CTRL •" else "CTRL"
+                    "ALT" -> button.text = if (cyberAlt) "ALT •" else "ALT"
+                }
+            }
+        }
+    }
+
+    private fun sendKeyboardKey(keyCode: Int) {
+        val meta = (if (cyberShift) android.view.KeyEvent.META_SHIFT_ON else 0) or
+            (if (cyberCtrl) android.view.KeyEvent.META_CTRL_ON else 0) or
+            (if (cyberAlt) android.view.KeyEvent.META_ALT_ON else 0)
+        if ((virtualDisplayController?.displayId ?: -1) < 0) {
+            status.text = "Mulai virtual display dahulu."
+            return
+        }
+        mouseInputExecutor.execute {
+            val accepted = virtualDisplayController?.injectKeyEvents(
+                intArrayOf(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.ACTION_UP),
+                intArrayOf(keyCode, keyCode),
+                intArrayOf(meta, meta)
+            ) ?: false
+            if (!accepted) runOnUiThread {
+                status.text = "Tombol keyboard gagal dikirim."
+                appendRuntimeLog("Cyberdeck keyCode=$keyCode gagal: " + shizukuBridge.getLastError())
+            }
+        }
+    }
 
     private fun sendTypedText(text: String) {
         val events = runCatching {
@@ -1086,7 +1215,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private fun updateDesktopLayout(rootWidth: Int, rootHeight: Int) {
         if (rootWidth <= 0 || rootHeight <= 0 || !::bottomPanel.isInitialized) return
         val desktopWidth = (rootWidth * previewSizePercent / 100).coerceIn(dp(180), rootWidth)
-        val desktopHeight = (desktopWidth * targetHeight.toFloat() / targetWidth).toInt().coerceAtLeast(dp(90))
+        val desktopHeight = (rootHeight * 40 / 100).coerceAtLeast(dp(100))
         val previewParams = preview?.layoutParams as? FrameLayout.LayoutParams
         if (previewParams != null &&
             (previewParams.width != desktopWidth || previewParams.height != desktopHeight ||
@@ -1099,15 +1228,30 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         val panelParams = bottomPanel.layoutParams as? FrameLayout.LayoutParams
         if (panelParams != null) {
-            val dockHeight = (topBarHeight()).coerceAtLeast(dp(150))
-            val panelHeight = (rootHeight * touchpadHeightPercent / 100).coerceIn(dp(170), (rootHeight * 0.52f).toInt().coerceAtLeast(dp(170)))
-            val minTop = desktopHeight + dp(8)
-            val maxTop = (rootHeight - dockHeight - panelHeight - dp(8)).coerceAtLeast(minTop)
-            val desiredTop = minTop + ((maxTop - minTop) * panelPositionPercent / 100)
-            if (panelParams.topMargin != desiredTop || panelParams.height != panelHeight) {
+            val panelHeight = (rootHeight * 30 / 100).coerceAtLeast(dp(120))
+            val desiredTop = (rootHeight * 70 / 100).coerceAtMost(rootHeight - panelHeight)
+            if (panelParams.topMargin != desiredTop || panelParams.height != panelHeight ||
+                panelParams.gravity != Gravity.TOP
+            ) {
+                panelParams.gravity = Gravity.TOP
                 panelParams.topMargin = desiredTop
+                panelParams.bottomMargin = 0
                 panelParams.height = panelHeight
                 bottomPanel.layoutParams = panelParams
+            }
+        }
+        val keyboardParams = keyboardPanel.layoutParams as? FrameLayout.LayoutParams
+        if (keyboardParams != null) {
+            keyboardPanel.visibility = if (keyboardPanelVisible) View.VISIBLE else View.GONE
+            val middleHeight = (rootHeight * 30 / 100).coerceAtLeast(dp(130))
+            val middleTop = rootHeight * 40 / 100
+            if (keyboardParams.topMargin != middleTop || keyboardParams.height != middleHeight ||
+                keyboardParams.gravity != Gravity.TOP
+            ) {
+                keyboardParams.gravity = Gravity.TOP
+                keyboardParams.topMargin = middleTop
+                keyboardParams.height = middleHeight
+                keyboardPanel.layoutParams = keyboardParams
             }
         }
     }
