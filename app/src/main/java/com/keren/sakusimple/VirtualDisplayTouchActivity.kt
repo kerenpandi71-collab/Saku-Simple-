@@ -7,7 +7,6 @@ import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.Color
 import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
@@ -25,8 +24,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.activity.ComponentActivity
-import kotlin.math.max
-import kotlin.math.min
 
 /** Main touchpad UI. Preview fills its frame; touchpad maps to the fixed 720 x 1280 virtual display. */
 class VirtualDisplayTouchActivity : ComponentActivity() {
@@ -55,6 +52,10 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var downY = 0f
     private var gestureStartX = targetWidth / 2f
     private var gestureStartY = targetHeight / 2f
+    private var gestureStartedAtMs = 0L
+    private var longPressDragArmed = false
+    private val cursorSensitivity = 1.15f
+    private val longPressDragTimeoutMs = 450L
     private var currentPreviewBitmap: Bitmap? = null
     private var moved = false
     private var receivedFrames = 0L
@@ -166,9 +167,11 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 override fun surfaceDestroyed(holder: SurfaceHolder) = Unit
             })
         }
+        val previewWidthPx = (resources.displayMetrics.widthPixels - dp(20)).coerceAtLeast(dp(180))
+        val previewHeightPx = (previewWidthPx.toFloat() * targetHeight / targetWidth).toInt().coerceAtLeast(dp(90))
         previewFrame.addView(
             preview,
-            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER)
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL)
         )
         cursorOverlay = object : View(this) {
             override fun onDraw(canvas: Canvas) {
@@ -185,28 +188,11 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             cursorOverlay,
             FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
         )
-        previewFrame.addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
-            val availableWidth = view.width
-            val availableHeight = view.height
-            if (availableWidth > 0 && availableHeight > 0) {
-                val scale = min(
-                    availableWidth.toFloat() / targetWidth,
-                    availableHeight.toFloat() / targetHeight
-                )
-                val contentWidth = (targetWidth * scale).toInt().coerceAtLeast(1)
-                val contentHeight = (targetHeight * scale).toInt().coerceAtLeast(1)
-                val params = preview?.layoutParams as? FrameLayout.LayoutParams
-                if (params != null && (params.width != contentWidth || params.height != contentHeight)) {
-                    params.width = contentWidth
-                    params.height = contentHeight
-                    params.gravity = Gravity.CENTER
-                    preview?.layoutParams = params
-                }
-                cursorOverlay?.invalidate()
-            }
+        previewFrame.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            cursorOverlay?.invalidate()
         }
         root.addView(previewFrame, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 5f
+            LinearLayout.LayoutParams.MATCH_PARENT, previewHeightPx
         ).apply { topMargin = dp(3); bottomMargin = dp(4) })
 
         root.addView(TextView(this).apply {
@@ -442,6 +428,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 downX = x
                 downY = y
                 moved = false
+                longPressDragArmed = false
+                gestureStartedAtMs = SystemClock.uptimeMillis()
                 gestureStartX = cursorX
                 gestureStartY = cursorY
                 cursorOverlay?.invalidate()
@@ -453,36 +441,62 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 if (kotlin.math.abs(x - downX) > dp(8) || kotlin.math.abs(y - downY) > dp(8)) {
                     moved = true
                 }
-                cursorX = (cursorX + deltaX * targetWidth / width.toFloat())
+                val elapsed = (SystemClock.uptimeMillis() - gestureStartedAtMs).coerceAtLeast(1L)
+                // Modest pointer acceleration makes quick travel easier while small movements stay precise.
+                val distance = kotlin.math.sqrt(deltaX * deltaX + deltaY * deltaY)
+                val speedPxPerMs = distance / elapsed.toFloat()
+                val acceleration = when {
+                    speedPxPerMs > 2.4f -> 1.65f
+                    speedPxPerMs > 1.2f -> 1.3f
+                    else -> 1.0f
+                }
+                cursorX = (cursorX + deltaX * targetWidth / width.toFloat() * cursorSensitivity * acceleration)
                     .coerceIn(0f, (targetWidth - 1).toFloat())
-                cursorY = (cursorY + deltaY * targetHeight / height.toFloat())
+                cursorY = (cursorY + deltaY * targetHeight / height.toFloat() * cursorSensitivity * acceleration)
                     .coerceIn(0f, (targetHeight - 1).toFloat())
                 lastTouchX = x
                 lastTouchY = y
+                val heldFor = SystemClock.uptimeMillis() - gestureStartedAtMs
+                longPressDragArmed = moved && heldFor >= longPressDragTimeoutMs
+                // Only redraw the overlay; pointer motion must not repaint the captured display.
                 cursorOverlay?.invalidate()
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                    longPressDragArmed = false
+                    return true
+                }
                 val controller = virtualDisplayController
                 if (controller == null || controller.displayId < 0) {
                     status.text = "Buat virtual display lewat Shizuku sebelum mengirim sentuhan."
                     return true
                 }
-                if (event.actionMasked == MotionEvent.ACTION_CANCEL) return true
-                cursorOverlay?.invalidate()
-
                 val endX = cursorX.coerceIn(0f, (targetWidth - 1).toFloat())
                 val endY = cursorY.coerceIn(0f, (targetHeight - 1).toFloat())
-                // A short touch clicks exactly where the visible preview pointer is.
-                // Moving while held sends a drag/swipe from the pointer's down position.
-                val accepted = if (moved) {
-                    controller.injectSwipe(gestureStartX, gestureStartY, endX, endY)
-                } else {
-                    controller.injectTap(endX, endY)
+                val heldFor = SystemClock.uptimeMillis() - gestureStartedAtMs
+
+                // Match Dextop cursor mode: pointer movement alone moves the pointer;
+                // a simple tap clicks; press-and-hold + movement performs a drag.
+                val accepted = when {
+                    longPressDragArmed && moved -> {
+                        controller.injectSwipe(
+                            gestureStartX,
+                            gestureStartY,
+                            endX,
+                            endY,
+                            heldFor.coerceIn(180L, 1200L)
+                        )
+                    }
+                    !moved && heldFor < longPressDragTimeoutMs -> controller.injectTap(endX, endY)
+                    else -> true // Normal pointer movement is local and should not scroll/click the target.
                 }
                 if (!accepted) {
                     status.text = "Input shell gagal. Detail perintah tersedia di Runtime Log."
+                } else if (!moved && heldFor < longPressDragTimeoutMs) {
+                    status.text = "Klik • x=${endX.toInt()} y=${endY.toInt()}"
                 }
+                longPressDragArmed = false
                 return true
             }
         }
