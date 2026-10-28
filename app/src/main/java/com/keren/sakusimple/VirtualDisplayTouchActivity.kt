@@ -607,14 +607,115 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
     }
 
+    private var cyberShift = false
+    private var cyberSymbols = false
+
     private fun showVirtualKeyboard() {
-        keyboardInput.requestFocus()
-        keyboardInput.post {
-            (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
-                .showSoftInput(keyboardInput, InputMethodManager.SHOW_IMPLICIT)
+        val dialog = android.app.Dialog(this)
+        val shell = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8), dp(10), dp(8), dp(10))
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(Color.rgb(7, 17, 31), Color.rgb(11, 32, 48))
+            ).apply {
+                cornerRadii = floatArrayOf(dp(18).toFloat(), dp(18).toFloat(), dp(18).toFloat(), dp(18).toFloat(),
+                    0f, 0f, 0f, 0f)
+                setStroke(dp(1), Color.rgb(37, 190, 191))
+            }
         }
-        status.text = "Keyboard Android aktif • teks diteruskan ke display virtual."
+        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        header.addView(TextView(this).apply {
+            text = "CYBERDECK  /  INPUT CONSOLE"
+            textSize = 11f
+            typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
+            setTextColor(Color.rgb(83, 242, 219))
+            letterSpacing = 0.08f
+        }, LinearLayout.LayoutParams(0, dp(34), 1f))
+        val close = cyberKey("TUTUP", true) { dialog.dismiss() }
+        header.addView(close, LinearLayout.LayoutParams(dp(66), dp(34)))
+        shell.addView(header)
+        shell.addView(TextView(this).apply {
+            text = "VIRTUAL DISPLAY  •  KEY INPUT"
+            textSize = 8f
+            setTextColor(Color.rgb(116, 151, 174))
+            setPadding(dp(3), 0, 0, dp(6))
+        })
+        val rows = if (cyberSymbols) {
+            listOf("1234567890", "!@#$%&*()-", "[]{}?/+=_:;")
+        } else {
+            listOf("qwertyuiop", "asdfghjkl", "zxcvbnm")
+        }
+        rows.forEachIndexed { rowIndex, row ->
+            val line = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+            }
+            if (rowIndex == 2) {
+                line.addView(cyberKey(if (cyberShift) "SHIFT✓" else "SHIFT", true) {
+                    cyberShift = !cyberShift
+                    dialog.dismiss()
+                    showVirtualKeyboard()
+                }, LinearLayout.LayoutParams(0, dp(43), 1.35f).apply { setMargins(dp(2), dp(3), dp(2), dp(3)) })
+            }
+            row.forEach { char ->
+                val key = if (cyberShift && !cyberSymbols) char.uppercaseChar().toString() else char.toString()
+                line.addView(cyberKey(key, false) { sendTypedText(key) },
+                    LinearLayout.LayoutParams(0, dp(43), 1f).apply { setMargins(dp(2), dp(3), dp(2), dp(3)) })
+            }
+            if (rowIndex == 2) {
+                line.addView(cyberKey("⌫", true) { sendVirtualKey(android.view.KeyEvent.KEYCODE_DEL) },
+                    LinearLayout.LayoutParams(0, dp(43), 1.35f).apply { setMargins(dp(2), dp(3), dp(2), dp(3)) })
+            }
+            shell.addView(line)
+        }
+        val tools = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        tools.addView(cyberKey(if (cyberSymbols) "ABC" else "?123", true) {
+            cyberSymbols = !cyberSymbols
+            dialog.dismiss()
+            showVirtualKeyboard()
+        }, LinearLayout.LayoutParams(0, dp(44), 1.2f).apply { setMargins(dp(2), dp(3), dp(2), dp(3)) })
+        tools.addView(cyberKey("TAB", true) { sendVirtualKey(android.view.KeyEvent.KEYCODE_TAB) },
+            LinearLayout.LayoutParams(0, dp(44), 0.9f).apply { setMargins(dp(2), dp(3), dp(2), dp(3)) })
+        tools.addView(cyberKey("SPACE", false) { sendTypedText(" ") },
+            LinearLayout.LayoutParams(0, dp(44), 3.5f).apply { setMargins(dp(2), dp(3), dp(2), dp(3)) })
+        tools.addView(cyberKey("↵", true) { sendVirtualKey(android.view.KeyEvent.KEYCODE_ENTER) },
+            LinearLayout.LayoutParams(0, dp(44), 1.2f).apply { setMargins(dp(2), dp(3), dp(2), dp(3)) })
+        shell.addView(tools)
+        dialog.setContentView(shell)
+        dialog.window?.apply {
+            setBackgroundDrawableResource(android.R.color.transparent)
+            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            setGravity(Gravity.BOTTOM)
+            addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
+        }
+        dialog.setOnShowListener {
+            dialog.window?.clearFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
+            applyImmersiveMode()
+        }
+        dialog.show()
+        dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        dialog.window?.setGravity(Gravity.BOTTOM)
+        status.text = "Cyberdeck keyboard aktif • tombol dikirim ke virtual display."
     }
+
+    private fun cyberKey(label: String, utility: Boolean, action: () -> Unit): Button =
+        Button(this).apply {
+            text = label
+            textSize = if (label.length > 3) 9f else 13f
+            isAllCaps = false
+            typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
+            setTextColor(if (utility) Color.rgb(83, 242, 219) else Color.rgb(222, 244, 255))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(8).toFloat()
+                setColor(if (utility) Color.rgb(17, 53, 69) else Color.rgb(23, 39, 55))
+                setStroke(dp(1), if (utility) Color.rgb(37, 190, 191) else Color.rgb(49, 82, 103))
+            }
+            minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
+            setPadding(dp(2), 0, dp(2), 0)
+            stateListAnimator = null
+            setOnClickListener { action() }
+        }
 
     private fun sendTypedText(text: String) {
         val events = runCatching {
