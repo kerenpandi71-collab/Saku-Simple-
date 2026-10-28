@@ -360,7 +360,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 moveCursor(x, y, width, height)
                 val now = SystemClock.uptimeMillis()
                 val controller = virtualDisplayController
-                if (controller != null && controller.displayId >= 0 && now - lastHoverAtMs >= 24L) {
+                if (controller != null && controller.displayId >= 0 && now - lastHoverAtMs >= 120L) {
                     lastHoverAtMs = now
                     controller.injectHover(
                         mapTouchCoordinate(x, width, targetWidth),

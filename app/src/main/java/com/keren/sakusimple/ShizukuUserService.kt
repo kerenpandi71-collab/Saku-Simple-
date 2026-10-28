@@ -5,23 +5,13 @@ import android.content.Context
 import android.content.Intent
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
-import android.hardware.input.InputManager
 import android.os.Binder
-import android.os.IBinder
 import android.os.Build
-import android.os.Handler
-import android.os.HandlerThread
-import android.os.SystemClock
 import android.util.Log
-import android.view.InputDevice
-import android.view.InputEvent
-import android.view.MotionEvent
 import android.view.Surface
 import android.view.Display
-import java.lang.reflect.Method
+import java.util.concurrent.TimeUnit
 import org.lsposed.hiddenapibypass.HiddenApiBypass
-import kotlin.math.max
-import kotlin.math.min
 
 /**
  * Runs in Shizuku's shell/root UserService process.
@@ -34,8 +24,6 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
     private var serviceContext: Context? = null
     private var virtualDisplay: VirtualDisplay? = null
     @Volatile private var lastError: String = "Belum ada operasi."
-    private val inputThread = HandlerThread("SakuShizukuInput").apply { start() }
-    private val inputHandler = Handler(inputThread.looper)
 
     constructor(context: Context) : this() {
         serviceContext = context
@@ -103,116 +91,54 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
     }
 
     override fun injectTap(displayId: Int, x: Float, y: Float): Boolean {
-        val downTime = SystemClock.uptimeMillis()
-        val down = injectMotion(displayId, MotionEvent.ACTION_DOWN, x, y, downTime, downTime)
-        if (!down) return false
-        val upTime = SystemClock.uptimeMillis() + 8L
-        return injectMotion(displayId, MotionEvent.ACTION_UP, x, y, downTime, upTime)
+        val point = parseDisplayPoint(displayId, x, y) ?: return false
+        return runInputCommand(displayId, "input -d $displayId tap ${point.first} ${point.second}", "TAP")
+    }
+
+    override fun injectSwipe(displayId: Int, x1: Float, y1: Float, x2: Float, y2: Float, durationMs: Long): Boolean {
+        val start = parseDisplayPoint(displayId, x1, y1) ?: return false
+        val end = parseDisplayPoint(displayId, x2, y2) ?: return false
+        val duration = durationMs.coerceIn(50L, 2000L)
+        val command = "input -d $displayId swipe ${start.first} ${start.second} ${end.first} ${end.second} $duration"
+        return runInputCommand(displayId, command, "SWIPE")
     }
 
     override fun injectHover(displayId: Int, x: Float, y: Float): Boolean {
-        val now = SystemClock.uptimeMillis()
-        return injectMotion(displayId, MotionEvent.ACTION_HOVER_MOVE, x, y, now, now, InputDevice.SOURCE_MOUSE)
+        val point = parseDisplayPoint(displayId, x, y) ?: return false
+        val command = "input mouse -d $displayId motionevent MOVE ${point.first} ${point.second}"
+        return runInputCommand(displayId, command, "HOVER")
     }
 
-    override fun injectSwipe(
-        displayId: Int,
-        x1: Float,
-        y1: Float,
-        x2: Float,
-        y2: Float,
-        durationMs: Long
-    ): Boolean {
-        val duration = durationMs.coerceIn(50L, 2000L)
-        val downTime = SystemClock.uptimeMillis()
-        if (!injectMotion(displayId, MotionEvent.ACTION_DOWN, x1, y1, downTime, downTime)) {
-            return false
+    private fun parseDisplayPoint(displayId: Int, x: Float, y: Float): Pair<Int, Int>? {
+        if (displayId < 0 || displayId > 10000) {
+            lastError = "Input ditolak: display ID tidak valid ($displayId)."
+            return null
         }
-
-        val steps = (duration / 8L).toInt().coerceIn(2, 60)
-        for (step in 1 until steps) {
-            val fraction = step.toFloat() / steps
-            val x = x1 + (x2 - x1) * fraction
-            val y = y1 + (y2 - y1) * fraction
-            val delay = duration * step / steps
-            inputHandler.postDelayed({
-                injectMotion(
-                    displayId,
-                    MotionEvent.ACTION_MOVE,
-                    x,
-                    y,
-                    downTime,
-                    downTime + delay
-                )
-            }, delay)
+        if (!x.isFinite() || !y.isFinite()) {
+            lastError = "Input ditolak: koordinat bukan angka valid."
+            return null
         }
-        inputHandler.postDelayed({
-            injectMotion(
-                displayId,
-                MotionEvent.ACTION_UP,
-                x2,
-                y2,
-                downTime,
-                downTime + duration
-            )
-        }, duration)
-        lastError = "OK"
-        return true
+        return x.toInt().coerceIn(0, 1279) to y.toInt().coerceIn(0, 719)
     }
 
-    private fun injectMotion(
-        displayId: Int,
-        action: Int,
-        x: Float,
-        y: Float,
-        downTime: Long,
-        eventTime: Long,
-        source: Int = InputDevice.SOURCE_TOUCHSCREEN
-    ): Boolean {
-        var event: MotionEvent? = null
-        val identity = Binder.clearCallingIdentity()
-        return try {
-            enableHiddenApiAccess()
-            event = MotionEvent.obtain(
-                downTime,
-                max(downTime, eventTime),
-                action,
-                x,
-                y,
-                0
-            ).apply { this.source = source }
-
-            // setDisplayId is hidden on some Android releases. A Shizuku UserService is not
-            // subject to the normal app hidden-API restrictions; OEM policy may still differ.
-            val setter = motionDisplaySetter
-                ?: throw NoSuchMethodException("MotionEvent.setDisplayId(int) tidak ditemukan.")
-            setter.invoke(event, displayId)
-
-            val accepted = inputManagerInject.invoke(
-                inputManagerInstance,
-                event as InputEvent,
-                INJECT_INPUT_EVENT_MODE_ASYNC
-            ) as? Boolean ?: false
-
-            if (!accepted) {
-                lastError = "InputManager menolak event untuk display ID $displayId."
-            }
-            accepted
-        } catch (error: Throwable) {
-            val cause = error.cause ?: error
-            lastError = "${cause.javaClass.simpleName}: ${cause.message ?: "injeksi input gagal"}"
-            Log.e(TAG, "Input injection failed: $lastError", cause)
-            false
-        } finally {
-            event?.recycle()
-            Binder.restoreCallingIdentity(identity)
+    private fun runInputCommand(displayId: Int, command: String, action: String): Boolean {
+        val result = runShizukuShell(command, timeoutMs = 4000L, maxCharacters = 900)
+        val accepted = result.first == 0 &&
+            !result.second.contains("Error:", ignoreCase = true) &&
+            !result.second.contains("Exception", ignoreCase = true) &&
+            !result.second.contains("Unknown command", ignoreCase = true)
+        lastError = if (accepted) {
+            "$action shell OK • display=$displayId • cmd=$command • exit=${result.first} • ${result.second}"
+        } else {
+            "$action shell GAGAL • display=$displayId • cmd=$command • exit=${result.first} • ${result.second}"
         }
+        if (accepted) Log.i(TAG, lastError) else Log.w(TAG, lastError)
+        return accepted
     }
 
     override fun releaseVirtualDisplay() {
         val identity = Binder.clearCallingIdentity()
         try {
-            inputHandler.removeCallbacksAndMessages(null)
             virtualDisplay?.release()
             virtualDisplay = null
             lastError = "Virtual display ditutup."
@@ -229,57 +155,79 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             lastError = "Display ID tidak valid: $displayId"
             return false
         }
+        val flags = "0x1c000000"
         val candidates = listOf(
-            "Kalkulator" to "am start --display $displayId -W -a android.intent.action.MAIN -c android.intent.category.APP_CALCULATOR -f 0x1c000000",
-            "Browser" to "am start --display $displayId -W -a android.intent.action.MAIN -c android.intent.category.APP_BROWSER -f 0x1c000000",
-            "Browser contoh" to "am start --display $displayId -W -a android.intent.action.VIEW -d https://example.com -f 0x1c000000"
+            "Chrome" to "am start --display $displayId -W -n com.android.chrome/com.google.android.apps.chrome.Main -a android.intent.action.VIEW -d https://example.com -f $flags",
+            "Firefox" to "am start --display $displayId -W -n org.mozilla.firefox/org.mozilla.gecko.BrowserApp -a android.intent.action.VIEW -d https://example.com -f $flags",
+            "Browser default" to "am start --display $displayId -W -a android.intent.action.MAIN -c android.intent.category.APP_BROWSER -f $flags",
+            "Browser URL fallback" to "am start --display $displayId -W -a android.intent.action.VIEW -d https://example.com -f $flags"
         )
         val attempts = mutableListOf<String>()
         for ((label, command) in candidates) {
-            val result = runShizukuShell(command)
-            val detail = "$label • exit=${result.first} • ${result.second}"
-            attempts += detail
+            val result = runShizukuShell(command, timeoutMs = 7000L, maxCharacters = 1000)
             val output = result.second
-            val appearsSuccessful = result.first == 0 &&
+            val success = result.first == 0 &&
                 output.contains("Status: ok", ignoreCase = true) &&
                 !output.contains("Warning: Activity not started", ignoreCase = true) &&
-                !output.contains("Error:", ignoreCase = true)
+                !output.contains("Error:", ignoreCase = true) &&
+                !output.contains("Exception", ignoreCase = true)
+            val detail = "$label • exit=${result.first} • $output"
+            attempts += detail
             Log.i(TAG, "Launch candidate: $detail")
-            if (appearsSuccessful) {
-                lastError = "Shell launch diterima • target display=$displayId • flags=0x1c000000 • $detail"
+            if (success) {
+                lastError = "Shell launch diterima • target display=$displayId • flags=$flags • $detail"
                 return true
             }
         }
-        lastError = "Semua percobaan shell launch gagal atau ditolak • target display=$displayId • " +
-            attempts.joinToString(" || ").take(2400)
+        lastError = "Chrome/Firefox/Browser tidak berhasil diluncurkan pada display $displayId • " +
+            attempts.joinToString(" || ").take(2600)
         Log.w(TAG, lastError)
         return false
     }
 
-    /**
-     * Run a bounded, literal Android shell command in the Shizuku UserService process.
-     * Commands are assembled only from the validated display ID and hard-coded intents.
-     */
-    private fun runShizukuShell(command: String): Pair<Int, String> {
+    private fun runShizukuShell(
+        command: String,
+        timeoutMs: Long = 4500L,
+        maxCharacters: Int = 1400
+    ): Pair<Int, String> {
         var process: Process? = null
+        val output = StringBuilder()
         return try {
-            val identity = Binder.clearCallingIdentity()
-            try {
-                process = ProcessBuilder("/system/bin/sh", "-c", command)
-                    .redirectErrorStream(true)
-                    .start()
-                val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
-                val exitCode = process.waitFor()
-                val compact = output.ifBlank { "(output kosong)" }.take(900)
-                exitCode to compact
-            } finally {
-                Binder.restoreCallingIdentity(identity)
+            process = ProcessBuilder("/system/bin/sh", "-c", command)
+                .redirectErrorStream(true)
+                .start()
+            val proc = process
+            val reader = Thread({
+                try {
+                    proc.inputStream.bufferedReader().useLines { lines ->
+                        lines.forEach { line ->
+                            synchronized(output) {
+                                if (output.length < maxCharacters) output.append(line).append('\n')
+                            }
+                        }
+                    }
+                } catch (error: Throwable) {
+                    synchronized(output) {
+                        if (output.length < maxCharacters) output.append("reader error: ").append(error.message).append('\n')
+                    }
+                }
+            }, "SakuShellOutput").apply { isDaemon = true; start() }
+
+            val finished = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
+            if (!finished) {
+                process.destroyForcibly()
+                reader.join(350L)
+                val partial = synchronized(output) { output.toString().trim() }
+                return -1 to "TIMEOUT after ${timeoutMs}ms • ${partial.ifBlank { "no output" }}"
             }
+            reader.join(350L)
+            val captured = synchronized(output) { output.toString().trim() }
+            process.exitValue() to captured.ifBlank { "(output kosong)" }
         } catch (error: Throwable) {
             val cause = error.cause ?: error
             val detail = "${cause.javaClass.simpleName}: ${cause.message ?: "tanpa detail"}\n${Log.getStackTraceString(cause)}"
             Log.e(TAG, "Shell command failed: $command", cause)
-            -1 to detail.take(1800)
+            -1 to detail.take(maxCharacters)
         } finally {
             runCatching { process?.destroy() }
         }
@@ -287,6 +235,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
 
     override fun getDisplayDiagnostics(displayId: Int): String {
         return try {
+            if (displayId < 0 || displayId > 10000) return "Display ID tidak valid: $displayId"
             val context = serviceContext ?: return "UserService Context tidak tersedia."
             val manager = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
             val display = manager.getDisplay(displayId) ?: virtualDisplay?.display
@@ -301,9 +250,26 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             }
             val mode = display.mode
             val surfaceValid = virtualDisplay?.surface?.isValid ?: false
-            "display=${display.displayId} state=$stateName mode=${mode.physicalWidth}x${mode.physicalHeight} surfaceValid=$surfaceValid"
+            val windowCommand =
+                "dumpsys window displays | grep -E -A 8 -B 2 'displayId=$displayId|Display $displayId|mDisplayId=$displayId' | head -n 42"
+            val activityCommand =
+                "dumpsys activity activities | grep -E -A 3 -B 2 'displayId=$displayId|display #$displayId|mDisplayId=$displayId|com.android.chrome|org.mozilla.firefox' | head -n 52"
+            val windowResult = runShizukuShell(windowCommand, timeoutMs = 4500L, maxCharacters = 1900)
+            val activityResult = runShizukuShell(activityCommand, timeoutMs = 4500L, maxCharacters = 1900)
+            val result = buildString {
+                append("Display diagnostics • id=${display.displayId} state=$stateName ")
+                append("mode=${mode.physicalWidth}x${mode.physicalHeight} surfaceValid=$surfaceValid\n")
+                append("--- dumpsys window displays (exit=${windowResult.first}) ---\n")
+                append(windowResult.second.ifBlank { "(no matching display lines)" }.take(1900))
+                append("\n--- dumpsys activity activities (exit=${activityResult.first}) ---\n")
+                append(activityResult.second.ifBlank { "(no matching activity lines)" }.take(1900))
+            }
+            Log.i(TAG, result)
+            result.take(4600)
         } catch (error: Throwable) {
-            "Diagnostics gagal: ${error.javaClass.simpleName}: ${error.message ?: "tanpa detail"}"
+            val detail = "${error.javaClass.simpleName}: ${error.message ?: "tanpa detail"}\n${Log.getStackTraceString(error)}"
+            Log.e(TAG, "Display diagnostics failed", error)
+            "Diagnostics gagal: $detail".take(2400)
         }
     }
 
@@ -311,7 +277,6 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
 
     override fun destroy() {
         releaseVirtualDisplay()
-        inputThread.quitSafely()
         System.exit(0)
     }
 
@@ -319,32 +284,5 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         private const val TAG = "SakuShizukuService"
         private const val SUPPORTS_TOUCH_FLAG = 1 shl 6
         private const val TRUSTED_FLAG = 1 shl 10
-        private const val INJECT_INPUT_EVENT_MODE_ASYNC = 0
-
-        private val inputManagerInstance: Any by lazy {
-            val type = Class.forName("android.hardware.input.InputManager")
-            type.getDeclaredMethod("getInstance").apply { isAccessible = true }.invoke(null)
-                ?: throw IllegalStateException("InputManager.getInstance() menghasilkan null.")
-        }
-
-        private val inputManagerInject: Method by lazy {
-            val type = Class.forName("android.hardware.input.InputManager")
-            type.getDeclaredMethod(
-                "injectInputEvent",
-                InputEvent::class.java,
-                Int::class.javaPrimitiveType
-            ).apply { isAccessible = true }
-        }
-
-        private val motionDisplaySetter: Method? by lazy {
-            try {
-                MotionEvent::class.java.getDeclaredMethod(
-                    "setDisplayId",
-                    Int::class.javaPrimitiveType
-                ).apply { isAccessible = true }
-            } catch (_: Throwable) {
-                null
-            }
-        }
     }
 }

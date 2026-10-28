@@ -162,20 +162,28 @@ class ShizukuBridge(
 
     fun injectTap(displayId: Int, x: Float, y: Float): Boolean {
         return try {
-            remote?.injectTap(displayId, x, y) ?: false
+            val service = remote ?: throw IllegalStateException("Shizuku UserService belum terhubung.")
+            val accepted = service.injectTap(displayId, x, y)
+            val details = service.getLastError()
+            onStatus(if (accepted) details else "Tap shell ditolak: $details")
+            accepted
         } catch (error: Throwable) {
             Log.e(TAG, "injectTap failed", error)
-            onStatus("Tap via Shizuku gagal: ${error.cause?.message ?: error.message}")
+            onStatus("Tap shell gagal: ${error.cause?.message ?: error.message}")
             false
         }
     }
 
     fun injectSwipe(displayId: Int, x1: Float, y1: Float, x2: Float, y2: Float, durationMs: Long = 220L): Boolean {
         return try {
-            remote?.injectSwipe(displayId, x1, y1, x2, y2, durationMs) ?: false
+            val service = remote ?: throw IllegalStateException("Shizuku UserService belum terhubung.")
+            val accepted = service.injectSwipe(displayId, x1, y1, x2, y2, durationMs)
+            val details = service.getLastError()
+            onStatus(if (accepted) details else "Swipe shell ditolak: $details")
+            accepted
         } catch (error: Throwable) {
             Log.e(TAG, "injectSwipe failed", error)
-            onStatus("Swipe via Shizuku gagal: ${error.cause?.message ?: error.message}")
+            onStatus("Swipe shell gagal: ${error.cause?.message ?: error.message}")
             false
         }
     }
@@ -190,15 +198,17 @@ class ShizukuBridge(
             onStatus("Shizuku belum terhubung. Hubungkan Shizuku dahulu.")
             return
         }
-        onStatus("Mencoba membuka Kalkulator pada display $displayId (fallback ke Browser)…")
+        onStatus("Mencoba membuka Chrome/Firefox pada display $displayId (fallback Browser)…")
         Thread({
             try {
                 val accepted = service.launchTestAppOnDisplay(displayId)
                 val details = service.getLastError()
-                onStatus(if (accepted) details else "Aplikasi tes gagal dibuka: $details")
+                val diagnostics = service.getDisplayDiagnostics(displayId)
+                val result = if (accepted) "Launch command diterima: $details" else "Launch gagal: $details"
+                onStatus("$result\n$diagnostics")
             } catch (error: Throwable) {
                 Log.e(TAG, "Shizuku test-app launch failed", error)
-                onStatus("Launch aplikasi tes gagal: ${error.cause?.message ?: error.message ?: error.javaClass.simpleName}")
+                onStatus("Launch aplikasi tes gagal: ${error.cause?.message ?: error.message ?: error.javaClass.simpleName}\n${Log.getStackTraceString(error)}")
             }
         }, "SakuDisplayLaunch").start()
     }
