@@ -9,4 +9,5 @@ interface IVirtualDisplayService {
     boolean injectSwipe(int displayId, float x1, float y1, float x2, float y2, long durationMs) = 3;
     void releaseVirtualDisplay() = 4;
     String getLastError() = 5;
+    boolean launchSettingsOnDisplay(int displayId) = 6;
 }
