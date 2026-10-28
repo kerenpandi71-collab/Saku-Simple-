@@ -35,16 +35,27 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var runtimeLogScroll: ScrollView
     private val runtimeLogBuffer = StringBuilder()
     private lateinit var shizukuBridge: ShizukuBridge
-    private var cursor: View? = null
     private var virtualDisplayController: VirtualDisplayController? = null
     private var preview: SurfaceView? = null
     private val previewPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
+    private val cursorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        color = Color.WHITE
+    }
+    private var cursorX = targetWidth / 2f
+    private var cursorY = targetHeight / 2f
+    private var lastTouchX = 0f
+    private var lastTouchY = 0f
+    private var downX = 0f
+    private var downY = 0f
+    private var gestureStartX = targetWidth / 2f
+    private var gestureStartY = targetHeight / 2f
     private var currentPreviewBitmap: Bitmap? = null
     private var downX = 0f
     private var downY = 0f
     private var moved = false
     private var receivedFrames = 0L
-    private var lastHoverAtMs = 0L
 
     private val targetWidth = 1280
     private val targetHeight = 720
@@ -182,16 +193,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             setBackgroundColor(Color.rgb(18, 44, 70))
             contentDescription = "Bidang touchpad virtual display 1280 x 720"
         }
-        cursor = View(this).apply {
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.rgb(105, 221, 245))
-                setStroke(dp(2), Color.WHITE)
-            }
-            elevation = dp(8).toFloat()
-            isClickable = false
-        }
-        stage.addView(cursor, android.widget.FrameLayout.LayoutParams(dp(18), dp(18)))
         stage.setOnTouchListener { _, event -> handleTouch(event, stage.width, stage.height) }
         root.addView(stage, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
@@ -334,6 +335,21 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             if (bitmap != null && !bitmap.isRecycled) {
                 canvas.drawBitmap(bitmap, null, Rect(0, 0, canvas.width, canvas.height), previewPaint)
             }
+            // Draw the software pointer in the same preview buffer so it is always above
+            // the captured secondary-display image, including on SurfaceView devices.
+            val pointerX = cursorX.coerceIn(0f, (canvas.width - 1).toFloat())
+            val pointerY = cursorY.coerceIn(0f, (canvas.height - 1).toFloat())
+            cursorPaint.style = Paint.Style.FILL
+            cursorPaint.color = Color.rgb(105, 221, 245)
+            canvas.drawCircle(pointerX, pointerY, 7f, cursorPaint)
+            cursorPaint.style = Paint.Style.STROKE
+            cursorPaint.strokeWidth = 2.5f
+            cursorPaint.color = Color.WHITE
+            canvas.drawCircle(pointerX, pointerY, 10f, cursorPaint)
+            canvas.drawLine(pointerX - 15f, pointerY, pointerX - 5f, pointerY, cursorPaint)
+            canvas.drawLine(pointerX + 5f, pointerY, pointerX + 15f, pointerY, cursorPaint)
+            canvas.drawLine(pointerX, pointerY - 15f, pointerX, pointerY - 5f, cursorPaint)
+            canvas.drawLine(pointerX, pointerY + 5f, pointerX, pointerY + 15f, cursorPaint)
         } catch (error: Throwable) {
             Log.w("SakuPreview", "Gagal merender frame virtual display", error)
         } finally {
@@ -357,55 +373,54 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         return sampled > 0 && nearWhite.toFloat() / sampled >= 0.92f
     }
 
-    /** Normalize touchpad-local coordinates and scale them to the virtual display resolution. */
-    private fun mapTouchCoordinate(position: Float, touchpadExtent: Int, targetExtent: Int): Float {
-        if (touchpadExtent <= 0 || targetExtent <= 1) return 0f
-        val normalized = (position / touchpadExtent.toFloat()).coerceIn(0f, 1f)
-        return normalized * (targetExtent - 1).toFloat()
-    }
-
+    /**
+     * The touchpad is relative, like a laptop trackpad: finger position does not jump the
+     * pointer. Each movement fraction is applied to the same fraction of the preview axis.
+     */
     private fun handleTouch(event: MotionEvent, width: Int, height: Int): Boolean {
         if (width <= 0 || height <= 0) return true
         val x = event.x.coerceIn(0f, width.toFloat())
         val y = event.y.coerceIn(0f, height.toFloat())
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                lastTouchX = x
+                lastTouchY = y
                 downX = x
                 downY = y
                 moved = false
-                moveCursor(x, y, width, height)
+                gestureStartX = cursorX
+                gestureStartY = cursorY
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
+                val deltaX = x - lastTouchX
+                val deltaY = y - lastTouchY
                 if (kotlin.math.abs(x - downX) > dp(8) || kotlin.math.abs(y - downY) > dp(8)) {
                     moved = true
                 }
-                moveCursor(x, y, width, height)
-                val now = SystemClock.uptimeMillis()
-                val controller = virtualDisplayController
-                if (controller != null && controller.displayId >= 0 && now - lastHoverAtMs >= 120L) {
-                    lastHoverAtMs = now
-                    controller.injectHover(
-                        mapTouchCoordinate(x, width, targetWidth),
-                        mapTouchCoordinate(y, height, targetHeight)
-                    )
-                }
+                cursorX = (cursorX + deltaX * targetWidth / width.toFloat())
+                    .coerceIn(0f, (targetWidth - 1).toFloat())
+                cursorY = (cursorY + deltaY * targetHeight / height.toFloat())
+                    .coerceIn(0f, (targetHeight - 1).toFloat())
+                lastTouchX = x
+                lastTouchY = y
+                renderPreviewFrame()
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                moveCursor(x, y, width, height)
-                val startX = mapTouchCoordinate(downX, width, targetWidth)
-                val startY = mapTouchCoordinate(downY, height, targetHeight)
-                val endX = mapTouchCoordinate(x, width, targetWidth)
-                val endY = mapTouchCoordinate(y, height, targetHeight)
                 val controller = virtualDisplayController
                 if (controller == null || controller.displayId < 0) {
                     status.text = "Buat virtual display lewat Shizuku sebelum mengirim sentuhan."
                     return true
                 }
                 if (event.actionMasked == MotionEvent.ACTION_CANCEL) return true
+
+                val endX = cursorX.coerceIn(0f, (targetWidth - 1).toFloat())
+                val endY = cursorY.coerceIn(0f, (targetHeight - 1).toFloat())
+                // A short touch clicks exactly where the visible preview pointer is.
+                // Moving while held sends a drag/swipe from the pointer's down position.
                 val accepted = if (moved) {
-                    controller.injectSwipe(startX, startY, endX, endY)
+                    controller.injectSwipe(gestureStartX, gestureStartY, endX, endY)
                 } else {
                     controller.injectTap(endX, endY)
                 }
@@ -416,12 +431,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             }
         }
         return true
-    }
-
-    private fun moveCursor(x: Float, y: Float, width: Int, height: Int) {
-        val view = cursor ?: return
-        view.translationX = min(max(0f, x - dp(9)), max(0f, width - dp(18).toFloat()))
-        view.translationY = min(max(0f, y - dp(9)), max(0f, height - dp(18).toFloat()))
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt().coerceAtLeast(1)
