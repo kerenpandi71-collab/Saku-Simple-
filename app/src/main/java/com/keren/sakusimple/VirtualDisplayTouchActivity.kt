@@ -39,6 +39,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var shizukuBridge: ShizukuBridge
     private var virtualDisplayController: VirtualDisplayController? = null
     private var preview: SurfaceView? = null
+    private var cursorOverlay: View? = null
+    private lateinit var runtimeLogToggle: Button
     private val previewPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
     private val cursorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -148,14 +150,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         root.addView(status)
 
-        val screenHeightPx = resources.displayMetrics.heightPixels
-        val screenWidthPx = resources.displayMetrics.widthPixels
-        // Preview panel takes at least 60% of screen height. The actual SurfaceView spans
-        // available width in landscape 16:9 ratio, so the picture itself is never stretched.
-        val previewPanelHeight = (screenHeightPx * 0.60f).toInt().coerceIn(dp(300), dp(560))
-        val previewWidthPx = (screenWidthPx - dp(20)).coerceAtLeast(dp(180))
-        val previewSurfaceHeight = (previewWidthPx.toFloat() * targetHeight / targetWidth)
-            .toInt().coerceAtLeast(dp(90))
         val previewFrame = FrameLayout(this).apply {
             setBackgroundColor(Color.rgb(7, 24, 45))
             contentDescription = "Panel preview landscape 1280 x 720"
@@ -174,10 +168,45 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         previewFrame.addView(
             preview,
-            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, previewSurfaceHeight, Gravity.CENTER)
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER)
         )
+        cursorOverlay = object : View(this) {
+            override fun onDraw(canvas: Canvas) {
+                super.onDraw(canvas)
+                drawSoftwareCursor(canvas)
+            }
+        }.apply {
+            isClickable = false
+            isFocusable = false
+            setBackgroundColor(Color.TRANSPARENT)
+            contentDescription = "Kursor software preview"
+        }
+        previewFrame.addView(
+            cursorOverlay,
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        )
+        previewFrame.addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
+            val availableWidth = view.width
+            val availableHeight = view.height
+            if (availableWidth > 0 && availableHeight > 0) {
+                val scale = min(
+                    availableWidth.toFloat() / targetWidth,
+                    availableHeight.toFloat() / targetHeight
+                )
+                val contentWidth = (targetWidth * scale).toInt().coerceAtLeast(1)
+                val contentHeight = (targetHeight * scale).toInt().coerceAtLeast(1)
+                val params = preview?.layoutParams as? FrameLayout.LayoutParams
+                if (params != null && (params.width != contentWidth || params.height != contentHeight)) {
+                    params.width = contentWidth
+                    params.height = contentHeight
+                    params.gravity = Gravity.CENTER
+                    preview?.layoutParams = params
+                }
+                cursorOverlay?.invalidate()
+            }
+        }
         root.addView(previewFrame, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, previewPanelHeight
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 5f
         ).apply { topMargin = dp(3); bottomMargin = dp(4) })
 
         root.addView(TextView(this).apply {
@@ -193,15 +222,37 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         stage.setOnTouchListener { _, event -> handleTouch(event, stage.width, stage.height) }
         root.addView(stage, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, 4f
         ))
 
-        root.addView(TextView(this).apply {
+        val logHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        logHeader.addView(TextView(this).apply {
             text = "RUNTIME LOG • tahan lama untuk salin"
             textSize = 11f
             setTextColor(Color.LTGRAY)
-            setPadding(dp(2), dp(4), 0, dp(2))
-        })
+            setPadding(dp(2), dp(2), 0, dp(2))
+        }, LinearLayout.LayoutParams(0, dp(34), 1f))
+        runtimeLogToggle = Button(this).apply {
+            text = "Sembunyikan Log"
+            textSize = 10f
+            isAllCaps = false
+            minHeight = dp(30)
+            setPadding(dp(8), 0, dp(8), 0)
+            setOnClickListener {
+                val showLog = runtimeLogScroll.visibility == View.GONE
+                runtimeLogScroll.visibility = if (showLog) View.VISIBLE else View.GONE
+                runtimeLogToggle.text = if (showLog) "Sembunyikan Log" else "Tampilkan Log"
+            }
+        }
+        logHeader.addView(runtimeLogToggle, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, dp(34)
+        ))
+        root.addView(logHeader, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(34)
+        ))
         runtimeLog = TextView(this).apply {
             textSize = 10f
             setTextColor(Color.rgb(180, 235, 248))
@@ -222,7 +273,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             ))
         }
         root.addView(runtimeLogScroll, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, dp(112)
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(72)
         ))
 
         setContentView(root)
@@ -321,6 +372,25 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         if (old != null && !old.isRecycled) old.recycle()
     }
 
+    private fun drawSoftwareCursor(canvas: Canvas) {
+        val surface = preview ?: return
+        if (surface.width <= 0 || surface.height <= 0) return
+        val pointerX = surface.left + (cursorX / targetWidth) * surface.width
+        val pointerY = surface.top + (cursorY / targetHeight) * surface.height
+        val radius = dp(7).toFloat()
+        cursorPaint.style = Paint.Style.FILL
+        cursorPaint.color = Color.rgb(105, 221, 245)
+        canvas.drawCircle(pointerX, pointerY, radius, cursorPaint)
+        cursorPaint.style = Paint.Style.STROKE
+        cursorPaint.strokeWidth = dp(2).toFloat()
+        cursorPaint.color = Color.WHITE
+        canvas.drawCircle(pointerX, pointerY, radius + dp(3), cursorPaint)
+        canvas.drawLine(pointerX - dp(15), pointerY, pointerX - dp(5), pointerY, cursorPaint)
+        canvas.drawLine(pointerX + dp(5), pointerY, pointerX + dp(15), pointerY, cursorPaint)
+        canvas.drawLine(pointerX, pointerY - dp(15), pointerX, pointerY - dp(5), cursorPaint)
+        canvas.drawLine(pointerX, pointerY + dp(5), pointerX, pointerY + dp(15), cursorPaint)
+    }
+
     /** Draw the real-resolution ImageReader frame into a 1280×720 SurfaceView buffer. */
     private fun renderPreviewFrame(targetHolder: SurfaceHolder? = null) {
         val holder = targetHolder ?: preview?.holder ?: return
@@ -333,21 +403,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             if (bitmap != null && !bitmap.isRecycled) {
                 canvas.drawBitmap(bitmap, null, Rect(0, 0, canvas.width, canvas.height), previewPaint)
             }
-            // Draw the software pointer in the same preview buffer so it is always above
-            // the captured secondary-display image, including on SurfaceView devices.
-            val pointerX = cursorX.coerceIn(0f, (canvas.width - 1).toFloat())
-            val pointerY = cursorY.coerceIn(0f, (canvas.height - 1).toFloat())
-            cursorPaint.style = Paint.Style.FILL
-            cursorPaint.color = Color.rgb(105, 221, 245)
-            canvas.drawCircle(pointerX, pointerY, 7f, cursorPaint)
-            cursorPaint.style = Paint.Style.STROKE
-            cursorPaint.strokeWidth = 2.5f
-            cursorPaint.color = Color.WHITE
-            canvas.drawCircle(pointerX, pointerY, 10f, cursorPaint)
-            canvas.drawLine(pointerX - 15f, pointerY, pointerX - 5f, pointerY, cursorPaint)
-            canvas.drawLine(pointerX + 5f, pointerY, pointerX + 15f, pointerY, cursorPaint)
-            canvas.drawLine(pointerX, pointerY - 15f, pointerX, pointerY - 5f, cursorPaint)
-            canvas.drawLine(pointerX, pointerY + 5f, pointerX, pointerY + 15f, cursorPaint)
+
         } catch (error: Throwable) {
             Log.w("SakuPreview", "Gagal merender frame virtual display", error)
         } finally {
@@ -388,6 +444,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 moved = false
                 gestureStartX = cursorX
                 gestureStartY = cursorY
+                cursorOverlay?.invalidate()
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
@@ -402,7 +459,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                     .coerceIn(0f, (targetHeight - 1).toFloat())
                 lastTouchX = x
                 lastTouchY = y
-                renderPreviewFrame()
+                cursorOverlay?.invalidate()
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -412,6 +469,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                     return true
                 }
                 if (event.actionMasked == MotionEvent.ACTION_CANCEL) return true
+                cursorOverlay?.invalidate()
 
                 val endX = cursorX.coerceIn(0f, (targetWidth - 1).toFloat())
                 val endY = cursorY.coerceIn(0f, (targetHeight - 1).toFloat())

@@ -47,7 +47,7 @@ class VirtualDisplayController(
 
         try {
             val reader = ImageReader.newInstance(
-                safeWidth, safeHeight, PixelFormat.RGBA_8888, 3
+                safeWidth, safeHeight, PixelFormat.RGBA_8888, 2
             )
             imageReader = reader
             reader.setOnImageAvailableListener({ source ->
@@ -59,8 +59,8 @@ class VirtualDisplayController(
                 } ?: return@setOnImageAvailableListener
 
                 val now = SystemClock.elapsedRealtime()
-                // Allow up to about 30 preview frames per second; the SurfaceView keeps the 1280×720 ratio.
-                if (now - lastFrameAtMs < 33L) {
+                // Limit preview conversion to about 20 frames per second; the SurfaceView keeps the 1280×720 ratio.
+                if (now - lastFrameAtMs < 50L) {
                     image.close()
                     return@setOnImageAvailableListener
                 }
