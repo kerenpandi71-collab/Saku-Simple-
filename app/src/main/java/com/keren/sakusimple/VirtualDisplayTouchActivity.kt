@@ -563,12 +563,13 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 }
             )
         }
-        status.text = "Membuat display langsung ke SurfaceView • 1280×720 • densityDpi=160…"
-        appendRuntimeLog("Output virtual display diarahkan langsung ke SurfaceView; ImageReader/Bitmap copy tidak digunakan.")
+        status.text = "Membuat display langsung ke SurfaceView • ${targetWidth}×${targetHeight} • densityDpi=${targetDpi}…"
+        appendRuntimeLog("Output langsung ke SurfaceView • ${targetWidth}×${targetHeight} • ${targetDpi}dpi; ImageReader/Bitmap copy tidak digunakan.")
+        preview?.holder?.setFixedSize(targetWidth, targetHeight)
         virtualDisplayController?.start(
             width = targetWidth,
             height = targetHeight,
-            densityDpi = 160,
+            densityDpi = targetDpi,
             outputSurface = surface
         )
     }
@@ -825,6 +826,31 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
     private fun touchCentroid(event: MotionEvent): Pair<Float, Float> =
         ((event.getX(0) + event.getX(1)) / 2f) to ((event.getY(0) + event.getY(1)) / 2f)
+
+    private fun applyDisplaySettings() {
+        val width = resolutionWidthInput.text.toString().toIntOrNull()
+        val height = resolutionHeightInput.text.toString().toIntOrNull()
+        val dpi = resolutionDpiInput.text.toString().toIntOrNull()
+        if (width == null || height == null || dpi == null ||
+            width !in 320..2560 || height !in 320..2560 || dpi !in 120..640
+        ) {
+            status.text = "Resolusi harus 320–2560 px dan DPI 120–640."
+            return
+        }
+        targetWidth = width
+        targetHeight = height
+        targetDpi = dpi
+        cursorX = cursorX.coerceIn(0f, (targetWidth - 1).toFloat())
+        cursorY = cursorY.coerceIn(0f, (targetHeight - 1).toFloat())
+        preview?.contentDescription = "Desktop virtual display ${targetWidth} x ${targetHeight} • ${targetDpi} DPI"
+        preview?.holder?.setFixedSize(targetWidth, targetHeight)
+        if ((virtualDisplayController?.displayId ?: -1) >= 0) {
+            startOwnedVirtualDisplay()
+        } else {
+            status.text = "Pengaturan disimpan: ${targetWidth}×${targetHeight} • ${targetDpi} DPI. Tekan Mulai."
+        }
+        updateDesktopLayout((preview?.parent as? View)?.width ?: 0, (preview?.parent as? View)?.height ?: 0)
+    }
 
     private fun updateDesktopLayout(rootWidth: Int, rootHeight: Int) {
         if (rootWidth <= 0 || rootHeight <= 0 || !::bottomPanel.isInitialized) return
