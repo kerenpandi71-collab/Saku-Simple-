@@ -3,6 +3,8 @@ package com.keren.sakusimple
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.Color
@@ -37,13 +39,20 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var virtualDisplayController: VirtualDisplayController? = null
     private var preview: SurfaceView? = null
     private var cursorOverlay: View? = null
+    private val mouseInputExecutor = Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "SakuNativeMouseInput").apply { isDaemon = true } }
+    private val mouseMovePending = AtomicBoolean(false)
     private lateinit var runtimeLogToggle: Button
     private val previewPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
     private val cursorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = 3f
+        style = Paint.Style.FILL
         color = Color.WHITE
     }
+    private val cursorStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 2f
+        color = Color.BLACK
+    }
+    private var cursorPulseRadius = 13f
     private var cursorX = targetWidth / 2f
     private var cursorY = targetHeight / 2f
     private var lastTouchX = 0f
@@ -177,13 +186,13 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         cursorOverlay = object : View(this) {
             override fun onDraw(canvas: Canvas) {
                 super.onDraw(canvas)
-                drawSoftwareCursor(canvas)
+                drawDextopCursor(canvas)
             }
         }.apply {
             isClickable = false
             isFocusable = false
             setBackgroundColor(Color.TRANSPARENT)
-            contentDescription = "Kursor software preview"
+            contentDescription = "Dextop-style pointer marker"
         }
         previewFrame.addView(
             cursorOverlay,
@@ -267,6 +276,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        mouseInputExecutor.shutdownNow()
         virtualDisplayController?.close()
         virtualDisplayController = null
         clearPreview()
@@ -359,23 +369,37 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         if (old != null && !old.isRecycled) old.recycle()
     }
 
-    private fun drawSoftwareCursor(canvas: Canvas) {
+    /** CursorView-style marker adapted from SakuDextop: white dot with dark outline. */
+    private fun drawDextopCursor(canvas: Canvas) {
         val surface = preview ?: return
         if (surface.width <= 0 || surface.height <= 0) return
         val pointerX = surface.left + (cursorX / targetWidth) * surface.width
         val pointerY = surface.top + (cursorY / targetHeight) * surface.height
-        val radius = dp(7).toFloat()
-        cursorPaint.style = Paint.Style.FILL
-        cursorPaint.color = Color.rgb(105, 221, 245)
-        canvas.drawCircle(pointerX, pointerY, radius, cursorPaint)
-        cursorPaint.style = Paint.Style.STROKE
-        cursorPaint.strokeWidth = dp(2).toFloat()
-        cursorPaint.color = Color.WHITE
-        canvas.drawCircle(pointerX, pointerY, radius + dp(3), cursorPaint)
-        canvas.drawLine(pointerX - dp(15), pointerY, pointerX - dp(5), pointerY, cursorPaint)
-        canvas.drawLine(pointerX + dp(5), pointerY, pointerX + dp(15), pointerY, cursorPaint)
-        canvas.drawLine(pointerX, pointerY - dp(15), pointerX, pointerY - dp(5), cursorPaint)
-        canvas.drawLine(pointerX, pointerY + dp(5), pointerX, pointerY + dp(15), cursorPaint)
+        canvas.drawCircle(pointerX, pointerY, cursorPulseRadius, cursorPaint)
+        canvas.drawCircle(pointerX, pointerY, cursorPulseRadius, cursorStrokePaint)
+    }
+
+    private fun pulseDextopCursor() {
+        cursorPulseRadius = 18f
+        cursorOverlay?.invalidate()
+        cursorOverlay?.postDelayed({
+            cursorPulseRadius = 13f
+            cursorOverlay?.invalidate()
+        }, 100L)
+    }
+
+    /** Send native mouse motion off the UI thread; drop intermediate samples while busy. */
+    private fun queueNativeMouseMove(x: Float, y: Float) {
+        val controller = virtualDisplayController ?: return
+        val displayId = controller.displayId
+        if (displayId < 0 || !mouseMovePending.compareAndSet(false, true)) return
+        mouseInputExecutor.execute {
+            try {
+                controller.injectHover(x, y)
+            } finally {
+                mouseMovePending.set(false)
+            }
+        }
     }
 
     /** Draw the real-resolution ImageReader frame into a 1280×720 SurfaceView buffer. */
@@ -434,19 +458,15 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 lastMoveAtMs = gestureStartedAtMs
                 gestureStartX = cursorX
                 gestureStartY = cursorY
-                cursorOverlay?.invalidate()
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
                 val deltaX = x - lastTouchX
                 val deltaY = y - lastTouchY
-                if (kotlin.math.abs(x - downX) > dp(8) || kotlin.math.abs(y - downY) > dp(8)) {
-                    moved = true
-                }
+                if (kotlin.math.abs(x - downX) > dp(8) || kotlin.math.abs(y - downY) > dp(8)) moved = true
                 val now = SystemClock.uptimeMillis()
                 val elapsed = (now - lastMoveAtMs).coerceAtLeast(1L)
                 lastMoveAtMs = now
-                // Modest pointer acceleration makes quick travel easier while small movements stay precise.
                 val distance = kotlin.math.sqrt(deltaX * deltaX + deltaY * deltaY)
                 val speedPxPerMs = distance / elapsed.toFloat()
                 val acceleration = when {
@@ -460,10 +480,11 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                     .coerceIn(0f, (targetHeight - 1).toFloat())
                 lastTouchX = x
                 lastTouchY = y
-                val heldFor = SystemClock.uptimeMillis() - gestureStartedAtMs
+                val heldFor = now - gestureStartedAtMs
                 longPressDragArmed = moved && heldFor >= longPressDragTimeoutMs
-                // Only redraw the overlay; pointer motion must not repaint the captured display.
                 cursorOverlay?.invalidate()
+                // Native mouse motion goes through Shizuku asynchronously, never blocking the UI thread.
+                queueNativeMouseMove(cursorX, cursorY)
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -473,32 +494,31 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 }
                 val controller = virtualDisplayController
                 if (controller == null || controller.displayId < 0) {
-                    status.text = "Buat virtual display lewat Shizuku sebelum mengirim sentuhan."
+                    status.text = "Buat virtual display lewat Shizuku sebelum mengirim input."
                     return true
                 }
                 val endX = cursorX.coerceIn(0f, (targetWidth - 1).toFloat())
                 val endY = cursorY.coerceIn(0f, (targetHeight - 1).toFloat())
                 val heldFor = SystemClock.uptimeMillis() - gestureStartedAtMs
-
-                // Match Dextop cursor mode: pointer movement alone moves the pointer;
-                // a simple tap clicks; press-and-hold + movement performs a drag.
-                val accepted = when {
-                    longPressDragArmed && moved -> {
-                        controller.injectSwipe(
-                            gestureStartX,
-                            gestureStartY,
-                            endX,
-                            endY,
-                            heldFor.coerceIn(180L, 1200L)
-                        )
+                if (longPressDragArmed && moved) {
+                    // Drag stays a single display-scoped swipe to avoid shell startup per movement.
+                    mouseInputExecutor.execute {
+                        controller.injectSwipe(gestureStartX, gestureStartY, endX, endY, heldFor.coerceIn(180L, 1200L))
                     }
-                    !moved && heldFor < longPressDragTimeoutMs -> controller.injectTap(endX, endY)
-                    else -> true // Normal pointer movement is local and should not scroll/click the target.
-                }
-                if (!accepted) {
-                    status.text = "Input shell gagal. Detail perintah tersedia di Runtime Log."
                 } else if (!moved && heldFor < longPressDragTimeoutMs) {
-                    status.text = "Klik • x=${endX.toInt()} y=${endY.toInt()}"
+                    // Use native mouse DOWN/UP instead of a touchscreen tap.
+                    mouseInputExecutor.execute {
+                        controller.injectHover(endX, endY)
+                        val clicked = shizukuBridge.injectMouseClick(controller.displayId, endX, endY)
+                        runOnUiThread {
+                            if (clicked) {
+                                pulseDextopCursor()
+                                status.text = "Klik mouse • x=${endX.toInt()} y=${endY.toInt()}"
+                            } else {
+                                status.text = "Klik mouse gagal. Periksa Runtime Log."
+                            }
+                        }
+                    }
                 }
                 longPressDragArmed = false
                 return true
