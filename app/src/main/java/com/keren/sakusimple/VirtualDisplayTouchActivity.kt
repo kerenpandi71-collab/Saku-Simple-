@@ -721,7 +721,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         queueNativeMouseButton(MotionEvent.ACTION_DOWN, cursorX, cursorY)
                         status.text = "Drag aktif • geser jari lalu lepaskan."
                     }
-                }.also { gestureHandler.postDelayed(it, 1000L) }
+                }.also { gestureHandler.postDelayed(it, 500L) }
                 return true
             }
 
@@ -764,7 +764,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 val deltaY = y - lastTouchY
                 if (kotlin.math.abs(x - downX) > dp(6) || kotlin.math.abs(y - downY) > dp(6)) {
                     pointerMoved = true
-                    if (!dragActive) longPressTask?.let(gestureHandler::removeCallbacks)
+                    // Do not cancel: timer decides whether the hold was stationary long enough.
                 }
                 cursorX = (cursorX + deltaX * targetWidth / width.toFloat() * cursorSensitivity)
                     .coerceIn(0f, (targetWidth - 1).toFloat())
