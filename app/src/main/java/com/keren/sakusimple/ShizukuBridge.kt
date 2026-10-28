@@ -183,6 +183,38 @@ class ShizukuBridge(
         }
     }
 
+    fun injectMouseButton(displayId: Int, action: Int, x: Float, y: Float): Boolean {
+        return try {
+            val service = remote ?: throw IllegalStateException("Shizuku UserService belum terhubung.")
+            val accepted = service.injectMouseButton(displayId, action, x, y)
+            if (!accepted) onStatus("Input mouse ditolak: ${service.getLastError()}")
+            accepted
+        } catch (error: Throwable) {
+            Log.e(TAG, "injectMouseButton failed", error)
+            onStatus("Input mouse gagal: ${error.cause?.message ?: error.message}")
+            false
+        }
+    }
+
+    fun injectKeyEvents(displayId: Int, actions: IntArray, keyCodes: IntArray, metaStates: IntArray): Boolean {
+        return try {
+            val service = remote ?: throw IllegalStateException("Shizuku UserService belum terhubung.")
+            val accepted = service.injectKeyEvents(displayId, actions, keyCodes, metaStates)
+            if (!accepted) onStatus("Input keyboard ditolak: ${service.getLastError()}")
+            accepted
+        } catch (error: Throwable) {
+            Log.e(TAG, "injectKeyEvents failed", error)
+            onStatus("Input keyboard gagal: ${error.cause?.message ?: error.message}")
+            false
+        }
+    }
+
+    fun getLastError(): String = try {
+        remote?.getLastError() ?: "Shizuku UserService belum terhubung."
+    } catch (error: Throwable) {
+        error.cause?.message ?: error.message ?: "Gagal membaca status Shizuku."
+    }
+
     fun injectMouseScroll(displayId: Int, x: Float, y: Float, horizontal: Float, vertical: Float): Boolean {
         return try {
             val service = remote ?: throw IllegalStateException("Shizuku UserService belum terhubung.")

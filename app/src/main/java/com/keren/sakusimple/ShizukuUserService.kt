@@ -29,6 +29,8 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
     private var serviceContext: Context? = null
     private var virtualDisplay: VirtualDisplay? = null
     @Volatile private var lastError: String = "Belum ada operasi."
+    private var mouseButtonDownTime: Long = 0L
+    private val injectedKeyDownTimes = mutableMapOf<Int, Long>()
 
     constructor(context: Context) : this() {
         serviceContext = context
@@ -150,6 +152,89 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             lastError = "MOUSE_CLICK error • ${error.javaClass.simpleName}: ${error.message}"
             Log.w(TAG, lastError, error)
             false
+        } finally {
+            Binder.restoreCallingIdentity(identity)
+        }
+    }
+
+    override fun injectMouseButton(displayId: Int, action: Int, x: Float, y: Float): Boolean {
+        val point = parseDisplayPoint(displayId, x, y) ?: return false
+        if (action != MotionEvent.ACTION_DOWN && action != MotionEvent.ACTION_MOVE &&
+            action != MotionEvent.ACTION_UP
+        ) {
+            lastError = "Aksi mouse tidak didukung: $action"
+            return false
+        }
+        val now = SystemClock.uptimeMillis()
+        val downTime = when (action) {
+            MotionEvent.ACTION_DOWN -> now.also { mouseButtonDownTime = it }
+            MotionEvent.ACTION_MOVE -> mouseButtonDownTime.takeIf { it > 0L } ?: now
+            else -> mouseButtonDownTime.takeIf { it > 0L } ?: now
+        }
+        val pressed = action == MotionEvent.ACTION_DOWN ||
+            (action == MotionEvent.ACTION_MOVE && mouseButtonDownTime > 0L)
+        val accepted = injectMouseEvent(
+            displayId, action, point.first.toFloat(), point.second.toFloat(),
+            buttonState = if (pressed) MotionEvent.BUTTON_PRIMARY else 0,
+            actionName = when (action) {
+                MotionEvent.ACTION_DOWN -> "MOUSE_BUTTON_DOWN"
+                MotionEvent.ACTION_MOVE -> "MOUSE_BUTTON_MOVE"
+                else -> "MOUSE_BUTTON_UP"
+            },
+            downTime = downTime
+        )
+        if (action == MotionEvent.ACTION_UP) mouseButtonDownTime = 0L
+        if (accepted) lastError = "Mouse button event diterima • display=$displayId • action=$action • x=${point.first} y=${point.second}"
+        return accepted
+    }
+
+    override fun injectKeyEvents(
+        displayId: Int, actions: IntArray, keyCodes: IntArray, metaStates: IntArray
+    ): Boolean {
+        if (displayId < 0 || displayId > 10000) {
+            lastError = "Keyboard input ditolak: display ID tidak valid ($displayId)."
+            return false
+        }
+        if (actions.size != keyCodes.size || actions.size != metaStates.size) {
+            lastError = "Keyboard input ditolak: ukuran array event tidak sama."
+            return false
+        }
+        if (actions.isEmpty()) return true
+        val identity = Binder.clearCallingIdentity()
+        try {
+            enableHiddenApiAccess()
+            var allAccepted = true
+            for (index in actions.indices) {
+                val action = actions[index]
+                val code = keyCodes[index]
+                if (action != android.view.KeyEvent.ACTION_DOWN && action != android.view.KeyEvent.ACTION_UP) continue
+                val now = SystemClock.uptimeMillis()
+                val downTime = if (action == android.view.KeyEvent.ACTION_DOWN) {
+                    now.also { injectedKeyDownTimes[code] = it }
+                } else {
+                    injectedKeyDownTimes.remove(code) ?: now
+                }
+                var event: android.view.KeyEvent? = null
+                try {
+                    event = android.view.KeyEvent(downTime, now, action, code, 0, metaStates[index])
+                    setDisplayIdMethod.invoke(event, displayId)
+                    val accepted = injectInputEventMethod.invoke(inputManagerService, event, INJECT_WAIT_FOR_RESULT) as? Boolean ?: false
+                    if (!accepted) {
+                        allAccepted = false
+                        lastError = "KeyEvent ditolak • display=$displayId • action=$action keyCode=$code"
+                        Log.w(TAG, lastError)
+                    }
+                } finally {
+                    runCatching { event?.recycle() }
+                }
+                if (!allAccepted) break
+            }
+            if (allAccepted) lastError = "Keyboard KeyEvent diterima • display=$displayId • count=${actions.size}"
+            return allAccepted
+        } catch (error: Throwable) {
+            lastError = "Keyboard injection gagal • ${error.javaClass.simpleName}: ${error.message}"
+            Log.w(TAG, lastError, error)
+            return false
         } finally {
             Binder.restoreCallingIdentity(identity)
         }

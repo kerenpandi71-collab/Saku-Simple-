@@ -5,14 +5,22 @@ import android.graphics.Paint
 import java.util.concurrent.Executors
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
+import android.view.ViewGroup
+import android.view.WindowManager
+import android.view.KeyCharacterMap
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -38,6 +46,15 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         Thread(runnable, "SakuDirectMouseInput").apply { isDaemon = true }
     }
     private lateinit var runtimeLogToggle: Button
+    private lateinit var bottomPanel: LinearLayout
+    private lateinit var panelToggleButton: Button
+    private lateinit var keyboardInput: EditText
+    private lateinit var runtimeLogPanel: LinearLayout
+    private var suppressKeyboardWatcher = false
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var fingerDown = false
+    private var dragActive = false
+    private var longPressTask: Runnable? = null
     private val cursorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
         color = Color.WHITE
@@ -74,24 +91,34 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
 
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(10), dp(8), dp(10), dp(8))
-            setBackgroundColor(Color.rgb(7, 24, 45))
+        // SurfaceView tetap memenuhi root; toolbar, kursor, touchpad, dan log adalah overlay.
+        val root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(7, 24, 45)) }
+        preview = SurfaceView(this).apply {
+            contentDescription = "Desktop virtual display 1280 x 720"
+            holder.setFixedSize(targetWidth, targetHeight)
+            holder.addCallback(object : SurfaceHolder.Callback {
+                override fun surfaceCreated(holder: SurfaceHolder) {
+                    virtualDisplayController?.updateSurface(holder.surface)
+                }
+                override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                    virtualDisplayController?.updateSurface(holder.surface)
+                    cursorOverlay?.invalidate()
+                }
+                override fun surfaceDestroyed(holder: SurfaceHolder) = Unit
+            })
         }
-        root.addView(TextView(this).apply {
-            text = "SAKU • VIRTUAL DISPLAY"
-            textSize = 19f
-            setTextColor(Color.WHITE)
-            typeface = Typeface.DEFAULT_BOLD
-        })
-        root.addView(TextView(this).apply {
-            text = "Preview landscape 1280 × 720 • touchpad di bawah"
-            textSize = 12f
-            setTextColor(Color.LTGRAY)
-            setPadding(0, dp(2), 0, dp(6))
-        })
+        root.addView(preview, FrameLayout.LayoutParams(-1, -1))
+        cursorOverlay = object : View(this) {
+            override fun onDraw(canvas: Canvas) { super.onDraw(canvas); drawDextopCursor(canvas) }
+        }.apply {
+            isClickable = false
+            isFocusable = false
+            setBackgroundColor(Color.TRANSPARENT)
+            contentDescription = "Kursor putih Saku Desktop"
+        }
+        root.addView(cursorOverlay, FrameLayout.LayoutParams(-1, -1))
 
         shizukuBridge = ShizukuBridge(this) { message ->
             runOnUiThread {
@@ -100,163 +127,100 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             }
         }
 
-        val connectionButtons = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+        fun actionButton(label: String, action: () -> Unit): Button = Button(this).apply {
+            text = label
+            textSize = 9f
+            isAllCaps = false
+            minHeight = dp(32); minimumHeight = dp(32)
+            minWidth = 0; minimumWidth = 0
+            setPadding(dp(2), 0, dp(2), 0)
+            setOnClickListener { action() }
         }
-        connectionButtons.addView(Button(this).apply {
-            text = "Hubungkan Shizuku"
-            textSize = 12f
-            isAllCaps = false
-            setOnClickListener { shizukuBridge.connect() }
-        }, LinearLayout.LayoutParams(0, dp(44), 1f))
-        connectionButtons.addView(Button(this).apply {
-            text = "Buat Layar Virtual"
-            textSize = 12f
-            isAllCaps = false
-            setOnClickListener { startOwnedVirtualDisplay() }
-        }, LinearLayout.LayoutParams(0, dp(44), 1f))
-        root.addView(connectionButtons)
 
-        val displayButtons = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+        val topBar = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(6), dp(4), dp(6), dp(4))
+            background = roundedPanel(220, 12)
         }
-        displayButtons.addView(Button(this).apply {
-            text = "Cek Launcher"
+        topBar.addView(TextView(this).apply {
+            text = "SAKU DESKTOP  •  1280 × 720"
             textSize = 12f
-            isAllCaps = false
-            setOnClickListener {
-                val controller = virtualDisplayController
-                if (controller == null || controller.displayId < 0) {
-                    status.text = "Buat virtual display terlebih dahulu."
-                } else {
-                    val targetDisplayId = controller.displayId
-                    status.text = "Memeriksa launcher di display $targetDisplayId…"
-                    Thread({
-                        val diagnostics = shizukuBridge.getDisplayDiagnostics(targetDisplayId)
-                        runOnUiThread {
-                            appendRuntimeLog("Diagnostik launcher • display=$targetDisplayId\n$diagnostics")
-                            status.text = "Diagnostik launcher selesai • display=$targetDisplayId • detail di Runtime Log"
-                        }
-                    }, "SakuDisplayDiagnostics").start()
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER_VERTICAL
+        }, LinearLayout.LayoutParams(-1, dp(20)))
+
+        val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        actions.addView(actionButton("Hubungkan") { shizukuBridge.connect() }, LinearLayout.LayoutParams(0, dp(34), 1.2f))
+        actions.addView(actionButton("Mulai") { startOwnedVirtualDisplay() }, LinearLayout.LayoutParams(0, dp(34), 0.75f))
+        actions.addView(actionButton("Cek") {
+            val id = virtualDisplayController?.displayId ?: -1
+            if (id < 0) status.text = "Mulai virtual display dahulu." else Thread({
+                val detail = shizukuBridge.getDisplayDiagnostics(id)
+                runOnUiThread {
+                    appendRuntimeLog("Diagnostik display $id\n$detail")
+                    status.text = "Diagnostik selesai • detail di Log"
                 }
-            }
-        }, LinearLayout.LayoutParams(0, dp(42), 1f))
-        displayButtons.addView(Button(this).apply {
-            text = "Tutup Layar Virtual"
-            textSize = 12f
-            isAllCaps = false
-            setOnClickListener {
-                virtualDisplayController?.close()
-                virtualDisplayController = null
-                clearPreview()
-                status.text = "Virtual display ditutup."
-            }
-        }, LinearLayout.LayoutParams(0, dp(42), 1f))
-        root.addView(displayButtons)
-
+            }, "SakuDisplayDiagnostics").start()
+        }, LinearLayout.LayoutParams(0, dp(34), 0.5f))
+        actions.addView(actionButton("Tutup") {
+            virtualDisplayController?.close()
+            virtualDisplayController = null
+            clearPreview()
+            status.text = "Virtual display ditutup."
+        }, LinearLayout.LayoutParams(0, dp(34), 0.65f))
+        runtimeLogToggle = actionButton("Log") { toggleRuntimeLog() }
+        actions.addView(runtimeLogToggle, LinearLayout.LayoutParams(0, dp(34), 0.48f))
+        panelToggleButton = actionButton("Panel") { toggleInputPanel() }
+        actions.addView(panelToggleButton, LinearLayout.LayoutParams(0, dp(34), 0.58f))
+        topBar.addView(actions)
         status = TextView(this).apply {
-            textSize = 11f
+            text = "Hubungkan Shizuku, lalu tekan Mulai."
+            textSize = 9f
+            maxLines = 2
             setTextColor(Color.rgb(105, 221, 245))
-            setPadding(dp(2), dp(3), dp(2), dp(3))
-            text = "Jalankan Shizuku, lalu tekan Hubungkan Shizuku."
+            setPadding(dp(2), dp(2), dp(2), 0)
         }
-        root.addView(status)
-
-        val previewFrame = FrameLayout(this).apply {
-            setBackgroundColor(Color.rgb(7, 24, 45))
-            contentDescription = "Panel preview landscape 1280 x 720"
-        }
-        preview = SurfaceView(this).apply {
-            contentDescription = "Preview virtual display 1280 x 720"
-            holder.setFixedSize(targetWidth, targetHeight)
-            holder.addCallback(object : SurfaceHolder.Callback {
-                override fun surfaceCreated(holder: SurfaceHolder) {
-                    virtualDisplayController?.updateSurface(holder.surface)
-                }
-                override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                    virtualDisplayController?.updateSurface(holder.surface)
-                }
-                override fun surfaceDestroyed(holder: SurfaceHolder) = Unit
-            })
-        }
-        val previewWidthPx = (resources.displayMetrics.widthPixels - dp(20)).coerceAtLeast(dp(180))
-        val previewHeightPx = (previewWidthPx.toFloat() * targetHeight / targetWidth).toInt().coerceAtLeast(dp(90))
-        previewFrame.addView(
-            preview,
-            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL)
-        )
-        cursorOverlay = object : View(this) {
-            override fun onDraw(canvas: Canvas) {
-                super.onDraw(canvas)
-                drawDextopCursor(canvas)
-            }
-        }.apply {
-            isClickable = false
-            isFocusable = false
-            setBackgroundColor(Color.TRANSPARENT)
-            contentDescription = "Dextop-style pointer marker"
-        }
-        previewFrame.addView(
-            cursorOverlay,
-            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
-        )
-        previewFrame.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            cursorOverlay?.invalidate()
-        }
-        root.addView(previewFrame, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, previewHeightPx
-        ).apply { topMargin = dp(3); bottomMargin = dp(4) })
-
-        root.addView(TextView(this).apply {
-            text = "TOUCHPAD • area biru"
-            textSize = 11f
-            setTextColor(Color.LTGRAY)
-            setPadding(dp(2), 0, 0, dp(3))
+        topBar.addView(status, LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT))
+        root.addView(topBar, FrameLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP).apply {
+            leftMargin = dp(7); rightMargin = dp(7); topMargin = dp(6)
         })
 
-        val stage = android.widget.FrameLayout(this).apply {
-            setBackgroundColor(Color.rgb(18, 44, 70))
-            contentDescription = "Bidang touchpad virtual display 1280 x 720"
+        bottomPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(7), dp(4), dp(7), dp(7))
+            background = roundedPanel(226, 15)
+            elevation = dp(8).toFloat()
+        }
+        val panelHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        panelHeader.addView(TextView(this).apply {
+            text = "TOUCHPAD • 1 jari kursor / tap klik / 2 jari scroll"
+            textSize = 9f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            maxLines = 1
+        }, LinearLayout.LayoutParams(0, dp(30), 1f))
+        panelHeader.addView(actionButton("⌨ Keyboard") { showVirtualKeyboard() },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)))
+        panelHeader.addView(actionButton("Sembunyi") { toggleInputPanel() },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)))
+        bottomPanel.addView(panelHeader)
+        val stage = FrameLayout(this).apply {
+            setBackgroundColor(Color.argb(105, 25, 74, 111))
+            contentDescription = "Touchpad: gerak 1 jari, scroll 2 jari, tahan 500ms lalu geser untuk drag"
         }
         stage.setOnTouchListener { _, event -> handleTouch(event, stage.width, stage.height) }
-        root.addView(stage, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 4f
-        ))
+        bottomPanel.addView(stage, LinearLayout.LayoutParams(-1, 0, 1f))
+        root.addView(bottomPanel, FrameLayout.LayoutParams(-1, dp(148), Gravity.BOTTOM).apply {
+            leftMargin = dp(7); rightMargin = dp(7); bottomMargin = dp(7)
+        })
 
-        val logHeader = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        logHeader.addView(TextView(this).apply {
-            text = "RUNTIME LOG • tahan lama untuk salin"
-            textSize = 11f
-            setTextColor(Color.LTGRAY)
-            setPadding(dp(2), dp(2), 0, dp(2))
-        }, LinearLayout.LayoutParams(0, dp(34), 1f))
-        runtimeLogToggle = Button(this).apply {
-            text = "Sembunyikan Log"
-            textSize = 10f
-            isAllCaps = false
-            minHeight = dp(30)
-            setPadding(dp(8), 0, dp(8), 0)
-            setOnClickListener {
-                val showLog = runtimeLogScroll.visibility == View.GONE
-                runtimeLogScroll.visibility = if (showLog) View.VISIBLE else View.GONE
-                runtimeLogToggle.text = if (showLog) "Sembunyikan Log" else "Tampilkan Log"
-            }
-        }
-        logHeader.addView(runtimeLogToggle, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, dp(34)
-        ))
-        root.addView(logHeader, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, dp(34)
-        ))
         runtimeLog = TextView(this).apply {
-            textSize = 10f
-            setTextColor(Color.rgb(180, 235, 248))
+            textSize = 9f
+            setTextColor(Color.rgb(190, 236, 249))
             setTextIsSelectable(true)
-            text = "Log runtime siap. Hasil Shizuku dan error akan muncul di sini."
-            setPadding(dp(6), dp(5), dp(6), dp(5))
+            text = "Runtime log siap. Hasil Shizuku dan error muncul di sini."
+            setPadding(dp(7), dp(5), dp(7), dp(5))
             setOnLongClickListener {
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("Saku Simple runtime log", runtimeLogBuffer.toString()))
@@ -266,18 +230,141 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         runtimeLogScroll = ScrollView(this).apply {
             isFillViewport = true
-            addView(runtimeLog, FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT
-            ))
+            addView(runtimeLog, FrameLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
-        root.addView(runtimeLogScroll, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, dp(72)
-        ))
+        runtimeLogPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(6), dp(4), dp(6), dp(6))
+            background = roundedPanel(245, 12)
+            elevation = dp(12).toFloat()
+            visibility = View.GONE
+        }
+        val logHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        logHeader.addView(TextView(this).apply {
+            text = "RUNTIME LOG • tahan isi untuk salin"
+            textSize = 10f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+        }, LinearLayout.LayoutParams(0, dp(28), 1f))
+        logHeader.addView(actionButton("Tutup") { toggleRuntimeLog(false) },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(28)))
+        runtimeLogPanel.addView(logHeader)
+        runtimeLogPanel.addView(runtimeLogScroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        root.addView(runtimeLogPanel, FrameLayout.LayoutParams(-1, dp(185), Gravity.TOP).apply {
+            leftMargin = dp(8); rightMargin = dp(8); topMargin = dp(102)
+        })
 
+        // Text sink untuk IME Android; huruf diubah jadi KeyCharacterMap events lalu dikirim ke Shizuku.
+        keyboardInput = EditText(this).apply {
+            singleLine = true
+            textSize = 12f
+            hint = "Ketik ke layar virtual"
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.LTGRAY)
+            setPadding(dp(8), 0, dp(8), 0)
+            background = roundedPanel(230, 10)
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+            alpha = 0.02f
+            isFocusableInTouchMode = true
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    if (suppressKeyboardWatcher || count <= 0 || s == null) return
+                    val typed = s.subSequence(start, (start + count).coerceAtMost(s.length)).toString()
+                    if (typed.isNotEmpty()) sendTypedText(typed)
+                    post {
+                        if (keyboardInput.text.isNotEmpty()) {
+                            suppressKeyboardWatcher = true
+                            keyboardInput.setText("")
+                            suppressKeyboardWatcher = false
+                        }
+                    }
+                }
+                override fun afterTextChanged(s: android.text.Editable?) = Unit
+            })
+        }
+        root.addView(keyboardInput, FrameLayout.LayoutParams(dp(2), dp(2), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
         setContentView(root)
     }
 
+    private fun roundedPanel(alpha: Int, radius: Int) = GradientDrawable().apply {
+        setColor(Color.argb(alpha.coerceIn(0, 255), 7, 25, 45))
+        cornerRadius = dp(radius).toFloat()
+        setStroke(dp(1), Color.argb(105, 182, 225, 247))
+    }
+
+    private fun toggleInputPanel() {
+        val show = bottomPanel.visibility != View.VISIBLE
+        bottomPanel.visibility = if (show) View.VISIBLE else View.GONE
+        panelToggleButton.text = if (show) "Panel" else "Panel+"
+        if (!show) {
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.hideSoftInputFromWindow(keyboardInput.windowToken, 0)
+        }
+    }
+
+    private fun showVirtualKeyboard() {
+        keyboardInput.requestFocus()
+        keyboardInput.post {
+            (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+                .showSoftInput(keyboardInput, InputMethodManager.SHOW_IMPLICIT)
+        }
+        status.text = "Keyboard Android aktif • teks diteruskan ke display virtual."
+    }
+
+    private fun sendTypedText(text: String) {
+        val events = runCatching {
+            KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD).getEvents(text.toCharArray())
+        }.getOrNull()
+        if (events.isNullOrEmpty()) {
+            appendRuntimeLog("Keyboard: karakter tidak didukung KeyCharacterMap: ${text.take(16)}")
+            return
+        }
+        val actions = IntArray(events.size) { events[it].action }
+        val codes = IntArray(events.size) { events[it].keyCode }
+        val meta = IntArray(events.size) { events[it].metaState }
+        mouseInputExecutor.execute {
+            val accepted = virtualDisplayController?.injectKeyEvents(actions, codes, meta) ?: false
+            if (!accepted) runOnUiThread {
+                status.text = "Teks keyboard gagal dikirim. Periksa Log."
+                appendRuntimeLog("Injeksi key event gagal: ${shizukuBridge.getLastError()}")
+            }
+        }
+    }
+
+    private fun toggleRuntimeLog(forceShow: Boolean? = null) {
+        val show = forceShow ?: (runtimeLogPanel.visibility != View.VISIBLE)
+        runtimeLogPanel.visibility = if (show) View.VISIBLE else View.GONE
+        runtimeLogToggle.text = if (show) "Log−" else "Log"
+    }
+
+    private fun queueNativeMouseButton(action: Int, x: Float, y: Float) {
+        mouseInputExecutor.execute {
+            val accepted = virtualDisplayController?.injectMouseButton(action, x, y) ?: false
+            if (!accepted && action != MotionEvent.ACTION_MOVE) runOnUiThread {
+                appendRuntimeLog("Mouse button gagal: ${shizukuBridge.getLastError()}")
+            }
+        }
+    }
+
+    private fun queueNativeMouseClick(x: Float, y: Float) {
+        mouseInputExecutor.execute {
+            val accepted = virtualDisplayController?.injectMouseClick(x, y) ?: false
+            runOnUiThread {
+                if (accepted) {
+                    pulseDextopCursor()
+                    status.text = "Klik • x=${x.toInt()} y=${y.toInt()}"
+                } else {
+                    status.text = "Klik ditolak InputManager. Periksa Log."
+                    appendRuntimeLog("Klik gagal: ${shizukuBridge.getLastError()}")
+                }
+            }
+        }
+    }
+
     override fun onDestroy() {
+        longPressTask?.let(mainHandler::removeCallbacks)
+        if (dragActive) virtualDisplayController?.injectMouseButton(MotionEvent.ACTION_UP, cursorX, cursorY)
         mouseInputExecutor.shutdownNow()
         virtualDisplayController?.close()
         virtualDisplayController = null
@@ -433,102 +520,96 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         if (width <= 0 || height <= 0) return true
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                lastTouchX = event.x
-                lastTouchY = event.y
-                downX = event.x
-                downY = event.y
+                fingerDown = true
+                lastTouchX = event.x; lastTouchY = event.y
+                downX = event.x; downY = event.y
                 pointerMoved = false
                 hadMultiTouch = false
                 scrollGestureActive = false
+                longPressTask?.let(mainHandler::removeCallbacks)
+                longPressTask = Runnable {
+                    if (fingerDown && !hadMultiTouch && !pointerMoved && !dragActive &&
+                        (virtualDisplayController?.displayId ?: -1) >= 0
+                    ) {
+                        dragActive = true
+                        queueNativeMouseButton(MotionEvent.ACTION_DOWN, cursorX, cursorY)
+                        status.text = "Drag aktif • geser jari, lalu lepaskan."
+                    }
+                }.also { mainHandler.postDelayed(it, 500L) }
                 return true
             }
-
             MotionEvent.ACTION_POINTER_DOWN -> {
+                longPressTask?.let(mainHandler::removeCallbacks)
+                if (dragActive) {
+                    queueNativeMouseButton(MotionEvent.ACTION_UP, cursorX, cursorY)
+                    dragActive = false
+                }
                 if (event.pointerCount >= 2) {
                     hadMultiTouch = true
                     scrollGestureActive = true
-                    val centroid = touchCentroid(event)
-                    lastScrollCentroidX = centroid.first
-                    lastScrollCentroidY = centroid.second
+                    val c = touchCentroid(event)
+                    lastScrollCentroidX = c.first; lastScrollCentroidY = c.second
                 }
                 return true
             }
-
             MotionEvent.ACTION_MOVE -> {
                 if (hadMultiTouch) {
                     if (scrollGestureActive && event.pointerCount >= 2) {
-                        val centroid = touchCentroid(event)
-                        val dx = centroid.first - lastScrollCentroidX
-                        val dy = centroid.second - lastScrollCentroidY
-                        lastScrollCentroidX = centroid.first
-                        lastScrollCentroidY = centroid.second
-                        queueNativeMouseScroll(
-                            cursorX,
-                            cursorY,
-                            horizontal = -dx / dp(32).toFloat(),
-                            vertical = -dy / dp(32).toFloat()
-                        )
+                        val c = touchCentroid(event)
+                        val dx = c.first - lastScrollCentroidX
+                        val dy = c.second - lastScrollCentroidY
+                        lastScrollCentroidX = c.first; lastScrollCentroidY = c.second
+                        // Dua jari hanya mengirim ACTION_SCROLL; posisi kursor tidak ikut bergerak.
+                        queueNativeMouseScroll(cursorX, cursorY, -dx / dp(32).toFloat(), -dy / dp(32).toFloat())
                     }
                     return true
                 }
-
-                val x = event.x
-                val y = event.y
-                val deltaX = x - lastTouchX
-                val deltaY = y - lastTouchY
+                val x = event.x; val y = event.y
+                val dx = x - lastTouchX; val dy = y - lastTouchY
                 if (kotlin.math.abs(x - downX) > dp(6) || kotlin.math.abs(y - downY) > dp(6)) {
                     pointerMoved = true
+                    if (!dragActive) longPressTask?.let(mainHandler::removeCallbacks)
                 }
-                cursorX = (cursorX + deltaX * targetWidth / width.toFloat())
-                    .coerceIn(0f, (targetWidth - 1).toFloat())
-                cursorY = (cursorY + deltaY * targetHeight / height.toFloat())
-                    .coerceIn(0f, (targetHeight - 1).toFloat())
-                lastTouchX = x
-                lastTouchY = y
+                cursorX = (cursorX + dx * targetWidth / width.toFloat() * 1.25f).coerceIn(0f, (targetWidth - 1).toFloat())
+                cursorY = (cursorY + dy * targetHeight / height.toFloat() * 1.25f).coerceIn(0f, (targetHeight - 1).toFloat())
+                lastTouchX = x; lastTouchY = y
                 cursorOverlay?.invalidate()
-                queueNativeMouseMove(cursorX, cursorY)
+                if (dragActive) queueNativeMouseButton(MotionEvent.ACTION_MOVE, cursorX, cursorY)
+                else queueNativeMouseMove(cursorX, cursorY)
                 return true
             }
-
             MotionEvent.ACTION_POINTER_UP -> {
                 hadMultiTouch = true
                 scrollGestureActive = false
                 return true
             }
-
             MotionEvent.ACTION_UP -> {
-                if (!hadMultiTouch && !pointerMoved) {
-                    val controller = virtualDisplayController
-                    if (controller == null || controller.displayId < 0) {
-                        status.text = "Buat virtual display lewat Shizuku sebelum mengklik."
+                fingerDown = false
+                longPressTask?.let(mainHandler::removeCallbacks)
+                if (dragActive) {
+                    queueNativeMouseButton(MotionEvent.ACTION_UP, cursorX, cursorY)
+                    dragActive = false
+                } else if (!hadMultiTouch && !pointerMoved) {
+                    if ((virtualDisplayController?.displayId ?: -1) < 0) {
+                        status.text = "Mulai virtual display lewat Shizuku sebelum mengklik."
                     } else {
-                        val clickX = cursorX.coerceIn(0f, (targetWidth - 1).toFloat())
-                        val clickY = cursorY.coerceIn(0f, (targetHeight - 1).toFloat())
-                        mouseInputExecutor.execute {
-                            val clicked = controller.injectMouseClick(clickX, clickY)
-                            runOnUiThread {
-                                if (clicked) {
-                                    pulseDextopCursor()
-                                    status.text = "Klik mouse • x=${clickX.toInt()} y=${clickY.toInt()}"
-                                } else {
-                                    status.text = "Klik mouse ditolak InputManager. Periksa Runtime Log."
-                                    appendRuntimeLog("InputManager menolak klik mouse di x=${clickX.toInt()} y=${clickY.toInt()}")
-                                }
-                            }
-                        }
+                        queueNativeMouseClick(
+                            cursorX.coerceIn(0f, (targetWidth - 1).toFloat()),
+                            cursorY.coerceIn(0f, (targetHeight - 1).toFloat())
+                        )
                     }
                 }
-                // Finger-up only ends the gesture. There is deliberately no swipe/drag injection.
-                pointerMoved = false
-                hadMultiTouch = false
-                scrollGestureActive = false
+                pointerMoved = false; hadMultiTouch = false; scrollGestureActive = false
                 return true
             }
-
             MotionEvent.ACTION_CANCEL -> {
-                pointerMoved = false
-                hadMultiTouch = false
-                scrollGestureActive = false
+                fingerDown = false
+                longPressTask?.let(mainHandler::removeCallbacks)
+                if (dragActive) {
+                    queueNativeMouseButton(MotionEvent.ACTION_UP, cursorX, cursorY)
+                    dragActive = false
+                }
+                pointerMoved = false; hadMultiTouch = false; scrollGestureActive = false
                 return true
             }
         }

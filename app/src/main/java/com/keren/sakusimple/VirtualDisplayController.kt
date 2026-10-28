@@ -80,6 +80,18 @@ class VirtualDisplayController(
         return shizukuBridge.injectMouseClick(id, x, y)
     }
 
+    fun injectMouseButton(action: Int, x: Float, y: Float): Boolean {
+        val id = displayId
+        if (id < 0) return false
+        return shizukuBridge.injectMouseButton(id, action, x, y)
+    }
+
+    fun injectKeyEvents(actions: IntArray, keyCodes: IntArray, metaStates: IntArray): Boolean {
+        val id = displayId
+        if (id < 0) return false
+        return shizukuBridge.injectKeyEvents(id, actions, keyCodes, metaStates)
+    }
+
     fun injectMouseScroll(x: Float, y: Float, horizontal: Float, vertical: Float): Boolean {
         val id = displayId
         if (id < 0) return false
