@@ -188,31 +188,6 @@ class ShizukuBridge(
         }
     }
 
-    fun launchTestAppOnDisplay(displayId: Int) {
-        if (displayId < 0) {
-            onStatus("Buat virtual display terlebih dahulu.")
-            return
-        }
-        val service = remote
-        if (service == null) {
-            onStatus("Shizuku belum terhubung. Hubungkan Shizuku dahulu.")
-            return
-        }
-        onStatus("Mencoba membuka Chrome/Firefox pada display $displayId (fallback Browser)…")
-        Thread({
-            try {
-                val accepted = service.launchTestAppOnDisplay(displayId)
-                val details = service.getLastError()
-                val diagnostics = service.getDisplayDiagnostics(displayId)
-                val result = if (accepted) "Launch command diterima: $details" else "Launch gagal: $details"
-                onStatus("$result\n$diagnostics")
-            } catch (error: Throwable) {
-                Log.e(TAG, "Shizuku test-app launch failed", error)
-                onStatus("Launch aplikasi tes gagal: ${error.cause?.message ?: error.message ?: error.javaClass.simpleName}\n${Log.getStackTraceString(error)}")
-            }
-        }, "SakuDisplayLaunch").start()
-    }
-
     fun injectHover(displayId: Int, x: Float, y: Float): Boolean {
         return try {
             remote?.injectHover(displayId, x, y) ?: false

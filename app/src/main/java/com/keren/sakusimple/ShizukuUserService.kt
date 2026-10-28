@@ -150,41 +150,6 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         }
     }
 
-    override fun launchTestAppOnDisplay(displayId: Int): Boolean {
-        if (displayId < 0 || displayId > 10000) {
-            lastError = "Display ID tidak valid: $displayId"
-            return false
-        }
-        val flags = "0x1c000000"
-        val candidates = listOf(
-            "Chrome" to "am start --display $displayId -W -n com.android.chrome/com.google.android.apps.chrome.Main -a android.intent.action.VIEW -d https://example.com -f $flags",
-            "Firefox" to "am start --display $displayId -W -n org.mozilla.firefox/org.mozilla.gecko.BrowserApp -a android.intent.action.VIEW -d https://example.com -f $flags",
-            "Browser default" to "am start --display $displayId -W -a android.intent.action.MAIN -c android.intent.category.APP_BROWSER -f $flags",
-            "Browser URL fallback" to "am start --display $displayId -W -a android.intent.action.VIEW -d https://example.com -f $flags"
-        )
-        val attempts = mutableListOf<String>()
-        for ((label, command) in candidates) {
-            val result = runShizukuShell(command, timeoutMs = 7000L, maxCharacters = 1000)
-            val output = result.second
-            val success = result.first == 0 &&
-                output.contains("Status: ok", ignoreCase = true) &&
-                !output.contains("Warning: Activity not started", ignoreCase = true) &&
-                !output.contains("Error:", ignoreCase = true) &&
-                !output.contains("Exception", ignoreCase = true)
-            val detail = "$label • exit=${result.first} • $output"
-            attempts += detail
-            Log.i(TAG, "Launch candidate: $detail")
-            if (success) {
-                lastError = "Shell launch diterima • target display=$displayId • flags=$flags • $detail"
-                return true
-            }
-        }
-        lastError = "Chrome/Firefox/Browser tidak berhasil diluncurkan pada display $displayId • " +
-            attempts.joinToString(" || ").take(2600)
-        Log.w(TAG, lastError)
-        return false
-    }
-
     private fun runShizukuShell(
         command: String,
         timeoutMs: Long = 4500L,

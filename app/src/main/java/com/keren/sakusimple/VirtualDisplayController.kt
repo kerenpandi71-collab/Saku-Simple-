@@ -1,6 +1,5 @@
 package com.keren.sakusimple
 
-import android.app.Presentation
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
@@ -12,7 +11,6 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.view.Display
-import android.widget.TextView
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -33,7 +31,6 @@ class VirtualDisplayController(
     private val framePostPending = AtomicBoolean(false)
     private var lastFrameAtMs = 0L
     private var imageReader: ImageReader? = null
-    private var presentation: Presentation? = null
     private val closed = AtomicBoolean(false)
 
     @Volatile
@@ -121,18 +118,14 @@ class VirtualDisplayController(
                     try {
                         val display = displayManager.getDisplay(createdId)
                             ?: throw IllegalStateException("Display ID $createdId belum terlihat oleh aplikasi.")
-                        presentation = Presentation(appContext, display).apply {
-                            setContentView(TextView(appContext).apply {
-                                text = "SAKU VIRTUAL DISPLAY\n\nDisplay ID: $createdId\nShizuku berhasil membuat layar. Tekan 'Buka Kalkulator / Browser' untuk menguji peluncuran aplikasi."
-                                textSize = 18f
-                                setPadding(24, 24, 24, 24)
-                            })
-                            show()
-                        }
-                        reportStatus("Virtual display aktif • ID $createdId • ${safeWidth}×${safeHeight} • $error")
+                        reportStatus(
+                            "Virtual display aktif • ID $createdId • ${safeWidth}×${safeHeight} • " +
+                                "state=${display.state} • surfaceValid=${reader.surface.isValid} • " +
+                                "launcher sekunder dikelola Android • $error"
+                        )
                     } catch (displayError: Throwable) {
-                        reportStatus("Display dibuat (ID $createdId), tetapi preview window gagal: ${displayError.message ?: displayError.javaClass.simpleName}")
-                        Log.e(TAG, "Unable to show Presentation on Shizuku display", displayError)
+                        reportStatus("Display dibuat (ID $createdId), tetapi diagnostik display gagal: ${displayError.message ?: displayError.javaClass.simpleName}")
+                        Log.e(TAG, "Unable to inspect system secondary display", displayError)
                     }
                 }
             }
@@ -170,9 +163,6 @@ class VirtualDisplayController(
         return shizukuBridge.injectHover(id, x, y)
     }
 
-    fun launchTestApp() =
-        shizukuBridge.launchTestAppOnDisplay(displayId)
-
     private fun reportStatus(message: String) {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             onStatus(message)
@@ -198,8 +188,6 @@ class VirtualDisplayController(
     }
 
     private fun releaseDisplayAndReader() {
-        try { presentation?.dismiss() } catch (_: Throwable) {}
-        presentation = null
         if (displayId >= 0) shizukuBridge.releaseVirtualDisplay()
         displayId = Display.INVALID_DISPLAY
         releaseReaderOnly()

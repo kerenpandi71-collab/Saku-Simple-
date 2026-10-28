@@ -45,7 +45,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var moved = false
     private var receivedFrames = 0L
     private var lastHoverAtMs = 0L
-    private var displayDiagnostics = "state belum diperiksa"
 
     private val targetWidth = 1280
     private val targetHeight = 720
@@ -99,7 +98,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             orientation = LinearLayout.HORIZONTAL
         }
         displayButtons.addView(Button(this).apply {
-            text = "Buka Kalkulator / Browser"
+            text = "Cek Launcher"
             textSize = 12f
             isAllCaps = false
             setOnClickListener {
@@ -107,7 +106,15 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 if (controller == null || controller.displayId < 0) {
                     status.text = "Buat virtual display terlebih dahulu."
                 } else {
-                    controller.launchTestApp()
+                    val targetDisplayId = controller.displayId
+                    status.text = "Memeriksa launcher di display $targetDisplayId…"
+                    Thread({
+                        val diagnostics = shizukuBridge.getDisplayDiagnostics(targetDisplayId)
+                        runOnUiThread {
+                            appendRuntimeLog("Diagnostik launcher • display=$targetDisplayId\n$diagnostics")
+                            status.text = "Diagnostik launcher selesai • display=$targetDisplayId • detail di Runtime Log"
+                        }
+                    }, "SakuDisplayDiagnostics").start()
                 }
             }
         }, LinearLayout.LayoutParams(0, dp(42), 1f))
@@ -241,13 +248,21 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                     receivedFrames++
                     renderPreviewFrame()
                     if (receivedFrames == 1L) {
-                        displayDiagnostics = shizukuBridge.getDisplayDiagnostics(virtualDisplayController?.displayId ?: -1)
+                        val targetDisplayId = virtualDisplayController?.displayId ?: -1
+                        if (targetDisplayId >= 0) {
+                            Thread({
+                                val diagnostics = shizukuBridge.getDisplayDiagnostics(targetDisplayId)
+                                runOnUiThread {
+                                    appendRuntimeLog("Diagnostik awal launcher • display=$targetDisplayId\n$diagnostics")
+                                }
+                            }, "SakuInitialDisplayDiagnostics").start()
+                        }
                     }
                     if (receivedFrames == 1L || receivedFrames % 30L == 0L) {
                         status.text = if (isMostlyWhite(bitmap)) {
-                            "ImageReader menerima frame=$receivedFrames, tetapi gambar hampir seluruhnya putih • $displayDiagnostics"
+                            "Preview menerima frame tetapi hampir putih • periksa launcher dan Runtime Log"
                         } else {
-                            "ImageReader OK • frame=$receivedFrames • 1280×720 • $displayDiagnostics"
+                            "Preview launcher aktif • frame=$receivedFrames • display=${virtualDisplayController?.displayId}"
                         }
                     }
                     if (old != null && old !== bitmap && !old.isRecycled) old.recycle()
@@ -259,7 +274,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             )
         }
         receivedFrames = 0L
-        displayDiagnostics = "memeriksa state display…"
         status.text = "Meminta Shizuku membuat display 1280 × 720 landscape • densityDpi=160…"
         appendRuntimeLog("Meminta display 1280×720 dengan densityDpi=160.")
         virtualDisplayController?.start(
@@ -271,8 +285,17 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         status.postDelayed({
             val controller = virtualDisplayController
             if (controller != null && controller.displayId >= 0 && receivedFrames == 0L) {
-                displayDiagnostics = shizukuBridge.getDisplayDiagnostics(controller.displayId)
-                status.text = "ImageReader belum menerima frame • $displayDiagnostics"
+                val targetDisplayId = controller.displayId
+                status.text = "Belum ada frame preview • memeriksa display $targetDisplayId…"
+                Thread({
+                    val diagnostics = shizukuBridge.getDisplayDiagnostics(targetDisplayId)
+                    runOnUiThread {
+                        appendRuntimeLog("Tidak ada frame setelah 4 detik • display=$targetDisplayId\n$diagnostics")
+                        if (receivedFrames == 0L) {
+                            status.text = "Belum ada frame dari display $targetDisplayId • detail di Runtime Log"
+                        }
+                    }
+                }, "SakuNoFrameDiagnostics").start()
             }
         }, 4000L)
     }
@@ -387,7 +410,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                     controller.injectTap(endX, endY)
                 }
                 if (!accepted) {
-                    status.text = "Input ditolak atau koneksi Shizuku terputus. Periksa status/izin Shizuku."
+                    status.text = "Input shell gagal. Detail perintah tersedia di Runtime Log."
                 }
                 return true
             }
