@@ -451,15 +451,15 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         if (event.actionMasked == MotionEvent.ACTION_DOWN) directTouchDown = true
         if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) directTouchDown = false
+        val pointerIds = IntArray(count) { i -> event.getPointerId(i) }
+        val isFinalUp = event.actionMasked == MotionEvent.ACTION_UP
         mouseInputExecutor.execute {
-            val accepted = controller.injectTouchPoints(
-                action, IntArray(count) { i -> event.getPointerId(i) }, xs, ys
-            )
+            val accepted = controller.injectTouchPoints(action, pointerIds, xs, ys)
             runOnUiThread {
                 if (!accepted) {
                     appendRuntimeLog("Direct Touch multi-jari gagal • action=$action • ${shizukuBridge.getLastError()}")
                     status.text = "Direct Touch gagal • periksa Log."
-                } else if (event.actionMasked == MotionEvent.ACTION_UP) {
+                } else if (isFinalUp) {
                     pulseDextopCursor()
                 }
             }
