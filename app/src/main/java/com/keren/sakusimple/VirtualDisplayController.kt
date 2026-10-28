@@ -11,7 +11,7 @@ import android.os.Looper
 import android.util.Log
 import android.view.Display
 import android.view.Surface
-import android.widget.Presentation
+import android.app.Presentation
 import android.widget.TextView
 import java.util.concurrent.atomic.AtomicBoolean
 
