@@ -289,7 +289,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
 
             val resultCode = startActivityMethod.invoke(activityTaskManager, *args) as? Int
                 ?: throw IllegalStateException("ActivityTaskManager tidak mengembalikan kode hasil.")
-            val flags = "0x\${(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP).toString(16)}"
+            val flags = "0x${(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP).toString(16)}"
             val resultName = when (resultCode) {
                 0 -> "START_SUCCESS"
                 2 -> "START_TASK_TO_FRONT"
@@ -306,7 +306,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             accepted
         } catch (error: Throwable) {
             val cause = error.cause ?: error
-            lastError = "Launch langsung ke display $displayId gagal: \${cause.javaClass.simpleName}: \${cause.message ?: "tanpa detail"}"
+            lastError = "Launch langsung ke display $displayId gagal: ${cause.javaClass.simpleName}: ${cause.message ?: "tanpa detail"}"
             Log.e(TAG, lastError, cause)
             false
         } finally {
