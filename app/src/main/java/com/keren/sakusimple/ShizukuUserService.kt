@@ -164,7 +164,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         val identity = Binder.clearCallingIdentity()
         try {
             val props = Array(pointerIds.size) { i -> MotionEvent.PointerProperties().apply { id = pointerIds[i].coerceIn(0, 31); toolType = MotionEvent.TOOL_TYPE_FINGER } }
-            val coords = Array(pointerIds.size) { i -> MotionEvent.PointerCoords().apply { x = points[i].first.toFloat(); y = points[i].second.toFloat(); pressure = if (masked == MotionEvent.ACTION_UP || masked == MotionEvent.ACTION_POINTER_UP || masked == MotionEvent.ACTION_CANCEL) 0f else 1f; size = 1f } }
+            val coords = Array(pointerIds.size) { i -> MotionEvent.PointerCoords().apply { x = points[i].first.toFloat(); y = points[i].second.toFloat(); pressure = if (masked == MotionEvent.ACTION_UP || masked == MotionEvent.ACTION_CANCEL) 0f else 1f; size = 1f } }
             event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, pointerIds.size, props, coords, 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0)
             setDisplayIdMethod.invoke(event, displayId)
             val accepted = injectInputEventMethod.invoke(inputManagerService, event, INJECT_WAIT_FOR_RESULT) as? Boolean ?: false
