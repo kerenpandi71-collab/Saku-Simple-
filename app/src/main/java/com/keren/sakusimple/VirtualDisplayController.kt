@@ -110,16 +110,16 @@ class VirtualDisplayController(
                             })
                             show()
                         }
-                        onStatus("Virtual display Shizuku aktif • ID $createdId • \${safeWidth}×\${safeHeight}.")
+                        onStatus("Virtual display Shizuku aktif • ID $createdId • ${safeWidth}×${safeHeight}.")
                     } catch (displayError: Throwable) {
-                        onStatus("Display dibuat (ID $createdId), tetapi preview window gagal: \${displayError.message ?: displayError.javaClass.simpleName}")
+                        onStatus("Display dibuat (ID $createdId), tetapi preview window gagal: ${displayError.message ?: displayError.javaClass.simpleName}")
                         Log.e(TAG, "Unable to show Presentation on Shizuku display", displayError)
                     }
                 }
             }
         } catch (error: Throwable) {
             Log.e(TAG, "Virtual display setup failed", error)
-            onStatus("Gagal menyiapkan virtual display: \${error.message ?: error.javaClass.simpleName}")
+            onStatus("Gagal menyiapkan virtual display: ${error.message ?: error.javaClass.simpleName}")
             releaseDisplayAndReader()
         }
     }
