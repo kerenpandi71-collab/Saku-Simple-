@@ -6,9 +6,14 @@ import android.content.Intent
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.os.Binder
+import android.os.IBinder
+import android.os.SystemClock
 import android.os.Build
 import android.util.Log
 import android.view.Surface
+import android.view.InputDevice
+import android.view.InputEvent
+import android.view.MotionEvent
 import android.view.Display
 import java.util.concurrent.TimeUnit
 import org.lsposed.hiddenapibypass.HiddenApiBypass
@@ -90,31 +95,151 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         }
     }
 
-    override fun injectTap(displayId: Int, x: Float, y: Float): Boolean {
-        val point = parseDisplayPoint(displayId, x, y) ?: return false
-        return runInputCommand(displayId, "input -d $displayId tap ${point.first} ${point.second}", "TAP")
+    private val inputManagerService: Any by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        enableHiddenApiAccess()
+        val manager = Class.forName("android.os.ServiceManager")
+        val binder = manager.getDeclaredMethod("getService", String::class.java)
+            .apply { isAccessible = true }
+            .invoke(null, "input") as? IBinder
+            ?: throw IllegalStateException("InputManager Binder tidak tersedia")
+        val stub = Class.forName("android.hardware.input.IInputManager\$Stub")
+        stub.getMethod("asInterface", IBinder::class.java).invoke(null, binder)
+            ?: throw IllegalStateException("IInputManager.asInterface mengembalikan null")
     }
 
-    override fun injectSwipe(displayId: Int, x1: Float, y1: Float, x2: Float, y2: Float, durationMs: Long): Boolean {
-        val start = parseDisplayPoint(displayId, x1, y1) ?: return false
-        val end = parseDisplayPoint(displayId, x2, y2) ?: return false
-        val duration = durationMs.coerceIn(50L, 2000L)
-        val command = "input -d $displayId swipe ${start.first} ${start.second} ${end.first} ${end.second} $duration"
-        return runInputCommand(displayId, command, "SWIPE")
+    private val injectInputEventMethod by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        Class.forName("android.hardware.input.IInputManager").getMethod(
+            "injectInputEvent", InputEvent::class.java, Int::class.javaPrimitiveType
+        )
+    }
+
+    private val setDisplayIdMethod by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        InputEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType)
     }
 
     override fun injectHover(displayId: Int, x: Float, y: Float): Boolean {
         val point = parseDisplayPoint(displayId, x, y) ?: return false
-        val command = "input mouse -d $displayId motionevent MOVE ${point.first} ${point.second}"
-        return runInputCommand(displayId, command, "MOUSE_MOVE")
+        return injectMouseEvent(
+            displayId, MotionEvent.ACTION_HOVER_MOVE, point.first.toFloat(), point.second.toFloat(),
+            buttonState = 0, actionName = "MOUSE_MOVE"
+        )
     }
 
     override fun injectMouseClick(displayId: Int, x: Float, y: Float): Boolean {
         val point = parseDisplayPoint(displayId, x, y) ?: return false
-        val px = point.first
-        val py = point.second
-        val command = "input mouse -d $displayId motionevent DOWN $px $py; input mouse -d $displayId motionevent UP $px $py"
-        return runInputCommand(displayId, command, "MOUSE_CLICK")
+        val identity = Binder.clearCallingIdentity()
+        return try {
+            val downTime = SystemClock.uptimeMillis()
+            val down = injectMouseEvent(
+                displayId, MotionEvent.ACTION_DOWN, point.first.toFloat(), point.second.toFloat(),
+                buttonState = MotionEvent.BUTTON_PRIMARY, actionName = "MOUSE_DOWN", downTime = downTime
+            )
+            val up = injectMouseEvent(
+                displayId, MotionEvent.ACTION_UP, point.first.toFloat(), point.second.toFloat(),
+                buttonState = 0, actionName = "MOUSE_UP", downTime = downTime
+            )
+            val accepted = down && up
+            lastError = if (accepted) {
+                "MOUSE_CLICK accepted • display=$displayId • x=${point.first} y=${point.second}"
+            } else {
+                "MOUSE_CLICK rejected • display=$displayId • x=${point.first} y=${point.second}"
+            }
+            if (!accepted) Log.w(TAG, lastError)
+            accepted
+        } catch (error: Throwable) {
+            lastError = "MOUSE_CLICK error • ${error.javaClass.simpleName}: ${error.message}"
+            Log.w(TAG, lastError, error)
+            false
+        } finally {
+            Binder.restoreCallingIdentity(identity)
+        }
+    }
+
+    override fun injectMouseScroll(
+        displayId: Int, x: Float, y: Float, horizontal: Float, vertical: Float
+    ): Boolean {
+        val point = parseDisplayPoint(displayId, x, y) ?: return false
+        if (!horizontal.isFinite() || !vertical.isFinite()) return false
+        if (kotlin.math.abs(horizontal) < 0.001f && kotlin.math.abs(vertical) < 0.001f) return true
+        val identity = Binder.clearCallingIdentity()
+        return try {
+            val accepted = injectMouseEvent(
+                displayId, MotionEvent.ACTION_SCROLL, point.first.toFloat(), point.second.toFloat(),
+                buttonState = 0, actionName = "MOUSE_SCROLL",
+                horizontalScroll = horizontal.coerceIn(-8f, 8f),
+                verticalScroll = vertical.coerceIn(-8f, 8f)
+            )
+            if (accepted) lastError = "MOUSE_SCROLL accepted • display=$displayId • h=$horizontal v=$vertical"
+            accepted
+        } catch (error: Throwable) {
+            lastError = "MOUSE_SCROLL error • ${error.javaClass.simpleName}: ${error.message}"
+            Log.w(TAG, lastError, error)
+            false
+        } finally {
+            Binder.restoreCallingIdentity(identity)
+        }
+    }
+
+    override fun setVirtualDisplaySurface(surface: Surface): Boolean {
+        val identity = Binder.clearCallingIdentity()
+        return try {
+            if (!surface.isValid) throw IllegalArgumentException("Surface tujuan tidak valid")
+            val display = virtualDisplay ?: throw IllegalStateException("Virtual display belum dibuat")
+            display.setSurface(surface)
+            lastError = "Virtual display output surface diperbarui • surfaceValid=${surface.isValid}"
+            Log.i(TAG, lastError)
+            true
+        } catch (error: Throwable) {
+            lastError = "Gagal memperbarui surface: ${error.javaClass.simpleName}: ${error.message}"
+            Log.w(TAG, lastError, error)
+            false
+        } finally {
+            Binder.restoreCallingIdentity(identity)
+        }
+    }
+
+    private fun injectMouseEvent(
+        displayId: Int, action: Int, x: Float, y: Float, buttonState: Int,
+        actionName: String, horizontalScroll: Float = 0f, verticalScroll: Float = 0f,
+        downTime: Long = SystemClock.uptimeMillis()
+    ): Boolean {
+        var event: MotionEvent? = null
+        val identity = Binder.clearCallingIdentity()
+        try {
+            val properties = MotionEvent.PointerProperties().apply {
+                id = 0
+                toolType = MotionEvent.TOOL_TYPE_MOUSE
+            }
+            val coordinates = MotionEvent.PointerCoords().apply {
+                this.x = x
+                this.y = y
+                pressure = if (action == MotionEvent.ACTION_DOWN) 1f else 0f
+                size = 1f
+                setAxisValue(MotionEvent.AXIS_HSCROLL, horizontalScroll)
+                setAxisValue(MotionEvent.AXIS_VSCROLL, verticalScroll)
+            }
+            event = MotionEvent.obtain(
+                downTime, SystemClock.uptimeMillis(), action, 1,
+                arrayOf(properties), arrayOf(coordinates), 0, buttonState,
+                1f, 1f, 0, 0, InputDevice.SOURCE_MOUSE, 0
+            )
+            setDisplayIdMethod.invoke(event, displayId)
+            val accepted = injectInputEventMethod.invoke(
+                inputManagerService, event, INJECT_WAIT_FOR_RESULT
+            ) as? Boolean ?: false
+            if (!accepted && actionName != "MOUSE_MOVE") {
+                lastError = "$actionName ditolak InputManager • display=$displayId • x=${x.toInt()} y=${y.toInt()}"
+                Log.w(TAG, lastError)
+            }
+            return accepted
+        } catch (error: Throwable) {
+            lastError = "$actionName gagal • ${error.javaClass.simpleName}: ${error.message ?: "tanpa detail"}"
+            if (actionName != "MOUSE_MOVE") Log.w(TAG, lastError, error)
+            return false
+        } finally {
+            runCatching { event?.recycle() }
+            Binder.restoreCallingIdentity(identity)
+        }
     }
 
     private fun parseDisplayPoint(displayId: Int, x: Float, y: Float): Pair<Int, Int>? {
@@ -257,5 +382,6 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         private const val TAG = "SakuShizukuService"
         private const val SUPPORTS_TOUCH_FLAG = 1 shl 6
         private const val TRUSTED_FLAG = 1 shl 10
+        private const val INJECT_WAIT_FOR_RESULT = 1
     }
 }
