@@ -31,6 +31,8 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
     @Volatile private var lastError: String = "Belum ada operasi."
     private var mouseButtonDownTime: Long = 0L
     private var touchDownTime: Long = 0L
+    @Volatile private var virtualWidth: Int = 1280
+    @Volatile private var virtualHeight: Int = 720
     private val injectedKeyDownTimes = mutableMapOf<Int, Long>()
 
     constructor(context: Context) : this() {
@@ -45,6 +47,8 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         surface: Surface
     ): Int {
         releaseVirtualDisplay()
+        virtualWidth = width.coerceIn(320, 2560)
+        virtualHeight = height.coerceIn(320, 2560)
         val identity = Binder.clearCallingIdentity()
         return try {
             enableHiddenApiAccess()
@@ -156,19 +160,45 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             lastError = "Aksi multi-touch tidak valid: $action"
             return false
         }
+        val originalActionIndex = (action and MotionEvent.ACTION_POINTER_INDEX_MASK) shr MotionEvent.ACTION_POINTER_INDEX_SHIFT
+        val actionPointerId = if (masked == MotionEvent.ACTION_POINTER_DOWN || masked == MotionEvent.ACTION_POINTER_UP) {
+            pointerIds.getOrNull(originalActionIndex)
+        } else null
+        if ((masked == MotionEvent.ACTION_POINTER_DOWN || masked == MotionEvent.ACTION_POINTER_UP) && actionPointerId == null) {
+            lastError = "Multi-touch action index tidak cocok dengan pointer."
+            return false
+        }
+        // Android expects pointer properties ordered by pointer ID; host pointer indices can change.
+        val order = pointerIds.indices.sortedBy { pointerIds[it] }
+        val sortedIds = order.map { pointerIds[it] }
+        if (sortedIds.distinct().size != sortedIds.size) {
+            lastError = "Multi-touch berisi pointer ID ganda."
+            return false
+        }
+        val sortedAction = if (actionPointerId != null) {
+            masked or (sortedIds.indexOf(actionPointerId) shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)
+        } else masked
         val now = SystemClock.uptimeMillis()
         val downTime = if (masked == MotionEvent.ACTION_DOWN) now.also { touchDownTime = it } else touchDownTime.takeIf { it > 0L } ?: now
         val points = ArrayList<Pair<Int, Int>>(pointerIds.size)
-        for (i in pointerIds.indices) points.add(parseDisplayPoint(displayId, xs[i], ys[i]) ?: return false)
+        for (index in order) points.add(parseDisplayPoint(displayId, xs[index], ys[index]) ?: return false)
         var event: MotionEvent? = null
         val identity = Binder.clearCallingIdentity()
         try {
-            val props = Array(pointerIds.size) { i -> MotionEvent.PointerProperties().apply { id = pointerIds[i].coerceIn(0, 31); toolType = MotionEvent.TOOL_TYPE_FINGER } }
-            val coords = Array(pointerIds.size) { i -> MotionEvent.PointerCoords().apply { x = points[i].first.toFloat(); y = points[i].second.toFloat(); pressure = if (masked == MotionEvent.ACTION_UP || masked == MotionEvent.ACTION_CANCEL) 0f else 1f; size = 1f } }
-            event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, pointerIds.size, props, coords, 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0)
+            val props = Array(sortedIds.size) { i -> MotionEvent.PointerProperties().apply {
+                id = sortedIds[i].coerceIn(0, 31)
+                toolType = MotionEvent.TOOL_TYPE_FINGER
+            } }
+            val coords = Array(sortedIds.size) { i -> MotionEvent.PointerCoords().apply {
+                x = points[i].first.toFloat()
+                y = points[i].second.toFloat()
+                pressure = if (masked == MotionEvent.ACTION_UP || masked == MotionEvent.ACTION_CANCEL) 0f else 1f
+                size = 1f
+            } }
+            event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), sortedAction, sortedIds.size, props, coords, 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0)
             setDisplayIdMethod.invoke(event, displayId)
             val accepted = injectInputEventMethod.invoke(inputManagerService, event, INJECT_WAIT_FOR_RESULT) as? Boolean ?: false
-            lastError = if (accepted) "MULTITOUCH accepted • display=$displayId • pointers=${pointerIds.size}" else "MULTITOUCH rejected • display=$displayId • pointers=${pointerIds.size}"
+            lastError = if (accepted) "MULTITOUCH accepted • display=$displayId • pointers=${sortedIds.size} • action=$sortedAction" else "MULTITOUCH rejected • display=$displayId • pointers=${sortedIds.size} • action=$sortedAction"
             if (!accepted) Log.w(TAG, lastError)
             return accepted
         } catch (error: Throwable) {
@@ -181,6 +211,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             if (masked == MotionEvent.ACTION_UP || masked == MotionEvent.ACTION_CANCEL) touchDownTime = 0L
         }
     }
+
     override fun injectTouchClick(displayId: Int, x: Float, y: Float): Boolean {
         val down = injectTouchEvent(displayId, MotionEvent.ACTION_DOWN, x, y)
         if (!down) return false
@@ -430,7 +461,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             lastError = "Input ditolak: koordinat bukan angka valid."
             return null
         }
-        return x.toInt().coerceIn(0, 1279) to y.toInt().coerceIn(0, 719)
+        return x.toInt().coerceIn(0, (virtualWidth - 1).coerceAtLeast(0)) to y.toInt().coerceIn(0, (virtualHeight - 1).coerceAtLeast(0))
     }
 
     private fun runInputCommand(displayId: Int, command: String, action: String): Boolean {
