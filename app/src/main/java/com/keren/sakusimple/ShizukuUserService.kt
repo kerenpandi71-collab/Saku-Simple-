@@ -191,6 +191,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
     }
 
     override fun releaseVirtualDisplay() {
+        val identity = Binder.clearCallingIdentity()
         try {
             inputHandler.removeCallbacksAndMessages(null)
             virtualDisplay?.release()
@@ -199,6 +200,8 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         } catch (error: Throwable) {
             lastError = "${error.javaClass.simpleName}: ${error.message ?: "gagal menutup display"}"
             Log.e(TAG, "Release virtual display failed", error)
+        } finally {
+            Binder.restoreCallingIdentity(identity)
         }
     }
 
