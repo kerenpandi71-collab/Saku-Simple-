@@ -66,7 +66,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var previewSizePercent = 100
     private var panelPositionPercent = 0
     private var directTouchDown = false
-    private var directTouchEnabled = false
+    private var directTouchEnabled = true
     private val gestureHandler = Handler(Looper.getMainLooper())
     private var longPressTask: Runnable? = null
     private var touchpadFingerDown = false
@@ -197,7 +197,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         actions.addView(runtimeLogToggle, LinearLayout.LayoutParams(0, dp(34), 0.48f))
         panelToggleButton = actionButton("Panel") { toggleInputPanel() }
         actions.addView(panelToggleButton, LinearLayout.LayoutParams(0, dp(34), 0.58f))
-        directTouchButton = actionButton("Direct: OFF") { toggleDirectTouch() }
+        directTouchButton = actionButton("Touch: ON") { toggleDirectTouch() }
         actions.addView(directTouchButton, LinearLayout.LayoutParams(0, dp(34), 0.78f))
         topBar.addView(actions)
         val previewSizeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
@@ -297,9 +297,65 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             setPadding(dp(2), dp(2), dp(2), 0)
         }
         topBar.addView(status, LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT))
-        root.addView(topBar, FrameLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM).apply {
-            leftMargin = dp(7); rightMargin = dp(7); bottomMargin = dp(5)
+        // Semua pengaturan berada di panel yang dibuka dari bola asisten.
+        topBar.visibility = View.GONE
+        root.addView(topBar, FrameLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP).apply {
+            leftMargin = dp(7); rightMargin = dp(7); topMargin = dp(7)
         })
+        val assistantBall = TextView(this).apply {
+            text = "S"
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.argb(225, 24, 104, 164))
+                setStroke(dp(2), Color.argb(220, 180, 230, 255))
+            }
+            elevation = dp(12).toFloat()
+            contentDescription = "Bola asisten Saku Desktop. Ketuk untuk pengaturan, seret untuk memindahkan."
+            isClickable = true
+        }
+        val ballParams = FrameLayout.LayoutParams(dp(52), dp(52), Gravity.END or Gravity.CENTER_VERTICAL).apply {
+            rightMargin = dp(12)
+        }
+        var ballDownX = 0f
+        var ballDownY = 0f
+        var ballStartX = 0f
+        var ballStartY = 0f
+        var ballDragged = false
+        assistantBall.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    ballDownX = event.rawX; ballDownY = event.rawY
+                    ballStartX = ballParams.x.toFloat(); ballStartY = ballParams.y.toFloat()
+                    ballDragged = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - ballDownX
+                    val dy = event.rawY - ballDownY
+                    if (kotlin.math.abs(dx) > dp(5) || kotlin.math.abs(dy) > dp(5)) ballDragged = true
+                    if (ballDragged) {
+                        ballParams.gravity = Gravity.TOP or Gravity.START
+                        ballParams.leftMargin = (ballStartX + dx).toInt().coerceIn(0, (root.width - view.width).coerceAtLeast(0))
+                        ballParams.topMargin = (ballStartY + dy).toInt().coerceIn(0, (root.height - view.height).coerceAtLeast(0))
+                        root.updateViewLayout(view, ballParams)
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!ballDragged) {
+                        topBar.visibility = if (topBar.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                    }
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> true
+                else -> false
+            }
+        }
+        root.addView(assistantBall, ballParams)
 
         bottomPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -476,7 +532,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
     private fun toggleDirectTouch() {
         directTouchEnabled = !directTouchEnabled
-        directTouchButton.text = if (directTouchEnabled) "Direct: ON" else "Direct: OFF"
+        directTouchButton.text = if (directTouchEnabled) "Touch: ON" else "Touch: OFF"
         preview?.isClickable = directTouchEnabled
         status.text = if (directTouchEnabled) {
             bottomPanel.visibility = View.GONE
