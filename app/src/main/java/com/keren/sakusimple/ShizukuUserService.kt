@@ -24,14 +24,12 @@ import kotlin.math.min
  * can still reject individual flags or input injection depending on Android/OEM permissions.
  * All failures are returned through getLastError() rather than silently reported as success.
  */
-class ShizukuUserService : IVirtualDisplayService.Stub() {
+class ShizukuUserService() : IVirtualDisplayService.Stub() {
     private var serviceContext: Context? = null
     private var virtualDisplay: VirtualDisplay? = null
     @Volatile private var lastError: String = "Belum ada operasi."
     private val inputThread = HandlerThread("SakuShizukuInput").apply { start() }
     private val inputHandler = Handler(inputThread.looper)
-
-    constructor() : super()
 
     constructor(context: Context) : this() {
         serviceContext = context
