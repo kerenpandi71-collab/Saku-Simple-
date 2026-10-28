@@ -53,6 +53,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var gestureStartX = targetWidth / 2f
     private var gestureStartY = targetHeight / 2f
     private var gestureStartedAtMs = 0L
+    private var lastMoveAtMs = 0L
     private var longPressDragArmed = false
     private val cursorSensitivity = 1.15f
     private val longPressDragTimeoutMs = 450L
@@ -430,6 +431,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 moved = false
                 longPressDragArmed = false
                 gestureStartedAtMs = SystemClock.uptimeMillis()
+                lastMoveAtMs = gestureStartedAtMs
                 gestureStartX = cursorX
                 gestureStartY = cursorY
                 cursorOverlay?.invalidate()
@@ -441,7 +443,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 if (kotlin.math.abs(x - downX) > dp(8) || kotlin.math.abs(y - downY) > dp(8)) {
                     moved = true
                 }
-                val elapsed = (SystemClock.uptimeMillis() - gestureStartedAtMs).coerceAtLeast(1L)
+                val now = SystemClock.uptimeMillis()
+                val elapsed = (now - lastMoveAtMs).coerceAtLeast(1L)
+                lastMoveAtMs = now
                 // Modest pointer acceleration makes quick travel easier while small movements stay precise.
                 val distance = kotlin.math.sqrt(deltaX * deltaX + deltaY * deltaY)
                 val speedPxPerMs = distance / elapsed.toFloat()
@@ -479,7 +483,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 // Match Dextop cursor mode: pointer movement alone moves the pointer;
                 // a simple tap clicks; press-and-hold + movement performs a drag.
                 val accepted = when {
-                    longPressDragArmed && moved -> {
+                    moved && heldFor >= longPressDragTimeoutMs -> {
                         controller.injectSwipe(
                             gestureStartX,
                             gestureStartY,
