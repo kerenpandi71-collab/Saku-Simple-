@@ -3,8 +3,8 @@ package com.keren.sakusimple
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.app.ActivityOptions
-import android.provider.Settings
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.hardware.input.InputManager
@@ -19,6 +19,7 @@ import android.view.InputDevice
 import android.view.InputEvent
 import android.view.MotionEvent
 import android.view.Surface
+import android.view.Display
 import java.lang.reflect.Method
 import org.lsposed.hiddenapibypass.HiddenApiBypass
 import kotlin.math.max
@@ -74,10 +75,20 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                 flags
             ) ?: throw IllegalStateException("createVirtualDisplay mengembalikan null.")
 
+            created.setSurface(surface)
             virtualDisplay = created
-            lastError = "OK"
-            Log.i(TAG, "Created virtual display id=${created.display.displayId} flags=0x${flags.toString(16)}")
-            created.display.displayId
+            val display = created.display
+            val stateName = when (display.state) {
+                Display.STATE_ON -> "ON"
+                Display.STATE_OFF -> "OFF"
+                Display.STATE_DOZE -> "DOZE"
+                Display.STATE_DOZE_SUSPEND -> "DOZE_SUSPEND"
+                Display.STATE_ON_SUSPEND -> "ON_SUSPEND"
+                else -> "UNKNOWN(${display.state})"
+            }
+            lastError = "Virtual display created • id=${display.displayId} • ${width.coerceIn(320, 2560)}×${height.coerceIn(320, 2560)} • state=$stateName • surfaceValid=${surface.isValid}"
+            Log.i(TAG, "$lastError flags=0x${flags.toString(16)}")
+            display.displayId
         } catch (error: Throwable) {
             lastError = "${error.javaClass.simpleName}: ${error.message ?: "tidak ada detail"}"
             Log.e(TAG, "Virtual display creation failed: $lastError", error)
@@ -99,6 +110,11 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         if (!down) return false
         val upTime = SystemClock.uptimeMillis() + 8L
         return injectMotion(displayId, MotionEvent.ACTION_UP, x, y, downTime, upTime)
+    }
+
+    override fun injectHover(displayId: Int, x: Float, y: Float): Boolean {
+        val now = SystemClock.uptimeMillis()
+        return injectMotion(displayId, MotionEvent.ACTION_HOVER_MOVE, x, y, now, now, InputDevice.SOURCE_MOUSE)
     }
 
     override fun injectSwipe(
@@ -152,7 +168,8 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         x: Float,
         y: Float,
         downTime: Long,
-        eventTime: Long
+        eventTime: Long,
+        source: Int = InputDevice.SOURCE_TOUCHSCREEN
     ): Boolean {
         var event: MotionEvent? = null
         val identity = Binder.clearCallingIdentity()
@@ -165,7 +182,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                 x,
                 y,
                 0
-            ).apply { source = InputDevice.SOURCE_TOUCHSCREEN }
+            ).apply { this.source = source }
 
             // setDisplayId is hidden on some Android releases. A Shizuku UserService is not
             // subject to the normal app hidden-API restrictions; OEM policy may still differ.
@@ -209,61 +226,60 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         }
     }
 
-    override fun launchSettingsOnDisplay(displayId: Int): Boolean {
+    override fun launchTestAppOnDisplay(displayId: Int): Boolean {
         if (displayId < 0 || displayId > 10000) {
             lastError = "Display ID tidak valid: $displayId"
             return false
         }
+        val candidates = listOf(
+            "Kalkulator" to Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_CALCULATOR),
+            "Browser" to Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_BROWSER),
+            "Browser contoh" to Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com"))
+        )
+        val failures = mutableListOf<String>()
+        for ((label, intent) in candidates) {
+            val accepted = startIntentOnDisplay(displayId, intent)
+            val result = lastError
+            if (accepted) {
+                lastError = "$label • $result"
+                Log.i(TAG, lastError)
+                return true
+            }
+            failures += "$label: $result"
+        }
+        lastError = "Kalkulator/Browser tidak berhasil dibuka pada display $displayId. " +
+            failures.joinToString(" | ").take(1200)
+        Log.w(TAG, lastError)
+        return false
+    }
 
-        val identity = Binder.clearCallingIdentity()
+    private fun startIntentOnDisplay(displayId: Int, sourceIntent: Intent): Boolean {
         return try {
             enableHiddenApiAccess()
-
-            // Force a separate task instance and ask ActivityTaskManager to route it to
-            // the virtual display. Avoid "am start" task-reuse heuristics.
-            val launchIntent = Intent(Settings.ACTION_SETTINGS).apply {
-                addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_MULTIPLE_TASK or
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP
-                )
+            val launchIntent = Intent(sourceIntent).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
-
             val activityOptions = ActivityOptions.makeBasic()
-            val displaySetter = ActivityOptions::class.java.getDeclaredMethod(
-                "setLaunchDisplayId",
-                Int::class.javaPrimitiveType
-            ).apply { isAccessible = true }
-            displaySetter.invoke(activityOptions, displayId)
+            val setter = ActivityOptions::class.java.getDeclaredMethod("setLaunchDisplayId", Int::class.javaPrimitiveType).apply { isAccessible = true }
+            setter.invoke(activityOptions, displayId)
             val options = activityOptions.toBundle()
-
             val managerClass = Class.forName("android.app.ActivityTaskManager")
-            val getService = managerClass.getDeclaredMethod("getService").apply {
-                isAccessible = true
-            }
-            val activityTaskManager = getService.invoke(null)
-                ?: throw IllegalStateException("ActivityTaskManager.getService() menghasilkan null.")
-
+            val getService = managerClass.getDeclaredMethod("getService").apply { isAccessible = true }
+            val manager = getService.invoke(null) ?: throw IllegalStateException("ActivityTaskManager tidak tersedia.")
             val interfaceClass = Class.forName("android.app.IActivityTaskManager")
-            val startActivityMethod = interfaceClass.declaredMethods.firstOrNull { method ->
-                method.name == "startActivity" &&
-                    method.parameterTypes.contains(Intent::class.java) &&
-                    method.parameterTypes.lastOrNull() == android.os.Bundle::class.java
-            } ?: throw NoSuchMethodException(
-                "IActivityTaskManager.startActivity dengan Intent dan Bundle tidak ditemukan."
-            )
-            startActivityMethod.isAccessible = true
-
-            // Build hidden AIDL arguments across Android releases. The caller thread,
-            // result token and profiler are intentionally null; Shizuku's shell/root identity
-            // is the Binder caller. Newer Android versions add callingFeatureId before Intent.
-            val parameterTypes = startActivityMethod.parameterTypes
-            val intentIndex = parameterTypes.indexOf(Intent::class.java)
+            val method = interfaceClass.declaredMethods.firstOrNull { candidate ->
+                candidate.name == "startActivity" &&
+                    candidate.parameterTypes.contains(Intent::class.java) &&
+                    candidate.parameterTypes.lastOrNull() == android.os.Bundle::class.java
+            } ?: throw NoSuchMethodException("IActivityTaskManager.startActivity tidak ditemukan.")
+            method.isAccessible = true
+            val types = method.parameterTypes
+            val intentIndex = types.indexOf(Intent::class.java)
             if (intentIndex < 0) throw NoSuchMethodException("Parameter Intent tidak ditemukan.")
             var preIntentStringIndex = 0
-            val args = arrayOfNulls<Any>(parameterTypes.size)
-            for (index in parameterTypes.indices) {
-                val type = parameterTypes[index]
+            val args = arrayOfNulls<Any>(types.size)
+            for (index in types.indices) {
+                val type = types[index]
                 args[index] = when {
                     type == Intent::class.java -> launchIntent
                     type == String::class.java && index < intentIndex -> {
@@ -277,7 +293,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                     type == android.os.Bundle::class.java -> options
                     type.name == "android.app.IApplicationThread" -> null
                     type.name == "android.app.ProfilerInfo" -> null
-                    android.os.IBinder::class.java.isAssignableFrom(type) -> null
+                    IBinder::class.java.isAssignableFrom(type) -> null
                     type == Int::class.javaPrimitiveType -> 0
                     type == Long::class.javaPrimitiveType -> 0L
                     type == Boolean::class.javaPrimitiveType -> false
@@ -286,31 +302,50 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                     else -> null
                 }
             }
-
-            val resultCode = startActivityMethod.invoke(activityTaskManager, *args) as? Int
-                ?: throw IllegalStateException("ActivityTaskManager tidak mengembalikan kode hasil.")
+            val code = method.invoke(manager, *args) as? Int
+                ?: throw IllegalStateException("ActivityTaskManager tidak mengembalikan kode.")
             val flags = "0x${(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP).toString(16)}"
-            val resultName = when (resultCode) {
+            val resultName = when (code) {
                 0 -> "START_SUCCESS"
                 2 -> "START_TASK_TO_FRONT"
                 3 -> "START_DELIVERED_TO_TOP"
-                else -> "START_RESULT_$resultCode"
+                else -> "START_RESULT_$code"
             }
-            val accepted = resultCode >= 0
+            val accepted = code >= 0
             lastError = if (accepted) {
-                "ActivityTaskManager.startActivity diterima • display=$displayId • flags=$flags (NEW_TASK|MULTIPLE_TASK|CLEAR_TOP) • $resultName. Cek preview untuk memastikan OEM benar-benar menampilkan activity di display target."
+                "ActivityTaskManager menerima launch • display=$displayId • flags=$flags (NEW_TASK|MULTIPLE_TASK|CLEAR_TOP) • $resultName"
             } else {
-                "ActivityTaskManager menolak launch • display=$displayId • flags=$flags • $resultName."
+                "ActivityTaskManager menolak intent • display=$displayId • $resultName"
             }
-            if (accepted) Log.i(TAG, lastError) else Log.w(TAG, lastError)
+            if (!accepted) Log.w(TAG, lastError)
             accepted
         } catch (error: Throwable) {
             val cause = error.cause ?: error
-            lastError = "Launch langsung ke display $displayId gagal: ${cause.javaClass.simpleName}: ${cause.message ?: "tanpa detail"}"
+            lastError = "Launch display $displayId gagal: ${cause.javaClass.simpleName}: ${cause.message ?: "tanpa detail"}"
             Log.e(TAG, lastError, cause)
             false
-        } finally {
-            Binder.restoreCallingIdentity(identity)
+        }
+    }
+
+    override fun getDisplayDiagnostics(displayId: Int): String {
+        return try {
+            val context = serviceContext ?: return "UserService Context tidak tersedia."
+            val manager = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+            val display = manager.getDisplay(displayId) ?: virtualDisplay?.display
+                ?: return "display=$displayId tidak ditemukan."
+            val stateName = when (display.state) {
+                Display.STATE_ON -> "ON"
+                Display.STATE_OFF -> "OFF"
+                Display.STATE_DOZE -> "DOZE"
+                Display.STATE_DOZE_SUSPEND -> "DOZE_SUSPEND"
+                Display.STATE_ON_SUSPEND -> "ON_SUSPEND"
+                else -> "UNKNOWN(${display.state})"
+            }
+            val mode = display.mode
+            val surfaceValid = virtualDisplay?.surface?.isValid ?: false
+            "display=${display.displayId} state=$stateName mode=${mode.physicalWidth}x${mode.physicalHeight} surfaceValid=$surfaceValid"
+        } catch (error: Throwable) {
+            "Diagnostics gagal: ${error.javaClass.simpleName}: ${error.message ?: "tanpa detail"}"
         }
     }
 

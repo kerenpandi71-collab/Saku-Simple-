@@ -62,7 +62,7 @@ class VirtualDisplayController(
                 } ?: return@setOnImageAvailableListener
 
                 val now = SystemClock.elapsedRealtime()
-                // Allow up to about 30 preview frames per second; the SurfaceView keeps the 720×1280 ratio.
+                // Allow up to about 30 preview frames per second; the SurfaceView keeps the 1280×720 ratio.
                 if (now - lastFrameAtMs < 33L) {
                     image.close()
                     return@setOnImageAvailableListener
@@ -123,13 +123,13 @@ class VirtualDisplayController(
                             ?: throw IllegalStateException("Display ID $createdId belum terlihat oleh aplikasi.")
                         presentation = Presentation(appContext, display).apply {
                             setContentView(TextView(appContext).apply {
-                                text = "SAKU VIRTUAL DISPLAY\n\nDisplay ID: $createdId\nShizuku berhasil membuat layar. Tekan 'Buka Pengaturan' untuk menguji peluncuran aplikasi."
+                                text = "SAKU VIRTUAL DISPLAY\n\nDisplay ID: $createdId\nShizuku berhasil membuat layar. Tekan 'Buka Kalkulator / Browser' untuk menguji peluncuran aplikasi."
                                 textSize = 18f
                                 setPadding(24, 24, 24, 24)
                             })
                             show()
                         }
-                        reportStatus("Virtual display Shizuku aktif • ID $createdId • ${safeWidth}×${safeHeight}.")
+                        reportStatus("Virtual display aktif • ID $createdId • ${safeWidth}×${safeHeight} • $error")
                     } catch (displayError: Throwable) {
                         reportStatus("Display dibuat (ID $createdId), tetapi preview window gagal: ${displayError.message ?: displayError.javaClass.simpleName}")
                         Log.e(TAG, "Unable to show Presentation on Shizuku display", displayError)
@@ -161,8 +161,8 @@ class VirtualDisplayController(
         return shizukuBridge.injectSwipe(id, x1, y1, x2, y2, durationMs)
     }
 
-    fun launchSettings() =
-        shizukuBridge.launchSettingsOnDisplay(displayId)
+    fun launchTestApp() =
+        shizukuBridge.launchTestAppOnDisplay(displayId)
 
     private fun reportStatus(message: String) {
         if (Looper.myLooper() == Looper.getMainLooper()) {

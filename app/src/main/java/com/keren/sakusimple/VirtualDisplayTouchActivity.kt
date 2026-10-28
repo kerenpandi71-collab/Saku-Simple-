@@ -9,6 +9,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
@@ -35,9 +36,12 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var downX = 0f
     private var downY = 0f
     private var moved = false
+    private var receivedFrames = 0L
+    private var lastHoverAtMs = 0L
+    private var displayDiagnostics = "state belum diperiksa"
 
-    private val targetWidth = 720
-    private val targetHeight = 1280
+    private val targetWidth = 1280
+    private val targetHeight = 720
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,7 +58,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             typeface = Typeface.DEFAULT_BOLD
         })
         root.addView(TextView(this).apply {
-            text = "Preview layar virtual 720 × 1280 • touchpad berada di bawah"
+            text = "Preview landscape 1280 × 720 • touchpad di bawah"
             textSize = 12f
             setTextColor(Color.LTGRAY)
             setPadding(0, dp(2), 0, dp(6))
@@ -87,7 +91,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             orientation = LinearLayout.HORIZONTAL
         }
         displayButtons.addView(Button(this).apply {
-            text = "Buka Pengaturan"
+            text = "Buka Kalkulator / Browser"
             textSize = 12f
             isAllCaps = false
             setOnClickListener {
@@ -95,7 +99,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 if (controller == null || controller.displayId < 0) {
                     status.text = "Buat virtual display terlebih dahulu."
                 } else {
-                    controller.launchSettings()
+                    controller.launchTestApp()
                 }
             }
         }, LinearLayout.LayoutParams(0, dp(42), 1f))
@@ -120,38 +124,36 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         root.addView(status)
 
-        val screenHeightDp = (resources.displayMetrics.heightPixels /
-            resources.displayMetrics.density).toInt()
-        // Keep the preview viewport portrait and proportional to the real 720×1280 buffer.
-        // The surrounding area uses the app background, not black letterboxing.
-        val previewHeight = (screenHeightDp * 0.34f).toInt()
-            .coerceIn(dp(220), dp(360))
-        val previewWidth = (previewHeight.toFloat() * targetWidth / targetHeight).toInt().coerceAtLeast(dp(124))
+        val screenHeightPx = resources.displayMetrics.heightPixels
+        val screenWidthPx = resources.displayMetrics.widthPixels
+        // Preview panel takes at least 60% of screen height. The actual SurfaceView spans
+        // available width in landscape 16:9 ratio, so the picture itself is never stretched.
+        val previewPanelHeight = (screenHeightPx * 0.60f).toInt().coerceIn(dp(300), dp(560))
+        val previewWidthPx = (screenWidthPx - dp(20)).coerceAtLeast(dp(180))
+        val previewSurfaceHeight = (previewWidthPx.toFloat() * targetHeight / targetWidth)
+            .toInt().coerceAtLeast(dp(90))
         val previewFrame = FrameLayout(this).apply {
             setBackgroundColor(Color.rgb(7, 24, 45))
+            contentDescription = "Panel preview landscape 1280 x 720"
         }
         preview = SurfaceView(this).apply {
-            contentDescription = "Preview virtual display 720 x 1280"
+            contentDescription = "Preview virtual display 1280 x 720"
             holder.setFormat(PixelFormat.OPAQUE)
             holder.setFixedSize(targetWidth, targetHeight)
             holder.addCallback(object : SurfaceHolder.Callback {
-                override fun surfaceCreated(holder: SurfaceHolder) {
-                    renderPreviewFrame(holder)
-                }
-
+                override fun surfaceCreated(holder: SurfaceHolder) { renderPreviewFrame(holder) }
                 override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
                     renderPreviewFrame(holder)
                 }
-
                 override fun surfaceDestroyed(holder: SurfaceHolder) = Unit
             })
         }
         previewFrame.addView(
             preview,
-            FrameLayout.LayoutParams(previewWidth, previewHeight, Gravity.CENTER)
+            FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, previewSurfaceHeight, Gravity.CENTER)
         )
         root.addView(previewFrame, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, previewHeight
+            LinearLayout.LayoutParams.MATCH_PARENT, previewPanelHeight
         ).apply { topMargin = dp(3); bottomMargin = dp(4) })
 
         root.addView(TextView(this).apply {
@@ -163,7 +165,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
         val stage = android.widget.FrameLayout(this).apply {
             setBackgroundColor(Color.rgb(18, 44, 70))
-            contentDescription = "Bidang touchpad virtual display 720 x 1280"
+            contentDescription = "Bidang touchpad virtual display 1280 x 720"
         }
         cursor = View(this).apply {
             background = GradientDrawable().apply {
@@ -199,13 +201,26 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 onFrame = { bitmap ->
                     val old = currentPreviewBitmap
                     currentPreviewBitmap = bitmap
+                    receivedFrames++
                     renderPreviewFrame()
+                    if (receivedFrames == 1L) {
+                        displayDiagnostics = shizukuBridge.getDisplayDiagnostics(virtualDisplayController?.displayId ?: -1)
+                    }
+                    if (receivedFrames == 1L || receivedFrames % 30L == 0L) {
+                        status.text = if (isMostlyWhite(bitmap)) {
+                            "ImageReader menerima frame=$receivedFrames, tetapi gambar hampir seluruhnya putih • $displayDiagnostics"
+                        } else {
+                            "ImageReader OK • frame=$receivedFrames • 1280×720 • $displayDiagnostics"
+                        }
+                    }
                     if (old != null && old !== bitmap && !old.isRecycled) old.recycle()
                 },
                 onStatus = { message -> status.text = message }
             )
         }
-        status.text = "Meminta Shizuku membuat display 720 × 1280…"
+        receivedFrames = 0L
+        displayDiagnostics = "memeriksa state display…"
+        status.text = "Meminta Shizuku membuat display 1280 × 720 landscape…"
         virtualDisplayController?.start(
             width = targetWidth,
             height = targetHeight,
@@ -220,7 +235,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         if (old != null && !old.isRecycled) old.recycle()
     }
 
-    /** Draw the real-resolution ImageReader frame into a 720×1280 SurfaceView buffer. */
+    /** Draw the real-resolution ImageReader frame into a 1280×720 SurfaceView buffer. */
     private fun renderPreviewFrame(targetHolder: SurfaceHolder? = null) {
         val holder = targetHolder ?: preview?.holder ?: return
         if (!holder.surface.isValid) return
@@ -230,12 +245,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             canvas.drawColor(Color.rgb(7, 24, 45))
             val bitmap = currentPreviewBitmap
             if (bitmap != null && !bitmap.isRecycled) {
-                canvas.drawBitmap(
-                    bitmap,
-                    null,
-                    Rect(0, 0, canvas.width, canvas.height),
-                    previewPaint
-                )
+                canvas.drawBitmap(bitmap, null, Rect(0, 0, canvas.width, canvas.height), previewPaint)
             }
         } catch (error: Throwable) {
             Log.w("SakuPreview", "Gagal merender frame virtual display", error)
@@ -244,6 +254,20 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 try { holder.unlockCanvasAndPost(canvas) } catch (_: Throwable) {}
             }
         }
+    }
+
+    private fun isMostlyWhite(bitmap: Bitmap): Boolean {
+        if (bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) return false
+        var sampled = 0
+        var nearWhite = 0
+        for (row in 0..5) {
+            for (column in 0..7) {
+                val pixel = bitmap.getPixel((bitmap.width - 1) * column / 7, (bitmap.height - 1) * row / 5)
+                sampled++
+                if (Color.red(pixel) > 245 && Color.green(pixel) > 245 && Color.blue(pixel) > 245) nearWhite++
+            }
+        }
+        return sampled > 0 && nearWhite.toFloat() / sampled >= 0.92f
     }
 
     /** Normalize touchpad-local coordinates and scale them to the virtual display resolution. */
@@ -270,6 +294,15 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                     moved = true
                 }
                 moveCursor(x, y, width, height)
+                val now = SystemClock.uptimeMillis()
+                val controller = virtualDisplayController
+                if (controller != null && controller.displayId >= 0 && now - lastHoverAtMs >= 24L) {
+                    lastHoverAtMs = now
+                    controller.injectHover(
+                        mapTouchCoordinate(x, width, targetWidth),
+                        mapTouchCoordinate(y, height, targetHeight)
+                    )
+                }
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {

@@ -29,8 +29,8 @@ class ShizukuBridge(
     private val userServiceArgs = Shizuku.UserServiceArgs(
         ComponentName(context.packageName, ShizukuUserService::class.java.name)
     ).processNameSuffix("saku_virtual_display")
-        .tag("saku-virtual-display-v1")
-        .version(2)
+        .tag("saku-virtual-display-v2")
+        .version(3)
         .daemon(false)
 
     private val serviceConnection = object : ServiceConnection {
@@ -180,56 +180,44 @@ class ShizukuBridge(
         }
     }
 
-    fun launchSettingsOnDisplay(displayId: Int) {
+    fun launchTestAppOnDisplay(displayId: Int) {
         if (displayId < 0) {
             onStatus("Buat virtual display terlebih dahulu.")
             return
         }
-
         val service = remote
         if (service == null) {
             onStatus("Shizuku belum terhubung. Hubungkan Shizuku dahulu.")
             return
         }
-
-        onStatus("Meminta ActivityTaskManager membuka Pengaturan pada display $displayId…")
+        onStatus("Mencoba membuka Kalkulator pada display $displayId (fallback ke Browser)…")
         Thread({
             try {
-                val accepted = service.launchSettingsOnDisplay(displayId)
+                val accepted = service.launchTestAppOnDisplay(displayId)
                 val details = service.getLastError()
-                onStatus(if (accepted) details else "Launch ditolak: $details")
+                onStatus(if (accepted) details else "Aplikasi tes gagal dibuka: $details")
             } catch (error: Throwable) {
-                Log.e(TAG, "Shizuku display launch failed", error)
-                onStatus("Launch ke display $displayId gagal: ${error.cause?.message ?: error.message ?: error.javaClass.simpleName}")
+                Log.e(TAG, "Shizuku test-app launch failed", error)
+                onStatus("Launch aplikasi tes gagal: ${error.cause?.message ?: error.message ?: error.javaClass.simpleName}")
             }
         }, "SakuDisplayLaunch").start()
     }
 
-    fun releaseVirtualDisplay() {
-        try {
-            remote?.releaseVirtualDisplay()
+    fun injectHover(displayId: Int, x: Float, y: Float): Boolean {
+        return try {
+            remote?.injectHover(displayId, x, y) ?: false
         } catch (error: Throwable) {
-            Log.w(TAG, "releaseVirtualDisplay failed", error)
+            Log.e(TAG, "injectHover failed", error)
+            false
         }
     }
 
-    override fun close() {
-        releaseVirtualDisplay()
-        wantsConnection = false
-        val wasBound = binding || remote != null
-        remote = null
-        try { Shizuku.removeBinderReceivedListener(binderReceivedListener) } catch (_: Throwable) {}
-        try { Shizuku.removeBinderDeadListener(binderDeadListener) } catch (_: Throwable) {}
-        try { Shizuku.removeRequestPermissionResultListener(permissionListener) } catch (_: Throwable) {}
-        if (wasBound) {
-            try { Shizuku.unbindUserService(userServiceArgs, serviceConnection, true) } catch (_: Throwable) {}
+    fun getDisplayDiagnostics(displayId: Int): String {
+        return try {
+            remote?.getDisplayDiagnostics(displayId) ?: "Shizuku belum terhubung."
+        } catch (error: Throwable) {
+            Log.w(TAG, "getDisplayDiagnostics failed", error)
+            "Diagnostics gagal: ${error.cause?.message ?: error.message}"
         }
-        binding = false
-        pendingCallbacks.clear()
     }
 
-    companion object {
-        private const val TAG = "SakuShizukuBridge"
-        private const val REQUEST_PERMISSION_CODE = 24681
-    }
-}
