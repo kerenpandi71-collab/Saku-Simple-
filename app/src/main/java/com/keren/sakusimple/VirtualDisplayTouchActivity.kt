@@ -239,7 +239,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         topBar.addView(panelPositionRow)
         val resolutionRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         fun resolutionInput(initial: String, hintText: String, widthDp: Int) = EditText(this).apply {
-            setText(initial); hint = hintText; textSize = 10f; singleLine = true
+            setText(initial); hint = hintText; textSize = 10f; setSingleLine(true)
             setTextColor(Color.WHITE); setHintTextColor(Color.LTGRAY)
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
             setPadding(dp(4), 0, dp(4), 0)
