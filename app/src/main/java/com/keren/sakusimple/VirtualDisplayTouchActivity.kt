@@ -3,6 +3,7 @@ package com.keren.sakusimple
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -16,6 +17,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.accessibility.AccessibilityManager
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
@@ -40,6 +42,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var lastX = 0f
     private var lastY = 0f
     private var moved = false
+    private var virtualDisplayController: VirtualDisplayController? = null
+    private var preview: ImageView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,6 +76,34 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             setOnClickListener { refreshDisplays() }
         }, LinearLayout.LayoutParams(0, dp(48), 1f))
         root.addView(buttons)
+
+        val virtualButtons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        virtualButtons.addView(Button(this).apply {
+            text = "Buat layar virtual"
+            isAllCaps = false
+            setOnClickListener { startOwnedVirtualDisplay() }
+        }, LinearLayout.LayoutParams(0, dp(48), 1f))
+        virtualButtons.addView(Button(this).apply {
+            text = "Tutup layar virtual"
+            isAllCaps = false
+            setOnClickListener {
+                virtualDisplayController?.close()
+                virtualDisplayController = null
+                preview?.setImageDrawable(null)
+                status.text = "Virtual display ditutup."
+            }
+        }, LinearLayout.LayoutParams(0, dp(48), 1f))
+        root.addView(virtualButtons)
+
+        preview = ImageView(this).apply {
+            contentDescription = "Preview konten virtual display"
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setBackgroundColor(Color.rgb(0, 10, 20))
+        }
+        root.addView(preview, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(120)
+        ).apply { topMargin = dp(6) })
+
         displayPicker = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, dp(8), 0, dp(8))
@@ -117,6 +149,31 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         super.onResume()
         updateStatus()
         refreshDisplays()
+    }
+
+    override fun onDestroy() {
+        virtualDisplayController?.close()
+        virtualDisplayController = null
+        super.onDestroy()
+    }
+
+    private fun startOwnedVirtualDisplay() {
+        virtualDisplayController?.close()
+        virtualDisplayController = VirtualDisplayController(
+            this,
+            onFrame = { bitmap ->
+                preview?.setImageBitmap(bitmap)
+            },
+            onStatus = { message ->
+                status.text = message
+            }
+        ).also { controller ->
+            controller.start(
+                width = 720,
+                height = 1280,
+                densityDpi = resources.displayMetrics.densityDpi
+            )
+        }
     }
 
     private fun refreshDisplays() {
