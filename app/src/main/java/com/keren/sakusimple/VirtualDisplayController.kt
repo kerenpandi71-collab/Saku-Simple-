@@ -98,7 +98,7 @@ class VirtualDisplayController(
                 }
             }, frameHandler)
 
-            onStatus("Meminta Shizuku membuat display virtual…")
+            reportStatus("Meminta Shizuku membuat display virtual…")
             shizukuBridge.createVirtualDisplay(
                 safeWidth,
                 safeHeight,
@@ -107,7 +107,7 @@ class VirtualDisplayController(
             ) { createdId, error ->
                 if (createdId < 0) {
                     displayId = Display.INVALID_DISPLAY
-                    onStatus("Pembuatan virtual display gagal: $error")
+                    reportStatus("Pembuatan virtual display gagal: $error")
                     releaseReaderOnly()
                     return@createVirtualDisplay
                 }
@@ -129,16 +129,16 @@ class VirtualDisplayController(
                             })
                             show()
                         }
-                        onStatus("Virtual display Shizuku aktif • ID $createdId • ${safeWidth}×${safeHeight}.")
+                        reportStatus("Virtual display Shizuku aktif • ID $createdId • ${safeWidth}×${safeHeight}.")
                     } catch (displayError: Throwable) {
-                        onStatus("Display dibuat (ID $createdId), tetapi preview window gagal: ${displayError.message ?: displayError.javaClass.simpleName}")
+                        reportStatus("Display dibuat (ID $createdId), tetapi preview window gagal: ${displayError.message ?: displayError.javaClass.simpleName}")
                         Log.e(TAG, "Unable to show Presentation on Shizuku display", displayError)
                     }
                 }
             }
         } catch (error: Throwable) {
             Log.e(TAG, "Virtual display setup failed", error)
-            onStatus("Gagal menyiapkan virtual display: ${error.message ?: error.javaClass.simpleName}")
+            reportStatus("Gagal menyiapkan virtual display: ${error.message ?: error.javaClass.simpleName}")
             releaseDisplayAndReader()
         }
     }
@@ -146,7 +146,7 @@ class VirtualDisplayController(
     fun injectTap(x: Float, y: Float): Boolean {
         val id = displayId
         if (id < 0) {
-            onStatus("Buat virtual display terlebih dahulu.")
+            reportStatus("Buat virtual display terlebih dahulu.")
             return false
         }
         return shizukuBridge.injectTap(id, x, y)
@@ -155,7 +155,7 @@ class VirtualDisplayController(
     fun injectSwipe(x1: Float, y1: Float, x2: Float, y2: Float, durationMs: Long = 220L): Boolean {
         val id = displayId
         if (id < 0) {
-            onStatus("Buat virtual display terlebih dahulu.")
+            reportStatus("Buat virtual display terlebih dahulu.")
             return false
         }
         return shizukuBridge.injectSwipe(id, x1, y1, x2, y2, durationMs)
@@ -163,6 +163,14 @@ class VirtualDisplayController(
 
     fun launchSettings(activity: Activity): Boolean =
         shizukuBridge.launchSettingsOnDisplay(activity, displayId)
+
+    private fun reportStatus(message: String) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            onStatus(message)
+        } else {
+            mainHandler.post { onStatus(message) }
+        }
+    }
 
     override fun close() {
         closed.set(true)
