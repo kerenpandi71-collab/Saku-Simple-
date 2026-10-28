@@ -218,8 +218,8 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             // Use the system ActivityTaskManager shell entry point. This is the same
             // display-routing path used by "am start --display", but it executes with
             // the Shizuku UserService identity instead of the app process identity.
-            val command = "am start -W --display $displayId -a android.settings.SETTINGS -f 0x10000000"
-            process = ProcessBuilder("sh", "-c", command)
+            val command = "/system/bin/am start -W --display $displayId -a android.settings.SETTINGS -f 0x10000000"
+            process = ProcessBuilder("/system/bin/sh", "-c", command)
                 .redirectErrorStream(true)
                 .start()
 
