@@ -228,6 +228,57 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         panelPositionRow.addView(panelPositionSeekBar, LinearLayout.LayoutParams(0, dp(28), 1f))
         topBar.addView(panelPositionRow)
+        val resolutionRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        fun resolutionInput(initial: String, hintText: String, widthDp: Int) = EditText(this).apply {
+            setText(initial); hint = hintText; textSize = 10f; singleLine = true
+            setTextColor(Color.WHITE); setHintTextColor(Color.LTGRAY)
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setPadding(dp(4), 0, dp(4), 0)
+            background = roundedPanel(180, 6)
+            layoutParams = LinearLayout.LayoutParams(dp(widthDp), dp(32)).apply { rightMargin = dp(3) }
+        }
+        resolutionWidthInput = resolutionInput("1280", "Lebar", 62)
+        resolutionHeightInput = resolutionInput("720", "Tinggi", 58)
+        resolutionDpiInput = resolutionInput("160", "DPI", 48)
+        resolutionRow.addView(resolutionWidthInput)
+        resolutionRow.addView(resolutionHeightInput)
+        resolutionRow.addView(resolutionDpiInput)
+        resolutionRow.addView(actionButton("Terapkan") { applyDisplaySettings() },
+            LinearLayout.LayoutParams(0, dp(32), 1f))
+        topBar.addView(resolutionRow)
+        val controlRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        touchpadSizeValue = TextView(this).apply { text = "Area 36%"; textSize = 9f; setTextColor(Color.WHITE) }
+        controlRow.addView(touchpadSizeValue, LinearLayout.LayoutParams(dp(66), dp(25)))
+        touchpadSizeSeekBar = SeekBar(this).apply {
+            max = 30; progress = 16
+            contentDescription = "Ukuran area touchpad"
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    touchpadHeightPercent = 20 + progress
+                    touchpadSizeValue.text = "Area ${touchpadHeightPercent}%"
+                    updateDesktopLayout(root.width, root.height)
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+                override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+            })
+        }
+        controlRow.addView(touchpadSizeSeekBar, LinearLayout.LayoutParams(0, dp(25), 1f))
+        sensitivityValue = TextView(this).apply { text = "Kursor 62%"; textSize = 9f; setTextColor(Color.WHITE) }
+        controlRow.addView(sensitivityValue, LinearLayout.LayoutParams(dp(76), dp(25)))
+        val sensitivitySeekBar = SeekBar(this).apply {
+            max = 80; progress = 42
+            contentDescription = "Sensitivitas kursor"
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    cursorSensitivity = (20 + progress) / 100f
+                    sensitivityValue.text = "Kursor ${(cursorSensitivity * 100).toInt()}%"
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+                override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+            })
+        }
+        controlRow.addView(sensitivitySeekBar, LinearLayout.LayoutParams(0, dp(25), 1f))
+        topBar.addView(controlRow)
         status = TextView(this).apply {
             text = "Hubungkan Shizuku, lalu tekan Mulai."
             textSize = 9f
