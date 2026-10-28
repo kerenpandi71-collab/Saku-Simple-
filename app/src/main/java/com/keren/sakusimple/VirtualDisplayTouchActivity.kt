@@ -483,7 +483,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 // Match Dextop cursor mode: pointer movement alone moves the pointer;
                 // a simple tap clicks; press-and-hold + movement performs a drag.
                 val accepted = when {
-                    moved && heldFor >= longPressDragTimeoutMs -> {
+                    longPressDragArmed && moved -> {
                         controller.injectSwipe(
                             gestureStartX,
                             gestureStartY,
