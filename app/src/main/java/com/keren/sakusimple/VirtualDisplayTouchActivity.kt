@@ -1,16 +1,11 @@
 package com.keren.sakusimple
 
-import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
-import android.graphics.PixelFormat
-import android.graphics.Rect
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
-import android.os.SystemClock
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
@@ -39,10 +34,10 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var virtualDisplayController: VirtualDisplayController? = null
     private var preview: SurfaceView? = null
     private var cursorOverlay: View? = null
-    private val mouseInputExecutor = Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "SakuNativeMouseInput").apply { isDaemon = true } }
-    private val mouseMovePending = AtomicBoolean(false)
+    private val mouseInputExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "SakuDirectMouseInput").apply { isDaemon = true }
+    }
     private lateinit var runtimeLogToggle: Button
-    private val previewPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
     private val cursorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
         color = Color.WHITE
@@ -59,17 +54,23 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var lastTouchY = 0f
     private var downX = 0f
     private var downY = 0f
-    private var gestureStartX = targetWidth / 2f
-    private var gestureStartY = targetHeight / 2f
-    private var gestureStartedAtMs = 0L
-    private var lastMoveAtMs = 0L
-    private var longPressDragArmed = false
-    private val cursorSensitivity = 1.15f
-    private val longPressDragTimeoutMs = 450L
-    private var currentPreviewBitmap: Bitmap? = null
-    private var moved = false
-    private var receivedFrames = 0L
+    private var pointerMoved = false
+    private var hadMultiTouch = false
+    private var scrollGestureActive = false
+    private var lastScrollCentroidX = 0f
+    private var lastScrollCentroidY = 0f
 
+    private val mouseMoveLock = Any()
+    private var pendingMouseX = Float.NaN
+    private var pendingMouseY = Float.NaN
+    private var mouseMoveDrainScheduled = false
+
+    private val scrollLock = Any()
+    private var pendingScrollHorizontal = 0f
+    private var pendingScrollVertical = 0f
+    private var pendingScrollX = 0f
+    private var pendingScrollY = 0f
+    private var scrollDrainScheduled = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -167,12 +168,13 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         preview = SurfaceView(this).apply {
             contentDescription = "Preview virtual display 1280 x 720"
-            holder.setFormat(PixelFormat.OPAQUE)
             holder.setFixedSize(targetWidth, targetHeight)
             holder.addCallback(object : SurfaceHolder.Callback {
-                override fun surfaceCreated(holder: SurfaceHolder) { renderPreviewFrame(holder) }
+                override fun surfaceCreated(holder: SurfaceHolder) {
+                    virtualDisplayController?.updateSurface(holder.surface)
+                }
                 override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                    renderPreviewFrame(holder)
+                    virtualDisplayController?.updateSurface(holder.surface)
                 }
                 override fun surfaceDestroyed(holder: SurfaceHolder) = Unit
             })
@@ -285,66 +287,29 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     }
 
     private fun startOwnedVirtualDisplay() {
+        val surface = preview?.holder?.surface
+        if (surface == null || !surface.isValid) {
+            status.text = "Surface preview belum siap. Tunggu sebentar lalu coba lagi."
+            return
+        }
         if (virtualDisplayController == null) {
             virtualDisplayController = VirtualDisplayController(
                 this,
                 shizukuBridge,
-                onFrame = { bitmap ->
-                    val old = currentPreviewBitmap
-                    currentPreviewBitmap = bitmap
-                    receivedFrames++
-                    renderPreviewFrame()
-                    if (receivedFrames == 1L) {
-                        val targetDisplayId = virtualDisplayController?.displayId ?: -1
-                        if (targetDisplayId >= 0) {
-                            Thread({
-                                val diagnostics = shizukuBridge.getDisplayDiagnostics(targetDisplayId)
-                                runOnUiThread {
-                                    appendRuntimeLog("Diagnostik awal launcher • display=$targetDisplayId\n$diagnostics")
-                                }
-                            }, "SakuInitialDisplayDiagnostics").start()
-                        }
-                    }
-                    if (receivedFrames == 1L || receivedFrames % 30L == 0L) {
-                        status.text = if (isMostlyWhite(bitmap)) {
-                            "Preview menerima frame tetapi hampir putih • periksa launcher dan Runtime Log"
-                        } else {
-                            "Preview launcher aktif • frame=$receivedFrames • display=${virtualDisplayController?.displayId}"
-                        }
-                    }
-                    if (old != null && old !== bitmap && !old.isRecycled) old.recycle()
-                },
                 onStatus = { message ->
                     status.text = message
                     appendRuntimeLog(message)
                 }
             )
         }
-        receivedFrames = 0L
-        status.text = "Meminta Shizuku membuat display 1280 × 720 landscape • densityDpi=160…"
-        appendRuntimeLog("Meminta display 1280×720 dengan densityDpi=160.")
+        status.text = "Membuat display langsung ke SurfaceView • 1280×720 • densityDpi=160…"
+        appendRuntimeLog("Output virtual display diarahkan langsung ke SurfaceView; ImageReader/Bitmap copy tidak digunakan.")
         virtualDisplayController?.start(
             width = targetWidth,
             height = targetHeight,
-            densityDpi = 160
+            densityDpi = 160,
+            outputSurface = surface
         )
-        // If the display exists but no frame has arrived, expose that distinction explicitly.
-        status.postDelayed({
-            val controller = virtualDisplayController
-            if (controller != null && controller.displayId >= 0 && receivedFrames == 0L) {
-                val targetDisplayId = controller.displayId
-                status.text = "Belum ada frame preview • memeriksa display $targetDisplayId…"
-                Thread({
-                    val diagnostics = shizukuBridge.getDisplayDiagnostics(targetDisplayId)
-                    runOnUiThread {
-                        appendRuntimeLog("Tidak ada frame setelah 4 detik • display=$targetDisplayId\n$diagnostics")
-                        if (receivedFrames == 0L) {
-                            status.text = "Belum ada frame dari display $targetDisplayId • detail di Runtime Log"
-                        }
-                    }
-                }, "SakuNoFrameDiagnostics").start()
-            }
-        }, 4000L)
     }
 
     private fun appendRuntimeLog(message: String) {
@@ -363,13 +328,21 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     }
 
     private fun clearPreview() {
-        val old = currentPreviewBitmap
-        currentPreviewBitmap = null
-        renderPreviewFrame()
-        if (old != null && !old.isRecycled) old.recycle()
+        val holder = preview?.holder ?: return
+        if (!holder.surface.isValid) return
+        var canvas: Canvas? = null
+        try {
+            canvas = holder.lockCanvas()
+            canvas?.drawColor(Color.rgb(7, 24, 45))
+        } catch (error: Throwable) {
+            Log.w("SakuPreview", "Gagal membersihkan preview", error)
+        } finally {
+            if (canvas != null) runCatching { holder.unlockCanvasAndPost(canvas) }
+        }
+        cursorOverlay?.invalidate()
     }
 
-    /** CursorView-style marker adapted from SakuDextop: white dot with dark outline. */
+    /** SakuDextop-style CursorView: filled white dot, dark outline, and click pulse. */
     private fun drawDextopCursor(canvas: Canvas) {
         val surface = preview ?: return
         if (surface.width <= 0 || surface.height <= 0) return
@@ -388,144 +361,182 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }, 100L)
     }
 
-    /** Send native mouse motion off the UI thread; drop intermediate samples while busy. */
+    /** Dispatch the newest pointer coordinate through the Shizuku InputManager path. */
     private fun queueNativeMouseMove(x: Float, y: Float) {
-        val controller = virtualDisplayController ?: return
-        val displayId = controller.displayId
-        if (displayId < 0 || !mouseMovePending.compareAndSet(false, true)) return
+        var scheduleDrain = false
+        synchronized(mouseMoveLock) {
+            pendingMouseX = x
+            pendingMouseY = y
+            if (!mouseMoveDrainScheduled) {
+                mouseMoveDrainScheduled = true
+                scheduleDrain = true
+            }
+        }
+        if (!scheduleDrain) return
         mouseInputExecutor.execute {
-            try {
-                controller.injectHover(x, y)
-            } finally {
-                mouseMovePending.set(false)
+            while (true) {
+                val point = synchronized(mouseMoveLock) {
+                    if (pendingMouseX.isNaN() || pendingMouseY.isNaN()) {
+                        mouseMoveDrainScheduled = false
+                        null
+                    } else {
+                        val latest = pendingMouseX to pendingMouseY
+                        pendingMouseX = Float.NaN
+                        pendingMouseY = Float.NaN
+                        latest
+                    }
+                } ?: break
+                virtualDisplayController?.injectMouseMove(point.first, point.second)
             }
         }
     }
 
-    /** Draw the real-resolution ImageReader frame into a 1280×720 SurfaceView buffer. */
-    private fun renderPreviewFrame(targetHolder: SurfaceHolder? = null) {
-        val holder = targetHolder ?: preview?.holder ?: return
-        if (!holder.surface.isValid) return
-        var canvas: Canvas? = null
-        try {
-            canvas = holder.lockCanvas() ?: return
-            canvas.drawColor(Color.rgb(7, 24, 45))
-            val bitmap = currentPreviewBitmap
-            if (bitmap != null && !bitmap.isRecycled) {
-                canvas.drawBitmap(bitmap, null, Rect(0, 0, canvas.width, canvas.height), previewPaint)
+    /** Accumulate fractional two-finger scroll deltas so input stays smooth without a backlog. */
+    private fun queueNativeMouseScroll(x: Float, y: Float, horizontal: Float, vertical: Float) {
+        if (kotlin.math.abs(horizontal) < 0.0005f && kotlin.math.abs(vertical) < 0.0005f) return
+        var scheduleDrain = false
+        synchronized(scrollLock) {
+            pendingScrollX = x
+            pendingScrollY = y
+            pendingScrollHorizontal += horizontal
+            pendingScrollVertical += vertical
+            if (!scrollDrainScheduled) {
+                scrollDrainScheduled = true
+                scheduleDrain = true
             }
-
-        } catch (error: Throwable) {
-            Log.w("SakuPreview", "Gagal merender frame virtual display", error)
-        } finally {
-            if (canvas != null) {
-                try { holder.unlockCanvasAndPost(canvas) } catch (_: Throwable) {}
+        }
+        if (!scheduleDrain) return
+        mouseInputExecutor.execute {
+            while (true) {
+                val batch = synchronized(scrollLock) {
+                    if (kotlin.math.abs(pendingScrollHorizontal) < 0.0005f &&
+                        kotlin.math.abs(pendingScrollVertical) < 0.0005f
+                    ) {
+                        scrollDrainScheduled = false
+                        null
+                    } else {
+                        val values = floatArrayOf(
+                            pendingScrollX, pendingScrollY,
+                            pendingScrollHorizontal, pendingScrollVertical
+                        )
+                        pendingScrollHorizontal = 0f
+                        pendingScrollVertical = 0f
+                        values
+                    }
+                } ?: break
+                virtualDisplayController?.injectMouseScroll(batch[0], batch[1], batch[2], batch[3])
             }
         }
     }
 
-    private fun isMostlyWhite(bitmap: Bitmap): Boolean {
-        if (bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) return false
-        var sampled = 0
-        var nearWhite = 0
-        for (row in 0..5) {
-            for (column in 0..7) {
-                val pixel = bitmap.getPixel((bitmap.width - 1) * column / 7, (bitmap.height - 1) * row / 5)
-                sampled++
-                if (Color.red(pixel) > 245 && Color.green(pixel) > 245 && Color.blue(pixel) > 245) nearWhite++
-            }
-        }
-        return sampled > 0 && nearWhite.toFloat() / sampled >= 0.92f
-    }
-
-    /**
-     * The touchpad is relative, like a laptop trackpad: finger position does not jump the
-     * pointer. Each movement fraction is applied to the same fraction of the preview axis.
-     */
     private fun handleTouch(event: MotionEvent, width: Int, height: Int): Boolean {
         if (width <= 0 || height <= 0) return true
-        val x = event.x.coerceIn(0f, width.toFloat())
-        val y = event.y.coerceIn(0f, height.toFloat())
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                lastTouchX = x
-                lastTouchY = y
-                downX = x
-                downY = y
-                moved = false
-                longPressDragArmed = false
-                gestureStartedAtMs = SystemClock.uptimeMillis()
-                lastMoveAtMs = gestureStartedAtMs
-                gestureStartX = cursorX
-                gestureStartY = cursorY
+                lastTouchX = event.x
+                lastTouchY = event.y
+                downX = event.x
+                downY = event.y
+                pointerMoved = false
+                hadMultiTouch = false
+                scrollGestureActive = false
                 return true
             }
+
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                if (event.pointerCount >= 2) {
+                    hadMultiTouch = true
+                    scrollGestureActive = true
+                    val centroid = touchCentroid(event)
+                    lastScrollCentroidX = centroid.first
+                    lastScrollCentroidY = centroid.second
+                }
+                return true
+            }
+
             MotionEvent.ACTION_MOVE -> {
+                if (hadMultiTouch) {
+                    if (scrollGestureActive && event.pointerCount >= 2) {
+                        val centroid = touchCentroid(event)
+                        val dx = centroid.first - lastScrollCentroidX
+                        val dy = centroid.second - lastScrollCentroidY
+                        lastScrollCentroidX = centroid.first
+                        lastScrollCentroidY = centroid.second
+                        queueNativeMouseScroll(
+                            cursorX,
+                            cursorY,
+                            horizontal = -dx / dp(32).toFloat(),
+                            vertical = -dy / dp(32).toFloat()
+                        )
+                    }
+                    return true
+                }
+
+                val x = event.x
+                val y = event.y
                 val deltaX = x - lastTouchX
                 val deltaY = y - lastTouchY
-                if (kotlin.math.abs(x - downX) > dp(8) || kotlin.math.abs(y - downY) > dp(8)) moved = true
-                val now = SystemClock.uptimeMillis()
-                val elapsed = (now - lastMoveAtMs).coerceAtLeast(1L)
-                lastMoveAtMs = now
-                val distance = kotlin.math.sqrt(deltaX * deltaX + deltaY * deltaY)
-                val speedPxPerMs = distance / elapsed.toFloat()
-                val acceleration = when {
-                    speedPxPerMs > 2.4f -> 1.65f
-                    speedPxPerMs > 1.2f -> 1.3f
-                    else -> 1.0f
+                if (kotlin.math.abs(x - downX) > dp(6) || kotlin.math.abs(y - downY) > dp(6)) {
+                    pointerMoved = true
                 }
-                cursorX = (cursorX + deltaX * targetWidth / width.toFloat() * cursorSensitivity * acceleration)
+                cursorX = (cursorX + deltaX * targetWidth / width.toFloat())
                     .coerceIn(0f, (targetWidth - 1).toFloat())
-                cursorY = (cursorY + deltaY * targetHeight / height.toFloat() * cursorSensitivity * acceleration)
+                cursorY = (cursorY + deltaY * targetHeight / height.toFloat())
                     .coerceIn(0f, (targetHeight - 1).toFloat())
                 lastTouchX = x
                 lastTouchY = y
-                val heldFor = now - gestureStartedAtMs
-                longPressDragArmed = moved && heldFor >= longPressDragTimeoutMs
                 cursorOverlay?.invalidate()
-                // Native mouse motion goes through Shizuku asynchronously, never blocking the UI thread.
                 queueNativeMouseMove(cursorX, cursorY)
                 return true
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
-                    longPressDragArmed = false
-                    return true
-                }
-                val controller = virtualDisplayController
-                if (controller == null || controller.displayId < 0) {
-                    status.text = "Buat virtual display lewat Shizuku sebelum mengirim input."
-                    return true
-                }
-                val endX = cursorX.coerceIn(0f, (targetWidth - 1).toFloat())
-                val endY = cursorY.coerceIn(0f, (targetHeight - 1).toFloat())
-                val heldFor = SystemClock.uptimeMillis() - gestureStartedAtMs
-                if (longPressDragArmed && moved) {
-                    // Drag stays a single display-scoped swipe to avoid shell startup per movement.
-                    mouseInputExecutor.execute {
-                        controller.injectSwipe(gestureStartX, gestureStartY, endX, endY, heldFor.coerceIn(180L, 1200L))
-                    }
-                } else if (!moved && heldFor < longPressDragTimeoutMs) {
-                    // Use native mouse DOWN/UP instead of a touchscreen tap.
-                    mouseInputExecutor.execute {
-                        controller.injectHover(endX, endY)
-                        val clicked = shizukuBridge.injectMouseClick(controller.displayId, endX, endY)
-                        runOnUiThread {
-                            if (clicked) {
-                                pulseDextopCursor()
-                                status.text = "Klik mouse • x=${endX.toInt()} y=${endY.toInt()}"
-                            } else {
-                                status.text = "Klik mouse gagal. Periksa Runtime Log."
+
+            MotionEvent.ACTION_POINTER_UP -> {
+                hadMultiTouch = true
+                scrollGestureActive = false
+                return true
+            }
+
+            MotionEvent.ACTION_UP -> {
+                if (!hadMultiTouch && !pointerMoved) {
+                    val controller = virtualDisplayController
+                    if (controller == null || controller.displayId < 0) {
+                        status.text = "Buat virtual display lewat Shizuku sebelum mengklik."
+                    } else {
+                        val clickX = cursorX.coerceIn(0f, (targetWidth - 1).toFloat())
+                        val clickY = cursorY.coerceIn(0f, (targetHeight - 1).toFloat())
+                        mouseInputExecutor.execute {
+                            val clicked = controller.injectMouseClick(clickX, clickY)
+                            runOnUiThread {
+                                if (clicked) {
+                                    pulseDextopCursor()
+                                    status.text = "Klik mouse • x=${clickX.toInt()} y=${clickY.toInt()}"
+                                } else {
+                                    status.text = "Klik mouse ditolak InputManager. Periksa Runtime Log."
+                                    appendRuntimeLog("InputManager menolak klik mouse di x=${clickX.toInt()} y=${clickY.toInt()}")
+                                }
                             }
                         }
                     }
                 }
-                longPressDragArmed = false
+                // Finger-up only ends the gesture. There is deliberately no swipe/drag injection.
+                pointerMoved = false
+                hadMultiTouch = false
+                scrollGestureActive = false
+                return true
+            }
+
+            MotionEvent.ACTION_CANCEL -> {
+                pointerMoved = false
+                hadMultiTouch = false
+                scrollGestureActive = false
                 return true
             }
         }
         return true
     }
+
+    private fun touchCentroid(event: MotionEvent): Pair<Float, Float> =
+        ((event.getX(0) + event.getX(1)) / 2f) to ((event.getY(0) + event.getY(1)) / 2f)
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt().coerceAtLeast(1)
 }
