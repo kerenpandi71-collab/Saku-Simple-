@@ -329,7 +329,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     ballDownX = event.rawX; ballDownY = event.rawY
-                    ballStartX = ballParams.x.toFloat(); ballStartY = ballParams.y.toFloat()
+                    ballStartX = if (ballParams.gravity and Gravity.RIGHT == Gravity.RIGHT) (root.width - view.width - ballParams.rightMargin).coerceAtLeast(0).toFloat() else ballParams.leftMargin.toFloat()
+                    ballStartY = if (ballParams.gravity and Gravity.CENTER_VERTICAL == Gravity.CENTER_VERTICAL) ((root.height - view.height) / 2f) else ballParams.topMargin.toFloat()
                     ballDragged = false
                     true
                 }
