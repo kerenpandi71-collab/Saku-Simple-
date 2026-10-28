@@ -277,9 +277,9 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             }
         } catch (error: Throwable) {
             val cause = error.cause ?: error
-            val detail = "${cause.javaClass.simpleName}: ${cause.message ?: "tanpa detail"}"
+            val detail = "${cause.javaClass.simpleName}: ${cause.message ?: "tanpa detail"}\n${Log.getStackTraceString(cause)}"
             Log.e(TAG, "Shell command failed: $command", cause)
-            -1 to detail
+            -1 to detail.take(1800)
         } finally {
             runCatching { process?.destroy() }
         }

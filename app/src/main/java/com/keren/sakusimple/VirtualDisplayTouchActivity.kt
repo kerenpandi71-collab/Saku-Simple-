@@ -211,8 +211,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         runtimeLogScroll = ScrollView(this).apply {
             isFillViewport = true
-            addView(runtimeLog, ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT
+            addView(runtimeLog, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT
             ))
         }
         root.addView(runtimeLogScroll, LinearLayout.LayoutParams(
@@ -282,8 +282,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         val timestamp = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.getDefault())
             .format(java.util.Date())
         runtimeLogBuffer.append("[").append(timestamp).append("] ")
-            .append(message).append('
-')
+            .append(message).append('\n')
         if (runtimeLogBuffer.length > 12000) {
             runtimeLogBuffer.delete(0, runtimeLogBuffer.length - 9000)
         }

@@ -12,6 +12,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.view.Display
+import android.widget.TextView
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
