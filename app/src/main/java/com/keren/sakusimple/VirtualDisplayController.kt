@@ -1,53 +1,48 @@
 package com.keren.sakusimple
 
+import android.app.Activity
+import android.app.Presentation
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
-import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.Display
-import android.view.Surface
-import android.app.Presentation
 import android.widget.TextView
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Owns an app-created virtual display and a frame stream for preview.
- *
- * Important: this creates a display for content owned by this app. It does not grant
- * permission to launch arbitrary third-party activities onto the display, and it does
- * not request privileged TRUSTED / SUPPORTS_TOUCH flags. Those require system/OEM
- * support and cannot be made available merely by reflecting hidden constants.
+ * Coordinates the app-side ImageReader/preview with a virtual display created by Shizuku.
+ * The Surface passed to the Shizuku UserService is the target for frames from this display.
  */
 class VirtualDisplayController(
     context: Context,
+    private val shizukuBridge: ShizukuBridge,
     private val onFrame: (Bitmap) -> Unit,
     private val onStatus: (String) -> Unit
 ) : AutoCloseable {
-    private val appContext = context.applicationContext
-    private val displayManager =
-        appContext.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+    private val appContext = context
+    private val displayManager = appContext.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
     private val mainHandler = Handler(Looper.getMainLooper())
     private var imageReader: ImageReader? = null
-    private var virtualDisplay: VirtualDisplay? = null
     private var presentation: Presentation? = null
     private val closed = AtomicBoolean(false)
 
-    val displayId: Int
-        get() = virtualDisplay?.display?.displayId ?: Display.INVALID_DISPLAY
+    @Volatile
+    var displayId: Int = Display.INVALID_DISPLAY
+        private set
 
-    fun start(width: Int, height: Int, densityDpi: Int): Boolean {
-        closeResources()
+    fun start(width: Int, height: Int, densityDpi: Int) {
+        releaseDisplayAndReader()
         closed.set(false)
         val safeWidth = width.coerceIn(320, 2560)
         val safeHeight = height.coerceIn(320, 2560)
         val safeDpi = densityDpi.coerceIn(120, 640)
 
-        return try {
+        try {
             val reader = ImageReader.newInstance(
                 safeWidth, safeHeight, PixelFormat.RGBA_8888, 3
             )
@@ -84,57 +79,86 @@ class VirtualDisplayController(
                 }
             }, mainHandler)
 
-            // PUBLIC + PRESENTATION are public API flags. Deliberately do not claim
-            // that this app has privileged TRUSTED or SUPPORTS_TOUCH capabilities.
-            val flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION
-            virtualDisplay = displayManager.createVirtualDisplay(
-                "SakuSimpleVirtualDisplay",
+            onStatus("Meminta Shizuku membuat display virtual…")
+            shizukuBridge.createVirtualDisplay(
                 safeWidth,
                 safeHeight,
                 safeDpi,
-                reader.surface,
-                flags
-            ) ?: run {
-                onStatus("Android menolak pembuatan virtual display.")
-                closeResources()
-                return false
-            }
+                reader.surface
+            ) { createdId, error ->
+                if (createdId < 0) {
+                    displayId = Display.INVALID_DISPLAY
+                    onStatus("Pembuatan virtual display gagal: $error")
+                    releaseReaderOnly()
+                    return@createVirtualDisplay
+                }
 
-            val display = virtualDisplay?.display
-            if (display == null) {
-                onStatus("Virtual display dibuat tetapi objek Display tidak tersedia.")
-                closeResources()
-                return false
+                displayId = createdId
+                mainHandler.post {
+                    if (closed.get()) {
+                        shizukuBridge.releaseVirtualDisplay()
+                        return@post
+                    }
+                    try {
+                        val display = displayManager.getDisplay(createdId)
+                            ?: throw IllegalStateException("Display ID $createdId belum terlihat oleh aplikasi.")
+                        presentation = Presentation(appContext, display).apply {
+                            setContentView(TextView(appContext).apply {
+                                text = "SAKU VIRTUAL DISPLAY\n\nDisplay ID: $createdId\nShizuku berhasil membuat layar. Tekan 'Buka Pengaturan' untuk menguji peluncuran aplikasi."
+                                textSize = 18f
+                                setPadding(24, 24, 24, 24)
+                            })
+                            show()
+                        }
+                        onStatus("Virtual display Shizuku aktif • ID $createdId • \${safeWidth}×\${safeHeight}.")
+                    } catch (displayError: Throwable) {
+                        onStatus("Display dibuat (ID $createdId), tetapi preview window gagal: \${displayError.message ?: displayError.javaClass.simpleName}")
+                        Log.e(TAG, "Unable to show Presentation on Shizuku display", displayError)
+                    }
+                }
             }
-            presentation = Presentation(appContext, display).apply {
-                setContentView(TextView(context).apply {
-                    text = "SAKU VIRTUAL DISPLAY\\n\\nLayar virtual aktif. Konten aplikasi pihak ketiga belum dipindahkan ke layar ini."
-                    textSize = 18f
-                    setPadding(24, 24, 24, 24)
-                })
-                show()
-            }
-            onStatus("Virtual display aktif • ID ${display.displayId} • ${safeWidth}×${safeHeight}")
-            true
         } catch (error: Throwable) {
-            Log.e(TAG, "Virtual display creation failed", error)
-            onStatus("Gagal membuat virtual display: ${error.javaClass.simpleName}")
-            closeResources()
-            false
+            Log.e(TAG, "Virtual display setup failed", error)
+            onStatus("Gagal menyiapkan virtual display: \${error.message ?: error.javaClass.simpleName}")
+            releaseDisplayAndReader()
         }
     }
 
-    override fun close() {
-        closed.set(true)
-        closeResources()
+    fun injectTap(x: Float, y: Float): Boolean {
+        val id = displayId
+        if (id < 0) {
+            onStatus("Buat virtual display terlebih dahulu.")
+            return false
+        }
+        return shizukuBridge.injectTap(id, x, y)
     }
 
-    private fun closeResources() {
+    fun injectSwipe(x1: Float, y1: Float, x2: Float, y2: Float, durationMs: Long = 220L): Boolean {
+        val id = displayId
+        if (id < 0) {
+            onStatus("Buat virtual display terlebih dahulu.")
+            return false
+        }
+        return shizukuBridge.injectSwipe(id, x1, y1, x2, y2, durationMs)
+    }
+
+    fun launchSettings(activity: Activity): Boolean =
+        shizukuBridge.launchSettingsOnDisplay(activity, displayId)
+
+    override fun close() {
+        closed.set(true)
+        releaseDisplayAndReader()
+    }
+
+    private fun releaseDisplayAndReader() {
         try { presentation?.dismiss() } catch (_: Throwable) {}
         presentation = null
-        try { virtualDisplay?.release() } catch (_: Throwable) {}
-        virtualDisplay = null
+        if (displayId >= 0) shizukuBridge.releaseVirtualDisplay()
+        displayId = Display.INVALID_DISPLAY
+        releaseReaderOnly()
+    }
+
+    private fun releaseReaderOnly() {
         try { imageReader?.setOnImageAvailableListener(null, null) } catch (_: Throwable) {}
         try { imageReader?.close() } catch (_: Throwable) {}
         imageReader = null
