@@ -1,12 +1,10 @@
 package com.keren.sakusimple
 
-import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.view.Display
 import android.view.MotionEvent
 import android.view.View
 import android.widget.Button
@@ -17,7 +15,7 @@ import androidx.activity.ComponentActivity
 import kotlin.math.max
 import kotlin.math.min
 
-/** Main touchpad UI. Preview and touchpad both map to the fixed 720 x 1280 virtual display. */
+/** Main touchpad UI. Preview fills its frame; touchpad maps to the fixed 720 x 1280 virtual display. */
 class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var status: TextView
     private lateinit var shizukuBridge: ShizukuBridge
@@ -120,7 +118,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
         preview = ImageView(this).apply {
             contentDescription = "Preview virtual display 720 x 1280"
-            scaleType = ImageView.ScaleType.FIT_CENTER
+            // Fill the entire preview frame to remove the black side bars.
+            // This changes preview presentation only; input coordinates still map to 720 x 1280.
+            scaleType = ImageView.ScaleType.FIT_XY
             adjustViewBounds = false
             setBackgroundColor(Color.rgb(0, 10, 20))
         }
@@ -193,10 +193,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         currentPreviewBitmap = null
     }
 
-    /**
-     * MotionEvent coordinates are local to the actual touchpad View (not screen coordinates).
-     * Normalize against that View's measured size, then scale to the virtual display resolution.
-     */
+    /** Normalize touchpad-local coordinates and scale them to the virtual display resolution. */
     private fun mapTouchCoordinate(position: Float, touchpadExtent: Int, targetExtent: Int): Float {
         if (touchpadExtent <= 0 || targetExtent <= 1) return 0f
         val normalized = (position / touchpadExtent.toFloat()).coerceIn(0f, 1f)
