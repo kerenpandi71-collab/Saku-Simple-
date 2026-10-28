@@ -1,14 +1,22 @@
 package com.keren.sakusimple
 
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.util.Log
+import android.view.Gravity
 import android.view.MotionEvent
+import android.view.SurfaceHolder
+import android.view.SurfaceView
 import android.view.View
 import android.widget.Button
-import android.widget.ImageView
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
@@ -21,7 +29,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var shizukuBridge: ShizukuBridge
     private var cursor: View? = null
     private var virtualDisplayController: VirtualDisplayController? = null
-    private var preview: ImageView? = null
+    private var preview: SurfaceView? = null
+    private val previewPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
     private var currentPreviewBitmap: Bitmap? = null
     private var downX = 0f
     private var downY = 0f
@@ -113,18 +122,35 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
         val screenHeightDp = (resources.displayMetrics.heightPixels /
             resources.displayMetrics.density).toInt()
-        val previewHeight = (screenHeightDp * 0.45f).toInt()
-            .coerceIn(dp(220), dp(440))
-
-        preview = ImageView(this).apply {
-            contentDescription = "Preview virtual display 720 x 1280"
-            // Fill the entire preview frame to remove the black side bars.
-            // This changes preview presentation only; input coordinates still map to 720 x 1280.
-            scaleType = ImageView.ScaleType.FIT_XY
-            adjustViewBounds = false
-            setBackgroundColor(Color.rgb(0, 10, 20))
+        // Keep the preview viewport portrait and proportional to the real 720×1280 buffer.
+        // The surrounding area uses the app background, not black letterboxing.
+        val previewHeight = (screenHeightDp * 0.34f).toInt()
+            .coerceIn(dp(220), dp(360))
+        val previewWidth = (previewHeight.toFloat() * targetWidth / targetHeight).toInt().coerceAtLeast(dp(124))
+        val previewFrame = FrameLayout(this).apply {
+            setBackgroundColor(Color.rgb(7, 24, 45))
         }
-        root.addView(preview, LinearLayout.LayoutParams(
+        preview = SurfaceView(this).apply {
+            contentDescription = "Preview virtual display 720 x 1280"
+            holder.setFormat(PixelFormat.OPAQUE)
+            holder.setFixedSize(targetWidth, targetHeight)
+            holder.addCallback(object : SurfaceHolder.Callback {
+                override fun surfaceCreated(holder: SurfaceHolder) {
+                    renderPreviewFrame(holder)
+                }
+
+                override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                    renderPreviewFrame(holder)
+                }
+
+                override fun surfaceDestroyed(holder: SurfaceHolder) = Unit
+            })
+        }
+        previewFrame.addView(
+            preview,
+            FrameLayout.LayoutParams(previewWidth, previewHeight, Gravity.CENTER)
+        )
+        root.addView(previewFrame, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, previewHeight
         ).apply { topMargin = dp(3); bottomMargin = dp(4) })
 
@@ -173,7 +199,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 onFrame = { bitmap ->
                     val old = currentPreviewBitmap
                     currentPreviewBitmap = bitmap
-                    preview?.setImageBitmap(bitmap)
+                    renderPreviewFrame()
                     if (old != null && old !== bitmap && !old.isRecycled) old.recycle()
                 },
                 onStatus = { message -> status.text = message }
@@ -188,9 +214,36 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     }
 
     private fun clearPreview() {
-        preview?.setImageDrawable(null)
-        currentPreviewBitmap?.let { if (!it.isRecycled) it.recycle() }
+        val old = currentPreviewBitmap
         currentPreviewBitmap = null
+        renderPreviewFrame()
+        if (old != null && !old.isRecycled) old.recycle()
+    }
+
+    /** Draw the real-resolution ImageReader frame into a 720×1280 SurfaceView buffer. */
+    private fun renderPreviewFrame(targetHolder: SurfaceHolder? = null) {
+        val holder = targetHolder ?: preview?.holder ?: return
+        if (!holder.surface.isValid) return
+        var canvas: Canvas? = null
+        try {
+            canvas = holder.lockCanvas() ?: return
+            canvas.drawColor(Color.rgb(7, 24, 45))
+            val bitmap = currentPreviewBitmap
+            if (bitmap != null && !bitmap.isRecycled) {
+                canvas.drawBitmap(
+                    bitmap,
+                    null,
+                    Rect(0, 0, canvas.width, canvas.height),
+                    previewPaint
+                )
+            }
+        } catch (error: Throwable) {
+            Log.w("SakuPreview", "Gagal merender frame virtual display", error)
+        } finally {
+            if (canvas != null) {
+                try { holder.unlockCanvasAndPost(canvas) } catch (_: Throwable) {}
+            }
+        }
     }
 
     /** Normalize touchpad-local coordinates and scale them to the virtual display resolution. */

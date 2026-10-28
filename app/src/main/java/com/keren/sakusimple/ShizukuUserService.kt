@@ -2,10 +2,14 @@ package com.keren.sakusimple
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
+import android.app.ActivityOptions
+import android.provider.Settings
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.hardware.input.InputManager
 import android.os.Binder
+import android.os.IBinder
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
@@ -16,7 +20,6 @@ import android.view.InputEvent
 import android.view.MotionEvent
 import android.view.Surface
 import java.lang.reflect.Method
-import java.util.concurrent.TimeUnit
 import org.lsposed.hiddenapibypass.HiddenApiBypass
 import kotlin.math.max
 import kotlin.math.min
@@ -213,39 +216,100 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         }
 
         val identity = Binder.clearCallingIdentity()
-        var process: Process? = null
         return try {
-            // Use the system ActivityTaskManager shell entry point. This is the same
-            // display-routing path used by "am start --display", but it executes with
-            // the Shizuku UserService identity instead of the app process identity.
-            val command = "/system/bin/am start -W --display $displayId -a android.settings.SETTINGS -f 0x10000000"
-            process = ProcessBuilder("/system/bin/sh", "-c", command)
-                .redirectErrorStream(true)
-                .start()
+            enableHiddenApiAccess()
 
-            if (!process.waitFor(12, TimeUnit.SECONDS)) {
-                process.destroyForcibly()
-                lastError = "Timeout saat meluncurkan Pengaturan pada display $displayId."
-                false
-            } else {
-                val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
-                val success = process.exitValue() == 0 &&
-                    !output.contains("Error:", ignoreCase = true) &&
-                    !output.contains("Exception", ignoreCase = true)
-                lastError = if (success) {
-                    "Pengaturan diminta melalui ActivityTaskManager pada display $displayId. $output".take(1000)
-                } else {
-                    "ActivityTaskManager menolak launch display $displayId: $output".take(1000)
-                }
-                Log.i(TAG, lastError)
-                success
+            // Force a separate task instance and ask ActivityTaskManager to route it to
+            // the virtual display. Avoid "am start" task-reuse heuristics.
+            val launchIntent = Intent(Settings.ACTION_SETTINGS).apply {
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_MULTIPLE_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP
+                )
             }
+
+            val activityOptions = ActivityOptions.makeBasic()
+            val displaySetter = ActivityOptions::class.java.getDeclaredMethod(
+                "setLaunchDisplayId",
+                Int::class.javaPrimitiveType
+            ).apply { isAccessible = true }
+            displaySetter.invoke(activityOptions, displayId)
+            val options = activityOptions.toBundle()
+
+            val managerClass = Class.forName("android.app.ActivityTaskManager")
+            val getService = managerClass.getDeclaredMethod("getService").apply {
+                isAccessible = true
+            }
+            val activityTaskManager = getService.invoke(null)
+                ?: throw IllegalStateException("ActivityTaskManager.getService() menghasilkan null.")
+
+            val interfaceClass = Class.forName("android.app.IActivityTaskManager")
+            val startActivityMethod = interfaceClass.declaredMethods.firstOrNull { method ->
+                method.name == "startActivity" &&
+                    method.parameterTypes.contains(Intent::class.java) &&
+                    method.parameterTypes.lastOrNull() == android.os.Bundle::class.java
+            } ?: throw NoSuchMethodException(
+                "IActivityTaskManager.startActivity dengan Intent dan Bundle tidak ditemukan."
+            )
+            startActivityMethod.isAccessible = true
+
+            // Build hidden AIDL arguments across Android releases. The caller thread,
+            // result token and profiler are intentionally null; Shizuku's shell/root identity
+            // is the Binder caller. Newer Android versions add callingFeatureId before Intent.
+            val parameterTypes = startActivityMethod.parameterTypes
+            val intentIndex = parameterTypes.indexOf(Intent::class.java)
+            if (intentIndex < 0) throw NoSuchMethodException("Parameter Intent tidak ditemukan.")
+            var preIntentStringIndex = 0
+            val args = arrayOfNulls<Any>(parameterTypes.size)
+            for (index in parameterTypes.indices) {
+                val type = parameterTypes[index]
+                args[index] = when {
+                    type == Intent::class.java -> launchIntent
+                    type == String::class.java && index < intentIndex -> {
+                        preIntentStringIndex++
+                        when (preIntentStringIndex) {
+                            1 -> if (android.os.Process.myUid() == 2000) "com.android.shell" else null
+                            else -> "SakuShizuku"
+                        }
+                    }
+                    type == String::class.java -> null
+                    type == android.os.Bundle::class.java -> options
+                    type.name == "android.app.IApplicationThread" -> null
+                    type.name == "android.app.ProfilerInfo" -> null
+                    android.os.IBinder::class.java.isAssignableFrom(type) -> null
+                    type == Int::class.javaPrimitiveType -> 0
+                    type == Long::class.javaPrimitiveType -> 0L
+                    type == Boolean::class.javaPrimitiveType -> false
+                    type == Float::class.javaPrimitiveType -> 0f
+                    type == Double::class.javaPrimitiveType -> 0.0
+                    else -> null
+                }
+            }
+
+            val resultCode = startActivityMethod.invoke(activityTaskManager, *args) as? Int
+                ?: throw IllegalStateException("ActivityTaskManager tidak mengembalikan kode hasil.")
+            val flags = "0x\${(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP).toString(16)}"
+            val resultName = when (resultCode) {
+                0 -> "START_SUCCESS"
+                2 -> "START_TASK_TO_FRONT"
+                3 -> "START_DELIVERED_TO_TOP"
+                else -> "START_RESULT_$resultCode"
+            }
+            val accepted = resultCode >= 0
+            lastError = if (accepted) {
+                "ActivityTaskManager.startActivity diterima • display=$displayId • flags=$flags (NEW_TASK|MULTIPLE_TASK|CLEAR_TOP) • $resultName. Cek preview untuk memastikan OEM benar-benar menampilkan activity di display target."
+            } else {
+                "ActivityTaskManager menolak launch • display=$displayId • flags=$flags • $resultName."
+            }
+            if (accepted) Log.i(TAG, lastError) else Log.w(TAG, lastError)
+            accepted
         } catch (error: Throwable) {
-            lastError = "Launch ke display $displayId gagal: ${error.javaClass.simpleName}: ${error.message ?: "tanpa detail"}"
-            Log.e(TAG, lastError, error)
+            val cause = error.cause ?: error
+            lastError = "Launch langsung ke display $displayId gagal: \${cause.javaClass.simpleName}: \${cause.message ?: "tanpa detail"}"
+            Log.e(TAG, lastError, cause)
             false
         } finally {
-            try { process?.destroy() } catch (_: Throwable) {}
             Binder.restoreCallingIdentity(identity)
         }
     }

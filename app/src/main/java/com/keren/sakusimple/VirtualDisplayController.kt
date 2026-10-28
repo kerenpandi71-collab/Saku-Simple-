@@ -62,7 +62,8 @@ class VirtualDisplayController(
                 } ?: return@setOnImageAvailableListener
 
                 val now = SystemClock.elapsedRealtime()
-                if (now - lastFrameAtMs < 83L) {
+                // Allow up to about 30 preview frames per second; the SurfaceView keeps the 720×1280 ratio.
+                if (now - lastFrameAtMs < 33L) {
                     image.close()
                     return@setOnImageAvailableListener
                 }
