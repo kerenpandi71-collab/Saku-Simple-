@@ -161,6 +161,15 @@ class VirtualDisplayController(
         return shizukuBridge.injectSwipe(id, x1, y1, x2, y2, durationMs)
     }
 
+    fun injectHover(x: Float, y: Float): Boolean {
+        val id = displayId
+        if (id < 0) {
+            reportStatus("Buat virtual display terlebih dahulu.")
+            return false
+        }
+        return shizukuBridge.injectHover(id, x, y)
+    }
+
     fun launchTestApp() =
         shizukuBridge.launchTestAppOnDisplay(displayId)
 

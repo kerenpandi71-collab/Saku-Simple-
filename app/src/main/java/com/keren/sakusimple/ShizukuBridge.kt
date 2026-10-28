@@ -221,3 +221,31 @@ class ShizukuBridge(
         }
     }
 
+    fun releaseVirtualDisplay() {
+        try {
+            remote?.releaseVirtualDisplay()
+        } catch (error: Throwable) {
+            Log.w(TAG, "releaseVirtualDisplay failed", error)
+        }
+    }
+
+    override fun close() {
+        releaseVirtualDisplay()
+        wantsConnection = false
+        val wasBound = binding || remote != null
+        remote = null
+        try { Shizuku.removeBinderReceivedListener(binderReceivedListener) } catch (_: Throwable) {}
+        try { Shizuku.removeBinderDeadListener(binderDeadListener) } catch (_: Throwable) {}
+        try { Shizuku.removeRequestPermissionResultListener(permissionListener) } catch (_: Throwable) {}
+        if (wasBound) {
+            try { Shizuku.unbindUserService(userServiceArgs, serviceConnection, true) } catch (_: Throwable) {}
+        }
+        binding = false
+        pendingCallbacks.clear()
+    }
+
+    companion object {
+        private const val TAG = "SakuShizukuBridge"
+        private const val REQUEST_PERMISSION_CODE = 24681
+    }
+}

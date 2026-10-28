@@ -226,6 +226,14 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             height = targetHeight,
             densityDpi = resources.displayMetrics.densityDpi
         )
+        // If the display exists but no frame has arrived, expose that distinction explicitly.
+        status.postDelayed({
+            val controller = virtualDisplayController
+            if (controller != null && controller.displayId >= 0 && receivedFrames == 0L) {
+                displayDiagnostics = shizukuBridge.getDisplayDiagnostics(controller.displayId)
+                status.text = "ImageReader belum menerima frame • $displayDiagnostics"
+            }
+        }, 4000L)
     }
 
     private fun clearPreview() {
