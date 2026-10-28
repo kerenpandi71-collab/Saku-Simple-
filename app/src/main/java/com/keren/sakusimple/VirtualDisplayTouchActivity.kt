@@ -368,15 +368,29 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
     private fun handleDirectTouch(event: MotionEvent, width: Int, height: Int): Boolean {
         if (width <= 0 || height <= 0) return true
-        val x = (event.x / width.toFloat() * targetWidth).coerceIn(0f, (targetWidth - 1).toFloat())
-        val y = (event.y / height.toFloat() * targetHeight).coerceIn(0f, (targetHeight - 1).toFloat())
-        cursorX = x
-        cursorY = y
+        if (event.pointerCount > 5) {
+            status.text = "Direct Touch mendukung maksimal 5 jari."
+            return true
+        }
+        val count = event.pointerCount
+        val xs = FloatArray(count) { i ->
+            (event.getX(i) / width.toFloat() * targetWidth).coerceIn(0f, (targetWidth - 1).toFloat())
+        }
+        val ys = FloatArray(count) { i ->
+            (event.getY(i) / height.toFloat() * targetHeight).coerceIn(0f, (targetHeight - 1).toFloat())
+        }
+        cursorX = xs[0]
+        cursorY = ys[0]
         cursorOverlay?.invalidate()
         val action = when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> MotionEvent.ACTION_DOWN
+            MotionEvent.ACTION_POINTER_DOWN -> MotionEvent.ACTION_POINTER_DOWN or
+                (event.actionIndex shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)
             MotionEvent.ACTION_MOVE -> MotionEvent.ACTION_MOVE
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> MotionEvent.ACTION_UP
+            MotionEvent.ACTION_POINTER_UP -> MotionEvent.ACTION_POINTER_UP or
+                (event.actionIndex shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)
+            MotionEvent.ACTION_UP -> MotionEvent.ACTION_UP
+            MotionEvent.ACTION_CANCEL -> MotionEvent.ACTION_CANCEL
             else -> return true
         }
         val controller = virtualDisplayController
@@ -384,16 +398,17 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             if (action == MotionEvent.ACTION_DOWN) status.text = "Mulai virtual display melalui Shizuku dahulu."
             return true
         }
-        if (action == MotionEvent.ACTION_DOWN) directTouchDown = true
-        if (action == MotionEvent.ACTION_MOVE && !directTouchDown) return true
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) directTouchDown = true
+        if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) directTouchDown = false
         mouseInputExecutor.execute {
-            val accepted = controller.injectTouchEvent(action, x, y)
+            val accepted = controller.injectTouchPoints(
+                action, IntArray(count) { i -> event.getPointerId(i) }, xs, ys
+            )
             runOnUiThread {
                 if (!accepted) {
-                    appendRuntimeLog("Direct Touch event gagal • action=$action • ${shizukuBridge.getLastError()}")
+                    appendRuntimeLog("Direct Touch multi-jari gagal • action=$action • ${shizukuBridge.getLastError()}")
                     status.text = "Direct Touch gagal • periksa Log."
-                } else if (action == MotionEvent.ACTION_UP) {
-                    directTouchDown = false
+                } else if (event.actionMasked == MotionEvent.ACTION_UP) {
                     pulseDextopCursor()
                 }
             }
