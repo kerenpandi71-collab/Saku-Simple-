@@ -87,7 +87,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var dragActive = false
     private lateinit var runtimeLogPanel: LinearLayout
     private var suppressKeyboardWatcher = false
-    private var imeBridgeWatcherBusy = false
     private val cursorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
         color = Color.WHITE
@@ -951,6 +950,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         longPressTask?.let(gestureHandler::removeCallbacks)
         if (dragActive) virtualDisplayController?.injectMouseButton(MotionEvent.ACTION_UP, cursorX, cursorY)
         mouseInputExecutor.shutdownNow()
+        keyboardInputExecutor.shutdownNow()
         virtualDisplayController?.close()
         virtualDisplayController = null
         clearPreview()
