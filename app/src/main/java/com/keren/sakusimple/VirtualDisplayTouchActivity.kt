@@ -55,6 +55,10 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private val mouseInputExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "SakuDirectMouseInput").apply { isDaemon = true }
     }
+    // Keep keyboard batches independent from high-frequency trackpad/mouse events.
+    private val keyboardInputExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "SakuCyberdeckKeyboard").apply { isDaemon = true }
+    }
     private lateinit var runtimeLogToggle: Button
     private lateinit var bottomPanel: LinearLayout
     private lateinit var keyboardPanel: LinearLayout
@@ -573,7 +577,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             status.text = "Virtual display belum aktif."
             return
         }
-        mouseInputExecutor.execute {
+        keyboardInputExecutor.execute {
             val accepted = virtualDisplayController?.injectKeyEvents(
                 intArrayOf(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.ACTION_UP),
                 intArrayOf(keyCode, keyCode),
@@ -797,7 +801,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         val shift = cyberShift
         val ctrl = cyberCtrl
         val alt = cyberAlt
-        mouseInputExecutor.execute {
+        keyboardInputExecutor.execute {
             val events = runCatching {
                 KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD).getEvents(text.toCharArray())
             }.getOrNull()
