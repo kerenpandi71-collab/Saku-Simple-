@@ -414,7 +414,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         "⌫" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_DEL)
                         "ENTER" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_ENTER)
                         else -> {
-                            val key = if (cyberSymbols) symbolForCyberdeckKey(label) else label
+                            val key = if (cyberSymbols) symbolForCyberdeckKey(label) else label.lowercase()
                             val printable = if (cyberShift && !cyberSymbols) key.uppercase() else key
                             sendTypedText(printable)
                             if (cyberShift && !cyberSymbols && printable.any { it.isLetter() }) {
