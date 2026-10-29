@@ -75,6 +75,16 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             ) ?: throw IllegalStateException("createVirtualDisplay mengembalikan null.")
 
             created.setSurface(surface)
+            // Keep Android's system IME off this display. The app's own Cyberdeck keyboard
+            // sends KeyEvents through Shizuku, so Gboard must not cover the preview.
+            // Keep TRUSTED enabled: this device relies on it for injected touchscreen events.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                runCatching {
+                    created.setDisplayImePolicy(DisplayManager.DISPLAY_IME_POLICY_HIDE)
+                }.onFailure { error ->
+                    Log.w(TAG, "Could not hide system IME on virtual display: ${error.message}")
+                }
+            }
             virtualDisplay = created
             val display = created.display
             val stateName = when (display.state) {
