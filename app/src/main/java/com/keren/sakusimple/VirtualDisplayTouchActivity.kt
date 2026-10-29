@@ -78,7 +78,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var longPressTask: Runnable? = null
     private var touchpadFingerDown = false
     private var dragActive = false
-    private lateinit var keyboardInput: EditText
     private lateinit var runtimeLogPanel: LinearLayout
     private var suppressKeyboardWatcher = false
     private val cursorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -531,45 +530,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             leftMargin = dp(8); rightMargin = dp(8); topMargin = dp(102)
         })
 
-        // Text sink untuk IME Android; huruf diubah jadi KeyCharacterMap events lalu dikirim ke Shizuku.
-        keyboardInput = EditText(this).apply {
-            setSingleLine(true)
-            showSoftInputOnFocus = false
-            isFocusable = false
-            isFocusableInTouchMode = false
-            textSize = 12f
-            hint = "Ketik ke layar virtual"
-            setTextColor(Color.WHITE)
-            setHintTextColor(Color.LTGRAY)
-            setPadding(dp(8), 0, dp(8), 0)
-            background = roundedPanel(230, 10)
-            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
-            alpha = 0.02f
-            isFocusableInTouchMode = true
-            addTextChangedListener(object : android.text.TextWatcher {
-                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                    if (suppressKeyboardWatcher || s == null) return
-                    if (count > 0) {
-                        val typed = s.subSequence(start, (start + count).coerceAtMost(s.length)).toString()
-                        if (typed.isNotEmpty()) sendTypedText(typed)
-                    } else if (before > 0) {
-                        sendVirtualKey(android.view.KeyEvent.KEYCODE_DEL)
-                    }
-                    // Do not clear EditText after every character: resetting the composing buffer
-                    // causes several IMEs to dismiss/reopen the keyboard while typing.
-                    if (keyboardInput.text.length > 256) {
-                        post {
-                            suppressKeyboardWatcher = true
-                            keyboardInput.setText("")
-                            suppressKeyboardWatcher = false
-                        }
-                    }
-                }
-                override fun afterTextChanged(s: android.text.Editable?) = Unit
-            })
-        }
-        root.addView(keyboardInput, FrameLayout.LayoutParams(dp(2), dp(2), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
+        // Tidak membuat EditText tersembunyi untuk menerima input IME. Keyboard Cyberdeck
+        // mengirim KeyEvent langsung ke virtual display sehingga Gboard tidak terpanggil.
         setContentView(root)
     }
 
@@ -700,7 +662,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         panelToggleButton.text = if (show) "Panel" else "Panel+"
         if (!show) {
             val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.hideSoftInputFromWindow(keyboardInput.windowToken, 0)
+            imm.hideSoftInputFromWindow(window.decorView.windowToken, 0)
         }
     }
 
