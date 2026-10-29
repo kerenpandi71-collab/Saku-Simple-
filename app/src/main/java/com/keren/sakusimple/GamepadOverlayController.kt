@@ -105,11 +105,22 @@ class GamepadOverlayController(
                 keys.map { key -> key + " — " + (labels[key] ?: key) })
         }
         box.addView(TextView(context).apply {
-            text = "Pilih fungsi, tekan Letakkan mapping, lalu sentuh lokasi tombolnya di preview. Marker mapping akan muncul dan bisa diseret untuk koreksi posisi. Untuk joystick, pilih Joystick gerak 360° lalu sentuh TENGAH joystick ML. Kontrol: Skill 1/2, Ultimate, Battle Spell, Blink, Serang, Item/Custom, Recall, Regen, Flicker."
+            text = "Pilih fungsi → Letakkan mapping → sentuh lokasi tombol ML di preview. Setelah muncul, marker berlabel bisa diseret untuk mengoreksi posisi. Untuk joystick, letakkan di TENGAH joystick ML. Setiap tombol di panel punya mapping sendiri."
             setTextColor(Color.WHITE)
         })
         box.addView(spinner)
-        val dialog = AlertDialog.Builder(context).setTitle("Gamepad Bola Asisten").setView(box)
+        box.addView(Button(context).apply {
+            text = "Hapus semua mapping"
+            isAllCaps = false
+            setOnClickListener {
+                targets.clear()
+                saveTargets()
+                view.invalidate()
+                onStatus("Semua mapping dihapus. Pilih fungsi lalu letakkan ulang di preview.")
+                Toast.makeText(context, "Mapping dihapus", Toast.LENGTH_SHORT).show()
+            }
+        })
+        val dialog = AlertDialog.Builder(context).setTitle("Gamepad ML • Portrait").setView(box)
             .setPositiveButton("Simpan", null).setNeutralButton("Letakkan mapping", null).setNegativeButton("Tutup", null).create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
@@ -128,8 +139,8 @@ class GamepadOverlayController(
                 prefs.edit().putBoolean("visible", true).apply()
                 view.visibility = View.VISIBLE
                 dialog.dismiss()
-                onStatus("Atur " + (labels[selectedKey] ?: selectedKey) + ": sentuh tombol tujuan pada preview virtual display.")
-                val hint = if (selectedKey == "STICK") "Sentuh TENGAH joystick gerak ML" else "Sentuh tombol ML untuk: " + (labels[selectedKey] ?: selectedKey)
+                onStatus("Atur " + (labels[selectedKey] ?: selectedKey) + ": sentuh lokasi tombolnya di preview, lalu seret marker jika perlu.")
+                val hint = if (selectedKey == "STICK") "Sentuh pusat joystick ML; marker dapat diseret" else "Sentuh tombol ML untuk: " + (labels[selectedKey] ?: selectedKey)
                 Toast.makeText(context, hint, Toast.LENGTH_LONG).show()
                 view.invalidate()
             }
@@ -299,21 +310,22 @@ class GamepadOverlayController(
         paint.color = Color.WHITE
         paint.textAlign = Paint.Align.CENTER
         paint.textSize = dp(10).toFloat()
-        canvas.drawText("SAKU GAMEPAD  •  SERET", headerRect.centerX(), headerRect.centerY() + dp(3).toFloat(), paint)
+        canvas.drawText("SAKU • ML PORTRAIT • SERET HEADER", headerRect.centerX(), headerRect.centerY() + dp(3).toFloat(), paint)
         paint.textAlign = Paint.Align.LEFT
 
         val r = min(ph * 0.115f, dp(40).toFloat() * scale)
-        drawButton(canvas, "STICK", left + pw * 0.17f, top + ph * 0.61f, r * 1.35f, "◎", Color.rgb(55, 155, 255), "360°")
-        drawButton(canvas, "SKILL_1", left + pw * 0.70f, top + ph * 0.55f, r * 0.82f, "1", Color.rgb(64, 130, 255), "Skill 1")
-        drawButton(canvas, "SKILL_2", left + pw * 0.80f, top + ph * 0.68f, r * 0.82f, "2", Color.rgb(153, 74, 255), "Skill 2")
-        drawButton(canvas, "ULTIMATE", left + pw * 0.86f, top + ph * 0.38f, r * 0.94f, "ULT", Color.rgb(203, 93, 255), "Ultimate")
-        drawButton(canvas, "ATTACK", left + pw * 0.88f, top + ph * 0.78f, r * 0.95f, "⚔", Color.rgb(55, 145, 255), "Serang")
-        drawButton(canvas, "BATTLE_SPELL", left + pw * 0.59f, top + ph * 0.37f, r * 0.55f, "✦", Color.rgb(255, 190, 70), "Spell")
-        drawButton(canvas, "BLINK", left + pw * 0.61f, top + ph * 0.57f, r * 0.52f, "➤", Color.rgb(75, 200, 255), "Blink")
-        drawButton(canvas, "ITEM_CUSTOM", left + pw * 0.53f, top + ph * 0.76f, r * 0.48f, "+", Color.rgb(90, 210, 170), "Item")
-        drawButton(canvas, "RECALL", left + pw * 0.31f, top + ph * 0.83f, r * 0.44f, "R", Color.rgb(80, 190, 255), "Recall")
-        drawButton(canvas, "REGEN", left + pw * 0.40f, top + ph * 0.83f, r * 0.44f, "+", Color.rgb(75, 220, 115), "Regen")
-        drawButton(canvas, "FLICKER", left + pw * 0.49f, top + ph * 0.83f, r * 0.44f, "✦", Color.rgb(255, 180, 65), "Flicker")
+        drawStick(canvas, left + pw * 0.17f, top + ph * 0.61f, r * 1.30f)
+        // Skill cluster and large basic-attack button follow the supplied portrait reference.
+        drawButton(canvas, "SKILL_1", left + pw * 0.68f, top + ph * 0.72f, r * 0.78f, "1", Color.rgb(64, 130, 255), "Skill 1")
+        drawButton(canvas, "SKILL_2", left + pw * 0.77f, top + ph * 0.57f, r * 0.78f, "2", Color.rgb(153, 74, 255), "Skill 2")
+        drawButton(canvas, "ULTIMATE", left + pw * 0.86f, top + ph * 0.39f, r * 0.94f, "ULT", Color.rgb(203, 93, 255), "Ultimate")
+        drawButton(canvas, "ATTACK", left + pw * 0.88f, top + ph * 0.76f, r * 1.02f, "⚔", Color.rgb(55, 145, 255), "Serang")
+        drawButton(canvas, "BATTLE_SPELL", left + pw * 0.56f, top + ph * 0.36f, r * 0.50f, "✦", Color.rgb(255, 190, 70), "Spell")
+        drawButton(canvas, "BLINK", left + pw * 0.58f, top + ph * 0.53f, r * 0.48f, "➤", Color.rgb(75, 200, 255), "Blink")
+        drawButton(canvas, "ITEM_CUSTOM", left + pw * 0.57f, top + ph * 0.70f, r * 0.46f, "+", Color.rgb(90, 210, 170), "Item")
+        drawButton(canvas, "RECALL", left + pw * 0.34f, top + ph * 0.85f, r * 0.42f, "R", Color.rgb(80, 190, 255), "Recall")
+        drawButton(canvas, "REGEN", left + pw * 0.43f, top + ph * 0.85f, r * 0.42f, "+", Color.rgb(75, 220, 115), "Regen")
+        drawButton(canvas, "FLICKER", left + pw * 0.52f, top + ph * 0.85f, r * 0.42f, "✦", Color.rgb(255, 180, 65), "Flicker")
 
         val preview = findPreview(root)
         if (preview != null && preview.width > 0 && preview.height > 0) {
@@ -325,7 +337,8 @@ class GamepadOverlayController(
             targets.forEach { (key, point) ->
                 val mx = pl + point.x * preview.width
                 val my = pt + point.y * preview.height
-                targetHitRects[key] = RectF(mx - markerRadius * 1.35f, my - markerRadius * 1.35f, mx + markerRadius * 1.35f, my + markerRadius * 1.35f)
+                val touchRadius = dp(24).toFloat()
+                targetHitRects[key] = RectF(mx - touchRadius, my - touchRadius, mx + touchRadius, my + touchRadius)
                 paint.style = Paint.Style.FILL
                 paint.color = Color.argb(225, 28, 102, 230)
                 canvas.drawCircle(mx, my, markerRadius, paint)
@@ -334,11 +347,20 @@ class GamepadOverlayController(
                 paint.style = Paint.Style.FILL; paint.color = Color.WHITE
                 paint.textAlign = Paint.Align.CENTER; paint.textSize = dp(8).toFloat()
                 val tag = when (key) {
-                    "STICK" -> "◎"; "SKILL_1" -> "1"; "SKILL_2" -> "2"; "ULTIMATE" -> "U"
-                    "BATTLE_SPELL" -> "S"; "BLINK" -> "B"; "ATTACK" -> "A"; "ITEM_CUSTOM" -> "+"
+                    "STICK" -> "◎"; "SKILL_1" -> "1"; "SKILL_2" -> "2"; "ULTIMATE" -> "ULT"
+                    "BATTLE_SPELL" -> "SP"; "BLINK" -> "BL"; "ATTACK" -> "ATK"; "ITEM_CUSTOM" -> "IT"
                     "RECALL" -> "R"; "REGEN" -> "G"; "FLICKER" -> "F"; else -> key.take(1)
                 }
                 canvas.drawText(tag, mx, my + dp(3).toFloat(), paint)
+                val caption = labels[key] ?: key
+                paint.textAlign = Paint.Align.CENTER
+                paint.textSize = dp(8).toFloat()
+                val labelWidth = paint.measureText(caption) + dp(10)
+                val labelRect = RectF(mx - labelWidth / 2f, my + markerRadius + dp(2), mx + labelWidth / 2f, my + markerRadius + dp(17))
+                paint.color = Color.argb(220, 5, 15, 32)
+                canvas.drawRoundRect(labelRect, dp(5).toFloat(), dp(5).toFloat(), paint)
+                paint.color = Color.WHITE
+                canvas.drawText(caption, mx, labelRect.bottom - dp(4).toFloat(), paint)
                 paint.textAlign = Paint.Align.LEFT
                 if (mappingKey == key) {
                     paint.style = Paint.Style.STROKE; paint.strokeWidth = dp(3).toFloat(); paint.color = Color.YELLOW
@@ -354,6 +376,33 @@ class GamepadOverlayController(
             paint.color = Color.WHITE; paint.textSize = dp(11).toFloat()
             canvas.drawText("Letakkan mapping di preview", hint.left + dp(8), hint.centerY() + dp(4).toFloat(), paint)
         }
+    }
+
+    private fun drawStick(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
+        hitRects["STICK"] = RectF(cx - radius, cy - radius, cx + radius, cy + radius)
+        paint.style = Paint.Style.FILL
+        paint.color = Color.argb(150, 8, 20, 38)
+        canvas.drawCircle(cx, cy, radius, paint)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = dp(2).toFloat()
+        paint.color = Color.argb(225, 100, 175, 255)
+        canvas.drawCircle(cx, cy, radius * 0.96f, paint)
+        canvas.drawCircle(cx, cy, radius * 0.78f, paint)
+        canvas.drawCircle(cx, cy, radius * 0.60f, paint)
+        paint.style = Paint.Style.FILL
+        paint.color = Color.rgb(35, 115, 220)
+        canvas.drawCircle(cx, cy, radius * 0.43f, paint)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = dp(2).toFloat()
+        paint.color = Color.rgb(135, 210, 255)
+        canvas.drawCircle(cx, cy, radius * 0.27f, paint)
+        paint.style = Paint.Style.FILL
+        paint.color = Color.WHITE
+        paint.textAlign = Paint.Align.CENTER
+        paint.textSize = dp(7).toFloat()
+        canvas.drawText("360°", cx, cy + radius + dp(10).toFloat(), paint)
+        paint.textAlign = Paint.Align.LEFT
+        paint.style = Paint.Style.FILL
     }
 
     private fun drawButton(canvas: Canvas, key: String, cx: Float, cy: Float, radius: Float, label: String, tint: Int, caption: String) {
