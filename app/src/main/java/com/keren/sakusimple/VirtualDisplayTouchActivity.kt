@@ -365,70 +365,78 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         root.addView(assistantBall, ballParams)
 
-        // Panel keyboard berdiri sendiri: tidak digambar di SurfaceView preview dan tidak mengambil gesture trackpad.
+        // Keyboard sederhana bergaya Gboard: tombol besar, baris standar, tanpa tombol fungsi yang memenuhi ruang.
+        // Area preview, trackpad, dan jalur Direct Touch sengaja tidak diubah.
         keyboardPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(5), dp(4), dp(5), dp(4))
-            background = roundedPanel(238, 13)
+            setPadding(dp(5), dp(5), dp(5), dp(5))
+            background = roundedPanel(242, 16)
             elevation = dp(7).toFloat()
-            contentDescription = "Keyboard fisik virtual Cyberdeck"
+            contentDescription = "Keyboard virtual sederhana"
         }
-        val keyboardTitle = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val keyboardTitle = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
         keyboardTitle.addView(TextView(this).apply {
-            text = "CYBERDECK  /  KEY INPUT"
-            textSize = 9f
-            typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
-            setTextColor(Color.rgb(83, 242, 219))
-            letterSpacing = 0.06f
-        }, LinearLayout.LayoutParams(0, dp(22), 1f))
+            text = "Keyboard"
+            textSize = 12f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setTextColor(Color.rgb(225, 231, 239))
+        }, LinearLayout.LayoutParams(0, dp(24), 1f))
         keyboardTitle.addView(actionButton("⌨ Sembunyi") {
             keyboardPanelVisible = false
             keyboardPanel.visibility = View.GONE
             updateDesktopLayout(root.width, root.height)
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(26)))
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(27)))
         keyboardPanel.addView(keyboardTitle)
 
         fun keyRow(labels: List<String>, weights: List<Float> = labels.map { 1f }) {
-            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+            }
             labels.forEachIndexed { index, label ->
-                val button = cyberKey(label, label.length > 1, repeatable = label == "⌫" || label.length == 1) {
+                val utility = label in setOf("SHIFT", "⌫", "?123", "ENTER")
+                val button = cyberKey(label, utility, repeatable = label == "⌫" || (label.length == 1 && label != "," && label != ".")) {
                     when (label) {
-                        "?123" -> { cyberSymbols = !cyberSymbols; refreshCyberdeckLabels() }
-                        "SHIFT" -> { cyberShift = !cyberShift; updateModifierLabels() }
-                        "CTRL" -> { cyberCtrl = !cyberCtrl; updateModifierLabels() }
-                        "ALT" -> { cyberAlt = !cyberAlt; updateModifierLabels() }
+                        "?123" -> {
+                            cyberSymbols = !cyberSymbols
+                            refreshCyberdeckLabels()
+                        }
+                        "SHIFT" -> {
+                            cyberShift = !cyberShift
+                            updateModifierLabels()
+                        }
                         "SPACE" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_SPACE)
-                        "TAB" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_TAB)
-                        "ESC" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_ESCAPE)
-                        "CAPS" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_CAPS_LOCK)
+                        "," -> sendTypedText(if (cyberSymbols) ";" else ",")
+                        "." -> sendTypedText(if (cyberSymbols) ":" else ".")
                         "⌫" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_DEL)
                         "ENTER" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_ENTER)
-                        "←" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_DPAD_LEFT)
-                        "↑" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_DPAD_UP)
-                        "↓" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_DPAD_DOWN)
-                        "→" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_DPAD_RIGHT)
-                        "FN" -> status.text = "Fn belum dipetakan ke fungsi sistem tertentu."
                         else -> {
                             val key = if (cyberSymbols) symbolForCyberdeckKey(label) else label
                             val printable = if (cyberShift && !cyberSymbols) key.uppercase() else key
-                            if (printable.length == 1 && printable[0].isLetter()) sendTypedText(printable)
-                            else sendTypedText(printable)
+                            sendTypedText(printable)
+                            if (cyberShift && !cyberSymbols && printable.any { it.isLetter() }) {
+                                cyberShift = false
+                                updateModifierLabels()
+                            }
                         }
                     }
                 }
                 button.tag = label
                 row.addView(button, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, weights[index]).apply {
-                    setMargins(dp(2), dp(2), dp(2), dp(2))
+                    setMargins(dp(2), dp(3), dp(2), dp(3))
                 })
             }
             keyboardPanel.addView(row, LinearLayout.LayoutParams(-1, 0, 1f))
         }
-        keyRow(listOf("ESC", "F1", "F2", "F3", "F4", "F5", "F6"), listOf(1.15f, 1f, 1f, 1f, 1f, 1f, 1f))
-        keyRow(listOf("1","2","3","4","5","6","7","8","9","0","⌫"), listOf(1f,1f,1f,1f,1f,1f,1f,1f,1f,1f,1.3f))
-        keyRow(listOf("?123","TAB", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"), listOf(1.4f,1f,1f,1f,1f,1f,1f,1f,1f,1f,1f,1f))
-        keyRow(listOf("CAPS", "A", "S", "D", "F", "G", "H", "J", "K", "L"), listOf(1.4f,1f,1f,1f,1f,1f,1f,1f,1f,1f))
-        keyRow(listOf("SHIFT", "Z", "X", "C", "V", "B", "N", "M", "⌫"), listOf(1.4f,1f,1f,1f,1f,1f,1f,1f,1.4f))
-        keyRow(listOf("CTRL", "FN", "ALT", "SPACE", "←", "↑", "↓", "ENTER", "→"), listOf(1f,0.8f,0.9f,2.3f,0.8f,0.8f,0.8f,1.2f,0.8f))
+
+        keyRow(listOf("1","2","3","4","5","6","7","8","9","0"), List(10) { 1f })
+        keyRow(listOf("Q","W","E","R","T","Y","U","I","O","P"), List(10) { 1f })
+        keyRow(listOf("A","S","D","F","G","H","J","K","L"), List(9) { 1f })
+        keyRow(listOf("SHIFT","Z","X","C","V","B","N","M","⌫"), listOf(1.55f,1f,1f,1f,1f,1f,1f,1f,1.55f))
+        keyRow(listOf("?123",",","SPACE",".","ENTER"), listOf(1.45f,0.8f,3.6f,0.8f,1.5f))
         root.addView(keyboardPanel, FrameLayout.LayoutParams(-1, dp(240), Gravity.TOP).apply {
             leftMargin = dp(7); rightMargin = dp(7); topMargin = dp(248)
         })
@@ -795,14 +803,18 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private fun cyberKey(label: String, utility: Boolean, repeatable: Boolean = false, action: () -> Unit): Button =
         Button(this).apply {
             text = label
-            textSize = if (label.length > 3) 9f else 13f
+            textSize = when (label) {
+                "SPACE" -> 11f
+                "?123", "SHIFT", "ENTER", "⌫" -> 12f
+                else -> 14f
+            }
             isAllCaps = false
-            typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
-            setTextColor(if (utility) Color.rgb(83, 242, 219) else Color.rgb(222, 244, 255))
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setTextColor(if (utility) Color.rgb(242, 245, 250) else Color.rgb(31, 36, 44))
             background = GradientDrawable().apply {
-                cornerRadius = dp(8).toFloat()
-                setColor(if (utility) Color.rgb(17, 53, 69) else Color.rgb(23, 39, 55))
-                setStroke(dp(1), if (utility) Color.rgb(37, 190, 191) else Color.rgb(49, 82, 103))
+                cornerRadius = dp(9).toFloat()
+                setColor(if (utility) Color.rgb(82, 96, 116) else Color.rgb(225, 230, 237))
+                setStroke(dp(1), if (utility) Color.rgb(105, 119, 139) else Color.rgb(208, 215, 225))
             }
             minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
             setPadding(dp(2), 0, dp(2), 0)
