@@ -76,33 +76,22 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
 
             created.setSurface(surface)
 
-            // Pixelboard is being auto-routed onto the secondary display on some devices.
-            // Disable it for Android user 0 so it cannot re-launch onto this virtual display.
-            // This is reversible from Settings > Apps or with: pm enable --user 0 com.akshaykadam.pixelboard
+            // Keep the selected IME (including Pixelboard) on the main display.
+            // Do not disable or change the package state: only set this virtual display's IME policy.
+            // DISPLAY_IME_POLICY_HIDE = 1 on Android versions that expose this hidden API.
             runCatching {
-                val result = runShizukuShell(
-                    "pm disable-user --user 0 com.akshaykadam.pixelboard",
-                    timeoutMs = 3000L,
-                    maxCharacters = 400
+                val windowManagerGlobal = Class.forName("android.view.WindowManagerGlobal")
+                val windowManager = windowManagerGlobal.getMethod("getWindowManagerService").invoke(null)
+                    ?: throw IllegalStateException("WindowManagerService tidak tersedia")
+                val method = windowManager.javaClass.getMethod(
+                    "setDisplayImePolicy",
+                    Int::class.javaPrimitiveType,
+                    Int::class.javaPrimitiveType
                 )
-                if (result.first == 0) {
-                    Log.i(TAG, "Pixelboard disabled for user 0 to prevent secondary-display auto-launch.")
-                } else {
-                    Log.w(TAG, "Pixelboard disable command failed: ${result.second}")
-                }
+                method.invoke(windowManager, created.display.displayId, 1)
+                Log.i(TAG, "IME policy HIDE diterapkan hanya untuk virtual display id=${created.display.displayId}; IME utama tetap aktif.")
             }.onFailure { error ->
-                Log.w(TAG, "Could not disable Pixelboard: ${error.message}")
-            }
-
-            // Keep Android's system IME off this display when the platform exposes the
-            // hidden VirtualDisplay API. Use reflection so older compile SDKs still build.
-            // Keep TRUSTED enabled: this device relies on it for injected touchscreen events.
-            runCatching {
-                val hideImePolicy = 1 // DisplayManager.DISPLAY_IME_POLICY_HIDE
-                val method = created.javaClass.getMethod("setDisplayImePolicy", Int::class.javaPrimitiveType)
-                method.invoke(created, hideImePolicy)
-            }.onFailure { error ->
-                Log.w(TAG, "Could not hide system IME on virtual display: ${error.message}")
+                Log.w(TAG, "Tidak bisa membatasi IME ke display utama melalui policy: ${error.message}")
             }
             virtualDisplay = created
             val display = created.display
