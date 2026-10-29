@@ -76,22 +76,27 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
 
             created.setSurface(surface)
 
-            // Keep the selected IME (including Pixelboard) on the main display.
-            // Do not disable or change the package state: only set this virtual display's IME policy.
-            // DISPLAY_IME_POLICY_HIDE = 1 on Android versions that expose this hidden API.
+            // DISPLAY_IME_POLICY_HIDE is 2 (LOCAL=0, FALLBACK_DISPLAY=1, HIDE=2).
+            // Apply only to this virtual display: don't disable Pixelboard/Gboard globally.
             runCatching {
                 val windowManagerGlobal = Class.forName("android.view.WindowManagerGlobal")
                 val windowManager = windowManagerGlobal.getMethod("getWindowManagerService").invoke(null)
                     ?: throw IllegalStateException("WindowManagerService tidak tersedia")
-                val method = windowManager.javaClass.getMethod(
+                val policy = runCatching {
+                    Class.forName("android.view.WindowManager")
+                        .getField("DISPLAY_IME_POLICY_HIDE")
+                        .getInt(null)
+                }.getOrDefault(DISPLAY_IME_POLICY_HIDE)
+                val iWindowManager = Class.forName("android.view.IWindowManager")
+                val method = iWindowManager.getMethod(
                     "setDisplayImePolicy",
                     Int::class.javaPrimitiveType,
                     Int::class.javaPrimitiveType
                 )
-                method.invoke(windowManager, created.display.displayId, 1)
-                Log.i(TAG, "IME policy HIDE diterapkan hanya untuk virtual display id=${created.display.displayId}; IME utama tetap aktif.")
+                method.invoke(windowManager, created.display.displayId, policy)
+                Log.i(TAG, "DISPLAY_IME_POLICY_HIDE diterapkan • display=${created.display.displayId} • policy=$policy; IME utama tidak diubah.")
             }.onFailure { error ->
-                Log.w(TAG, "Tidak bisa membatasi IME ke display utama melalui policy: ${error.message}")
+                Log.w(TAG, "DISPLAY_IME_POLICY_HIDE gagal diterapkan pada virtual display ${created.display.displayId}: ${error.message}", error)
             }
             virtualDisplay = created
             val display = created.display
@@ -366,7 +371,12 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                 val event = android.view.KeyEvent(downTime, now, action, code, 0, metaStates[index])
                 setDisplayIdMethod.invoke(event, displayId)
                 // Async injection avoids waiting for the target app to process every key event.
-                val accepted = injectInputEventMethod.invoke(inputManagerService, event, INJECT_ASYNC) as? Boolean ?: false
+                // Prefer asynchronous injection, but retry rejected events in wait mode for
+                // ROMs whose InputManager refuses ASYNC key injection on secondary displays.
+                var accepted = injectInputEventMethod.invoke(inputManagerService, event, INJECT_ASYNC) as? Boolean ?: false
+                if (!accepted) {
+                    accepted = injectInputEventMethod.invoke(inputManagerService, event, INJECT_WAIT_FOR_RESULT) as? Boolean ?: false
+                }
                 if (!accepted) {
                     allAccepted = false
                     lastError = "KeyEvent ditolak • display=$displayId • action=$action keyCode=$code"
@@ -615,5 +625,6 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         private const val TRUSTED_FLAG = 1 shl 10
         private const val INJECT_ASYNC = 0
         private const val INJECT_WAIT_FOR_RESULT = 1
+        private const val DISPLAY_IME_POLICY_HIDE = 2
     }
 }
