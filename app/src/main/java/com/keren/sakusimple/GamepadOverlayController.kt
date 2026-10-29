@@ -17,6 +17,8 @@ import android.widget.TextView
 import android.widget.Toast
 import org.json.JSONObject
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.max
 import kotlin.math.min
 
@@ -33,8 +35,10 @@ class GamepadOverlayController(
     private val prefs = context.getSharedPreferences("saku_gamepad_overlay", Context.MODE_PRIVATE)
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "SakuGamepadInput").apply { isDaemon = true } }
     private val keys = listOf("A", "B", "X", "Y", "START", "SELECT", "DPAD_UP", "DPAD_DOWN", "DPAD_LEFT", "DPAD_RIGHT", "L_STICK")
-    private val labels = mapOf("A" to "A", "B" to "B", "X" to "X", "Y" to "Y", "START" to "≡", "SELECT" to "▣",
-        "DPAD_UP" to "↑", "DPAD_DOWN" to "↓", "DPAD_LEFT" to "←", "DPAD_RIGHT" to "→", "L_STICK" to "◎")
+    private val labels = mapOf("A" to "Serang dasar", "B" to "Skill 1", "X" to "Skill 2", "Y" to "Skill 3 / Ultimate",
+        "START" to "Battle Spell", "SELECT" to "Recall", "DPAD_UP" to "Regen",
+        "DPAD_DOWN" to "Batalkan skill", "DPAD_LEFT" to "Target kiri", "DPAD_RIGHT" to "Target kanan",
+        "L_STICK" to "Joystick gerak — atur titik tengah")
     private val targets = mutableMapOf<String, Point>()
     private var visible = prefs.getBoolean("visible", true)
     private var mappingKey: String? = null
@@ -50,6 +54,10 @@ class GamepadOverlayController(
     private var analogPointer = false
     private var analogLastX = 0f
     private var analogLastY = 0f
+    private var analogFingerStartX = 0f
+    private var analogFingerStartY = 0f
+    private val pendingAnalogMove = AtomicReference<Point?>(null)
+    private val analogMoveScheduled = AtomicBoolean(false)
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val hitRects = mutableMapOf<String, RectF>()
     private var panelRect = RectF()
@@ -84,8 +92,14 @@ class GamepadOverlayController(
         box.addView(TextView(context).apply { text = "Ukuran tombol"; setTextColor(Color.WHITE) })
         val size = SeekBar(context).apply { max = 60; progress = ((scale - 0.7f) * 100).toInt().coerceIn(0, 60) }
         box.addView(size)
-        val spinner = Spinner(context).apply { adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, keys.map { it + " — " + (labels[it] ?: it) }) }
-        box.addView(TextView(context).apply { text = "Pilih tombol yang akan dipetakan"; setTextColor(Color.WHITE) })
+        val spinner = Spinner(context).apply {
+            adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item,
+                keys.map { key -> key + " — " + (labels[key] ?: key) })
+        }
+        box.addView(TextView(context).apply {
+            text = "Pilih fungsi dulu, tekan Letakkan mapping, lalu sentuh tombol ML yang sesuai di preview. A=Serang, B=Skill 1, X=Skill 2, Y=Skill 3/Ultimate. Untuk analog, pilih Joystick gerak lalu sentuh PUSAT joystick ML."
+            setTextColor(Color.WHITE)
+        })
         box.addView(spinner)
         val dialog = AlertDialog.Builder(context).setTitle("Gamepad Bola Asisten").setView(box)
             .setPositiveButton("Simpan", null).setNeutralButton("Letakkan mapping", null).setNegativeButton("Tutup", null).create()
@@ -103,8 +117,9 @@ class GamepadOverlayController(
                 prefs.edit().putBoolean("visible", true).apply()
                 view.visibility = View.VISIBLE
                 dialog.dismiss()
-                onStatus("Mapping " + mappingKey + ": sentuh target di preview virtual display.")
-                Toast.makeText(context, "Sentuh lokasi tombol tujuan pada preview", Toast.LENGTH_LONG).show()
+                onStatus("Atur " + (labels[mappingKey] ?: mappingKey) + ": sentuh tombol tujuan pada preview virtual display.")
+                val hint = if (mappingKey == "L_STICK") "Sentuh PUSAT joystick gerak ML" else "Sentuh tombol ML untuk: " + (labels[mappingKey] ?: mappingKey)
+                Toast.makeText(context, hint, Toast.LENGTH_LONG).show()
                 view.invalidate()
             }
         }
@@ -129,7 +144,7 @@ class GamepadOverlayController(
                 view.invalidate()
                 view.visibility = if (visible) View.VISIBLE else View.GONE
                 val size = displaySize()
-                onStatus("Mapping " + key + " tersimpan di " + (sx * size.first).toInt() + ", " + (sy * size.second).toInt())
+                onStatus((labels[key] ?: key) + " tersimpan. Coba tombol gamepad " + key + ".")
                 return true
             }
             mappingKey = null
@@ -150,8 +165,10 @@ class GamepadOverlayController(
                 val target = targets[hit] ?: Point(0.15f, 0.72f)
                 analogPointer = true
                 analogLastX = target.x; analogLastY = target.y
+                analogFingerStartX = x
+                analogFingerStartY = y
                 val size = displaySize()
-                io.execute { injectTouch(MotionEvent.ACTION_DOWN, target.x * size.first, target.y * size.second) }
+                io.execute { injectTouch(MotionEvent.ACTION_DOWN, target.x * (size.first - 1), target.y * (size.second - 1)) }
             } else sendMappedTap(hit)
             return true
         }
@@ -165,12 +182,13 @@ class GamepadOverlayController(
         if (event.actionMasked == MotionEvent.ACTION_MOVE && analogPointer) {
             val rect = hitRects["L_STICK"] ?: return true
             val target = targets["L_STICK"] ?: Point(0.15f, 0.72f)
-            val radius = min(rect.width(), rect.height()) * 0.34f
-            val nx = (target.x + ((x - rect.centerX()) / max(1f, radius)).coerceIn(-1f, 1f) * 0.12f).coerceIn(0f, 1f)
-            val ny = (target.y + ((y - rect.centerY()) / max(1f, radius)).coerceIn(-1f, 1f) * 0.12f).coerceIn(0f, 1f)
+            val radius = max(1f, min(rect.width(), rect.height()) * 0.38f)
+            // Calculate from the finger's DOWN point to avoid a stiff, snapping joystick.
+            val nx = (target.x + ((x - analogFingerStartX) / radius).coerceIn(-1f, 1f) * 0.10f).coerceIn(0f, 1f)
+            val ny = (target.y + ((y - analogFingerStartY) / radius).coerceIn(-1f, 1f) * 0.10f).coerceIn(0f, 1f)
             analogLastX = nx; analogLastY = ny
             val size = displaySize()
-            io.execute { injectTouch(MotionEvent.ACTION_MOVE, nx * size.first, ny * size.second) }
+            queueAnalogMove(nx * (size.first - 1), ny * (size.second - 1))
             return true
         }
         if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
@@ -178,12 +196,33 @@ class GamepadOverlayController(
             if (analogPointer) {
                 analogPointer = false
                 val size = displaySize()
-                io.execute { injectTouch(MotionEvent.ACTION_UP, analogLastX * size.first, analogLastY * size.second) }
+                io.execute { injectTouch(MotionEvent.ACTION_UP, analogLastX * (size.first - 1), analogLastY * (size.second - 1)) }
                 return true
             }
             return panelRect.contains(x, y) || mappingKey != null
         }
         return panelRect.contains(x, y) || mappingKey != null
+    }
+
+    /** Coalesce fast finger movement while keeping the injected touch stream ordered. */
+    private fun queueAnalogMove(x: Float, y: Float) {
+        pendingAnalogMove.set(Point(x, y))
+        scheduleAnalogDrain()
+    }
+
+    private fun scheduleAnalogDrain() {
+        if (!analogMoveScheduled.compareAndSet(false, true)) return
+        io.execute {
+            try {
+                while (true) {
+                    val next = pendingAnalogMove.getAndSet(null) ?: break
+                    injectTouch(MotionEvent.ACTION_MOVE, next.x, next.y)
+                }
+            } finally {
+                analogMoveScheduled.set(false)
+                if (pendingAnalogMove.get() != null) scheduleAnalogDrain()
+            }
+        }
     }
 
     private fun sendMappedTap(key: String) {
@@ -220,10 +259,10 @@ class GamepadOverlayController(
         drawButton(canvas, "DPAD_DOWN", left + pw * 0.37f, top + ph * 0.75f, r * 0.55f, "↓")
         drawButton(canvas, "SELECT", left + pw * 0.48f, top + ph * 0.42f, r * 0.42f, "▣")
         drawButton(canvas, "START", left + pw * 0.58f, top + ph * 0.42f, r * 0.42f, "≡")
-        drawButton(canvas, "X", left + pw * 0.72f, top + ph * 0.58f, r * 0.68f, "X", Color.rgb(60, 155, 235))
-        drawButton(canvas, "Y", left + pw * 0.80f, top + ph * 0.38f, r * 0.68f, "Y", Color.rgb(244, 211, 74))
-        drawButton(canvas, "B", left + pw * 0.88f, top + ph * 0.58f, r * 0.68f, "B", Color.rgb(236, 79, 89))
-        drawButton(canvas, "A", left + pw * 0.80f, top + ph * 0.78f, r * 0.68f, "A", Color.rgb(67, 208, 120))
+        drawButton(canvas, "X", left + pw * 0.72f, top + ph * 0.58f, r * 0.68f, "X", Color.rgb(60, 155, 235), "Skill 2")
+        drawButton(canvas, "Y", left + pw * 0.80f, top + ph * 0.38f, r * 0.68f, "Y", Color.rgb(244, 211, 74), "Ult")
+        drawButton(canvas, "B", left + pw * 0.88f, top + ph * 0.58f, r * 0.68f, "B", Color.rgb(236, 79, 89), "Skill 1")
+        drawButton(canvas, "A", left + pw * 0.80f, top + ph * 0.78f, r * 0.68f, "A", Color.rgb(67, 208, 120), "Serang")
         if (mappingKey != null) {
             paint.style = Paint.Style.FILL; paint.color = Color.argb(220, 15, 90, 140)
             canvas.drawRoundRect(RectF(left + dp(8), max(0f, top - dp(32)), left + pw - dp(8), max(0f, top - dp(5))), dp(8).toFloat(), dp(8).toFloat(), paint)
@@ -232,7 +271,7 @@ class GamepadOverlayController(
         }
     }
 
-    private fun drawButton(canvas: Canvas, key: String, cx: Float, cy: Float, radius: Float, label: String, tint: Int = Color.rgb(150, 160, 174)) {
+    private fun drawButton(canvas: Canvas, key: String, cx: Float, cy: Float, radius: Float, label: String, tint: Int = Color.rgb(150, 160, 174), caption: String? = null) {
         hitRects[key] = RectF(cx - radius, cy - radius, cx + radius, cy + radius)
         paint.style = Paint.Style.FILL; paint.color = Color.argb(145, 26, 29, 35)
         canvas.drawCircle(cx, cy, radius, paint)
@@ -243,7 +282,12 @@ class GamepadOverlayController(
             canvas.drawCircle(cx, cy, radius * 0.42f, paint)
         } else {
             paint.style = Paint.Style.FILL; paint.color = tint; paint.textAlign = Paint.Align.CENTER; paint.textSize = radius * 1.05f
-            canvas.drawText(label, cx, cy + radius * 0.36f, paint)
+            canvas.drawText(label, cx, cy + radius * 0.20f, paint)
+            if (caption != null) {
+                paint.color = Color.WHITE
+                paint.textSize = max(dp(7).toFloat(), radius * 0.30f)
+                canvas.drawText(caption, cx, cy + radius * 0.68f, paint)
+            }
             paint.textAlign = Paint.Align.LEFT
         }
     }
