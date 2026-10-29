@@ -82,29 +82,10 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             // display scaling, or touch-injection flags.
             restorePixelboardPackage()
 
-            // DISPLAY_IME_POLICY_HIDE is 2 (LOCAL=0, FALLBACK_DISPLAY=1, HIDE=2).
-            // Apply only to this virtual display: don't disable Pixelboard/Gboard globally.
-            runCatching {
-                val windowManagerGlobal = Class.forName("android.view.WindowManagerGlobal")
-                val windowManager = windowManagerGlobal.getMethod("getWindowManagerService").invoke(null)
-                    ?: throw IllegalStateException("WindowManagerService tidak tersedia")
-                val policy = runCatching {
-                    Class.forName("android.view.WindowManager")
-                        .getField("DISPLAY_IME_POLICY_HIDE")
-                        .getInt(null)
-                }.getOrDefault(DISPLAY_IME_POLICY_HIDE)
-                val iWindowManager = Class.forName("android.view.IWindowManager")
-                val method = iWindowManager.getMethod(
-                    "setDisplayImePolicy",
-                    Int::class.javaPrimitiveType,
-                    Int::class.javaPrimitiveType
-                )
-                method.invoke(windowManager, created.display.displayId, policy)
-                Log.i(TAG, "DISPLAY_IME_POLICY_HIDE diterapkan • display=${created.display.displayId} • policy=$policy; IME utama tidak diubah.")
-            }.onFailure { error ->
-                Log.w(TAG, "DISPLAY_IME_POLICY_HIDE gagal diterapkan pada virtual display ${created.display.displayId}: ${error.message}", error)
-            }
+            // Hide IME windows on this virtual display only. Keep Pixelboard enabled
+            // for display 0; never run pm disable-user as part of display creation.
             virtualDisplay = created
+            applyVirtualDisplayImePolicy(created.display.displayId)
             val display = created.display
             val stateName = when (display.state) {
                 Display.STATE_ON -> "ON"
@@ -123,6 +104,41 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             -1
         } finally {
             Binder.restoreCallingIdentity(identity)
+        }
+    }
+
+    private fun applyVirtualDisplayImePolicy(displayId: Int) {
+        // DISPLAY_IME_POLICY_HIDE = 2 (LOCAL=0, FALLBACK_DISPLAY=1, HIDE=2).
+        // This is per-display and must not disable the user's IME on display 0.
+        runCatching {
+            enableHiddenApiAccess()
+            val windowManagerGlobal = Class.forName("android.view.WindowManagerGlobal")
+            val windowManager = windowManagerGlobal.getMethod("getWindowManagerService").invoke(null)
+                ?: throw IllegalStateException("WindowManagerService tidak tersedia")
+            val policy = runCatching {
+                Class.forName("android.view.WindowManager")
+                    .getField("DISPLAY_IME_POLICY_HIDE")
+                    .getInt(null)
+            }.getOrDefault(DISPLAY_IME_POLICY_HIDE)
+            val iWindowManager = Class.forName("android.view.IWindowManager")
+            val setPolicy = iWindowManager.getMethod(
+                "setDisplayImePolicy",
+                Int::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType
+            )
+            setPolicy.invoke(windowManager, displayId, policy)
+
+            // Read back the policy where the Android version exposes the getter.
+            val readBack = runCatching {
+                iWindowManager.getMethod("getDisplayImePolicy", Int::class.javaPrimitiveType)
+                    .invoke(windowManager, displayId) as? Int
+            }.getOrNull()
+            if (readBack != null && readBack != policy) {
+                throw IllegalStateException("Policy IME tidak cocok: diminta=$policy terbaca=$readBack")
+            }
+            Log.i(TAG, "IME disembunyikan pada virtual display • display=$displayId • policy=$policy • readBack=${readBack ?: "unsupported"} • Pixelboard tetap aktif di display 0.")
+        }.onFailure { error ->
+            Log.w(TAG, "Gagal menyembunyikan IME pada virtual display $displayId: ${error.message}", error)
         }
     }
 
