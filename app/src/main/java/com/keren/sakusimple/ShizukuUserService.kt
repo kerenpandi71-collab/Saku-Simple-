@@ -28,6 +28,7 @@ import org.lsposed.hiddenapibypass.HiddenApiBypass
 class ShizukuUserService() : IVirtualDisplayService.Stub() {
     private var serviceContext: Context? = null
     private var virtualDisplay: VirtualDisplay? = null
+    @Volatile private var pixelboardDisabledBySaku = false
     @Volatile private var lastError: String = "Belum ada operasi."
     private var mouseButtonDownTime: Long = 0L
     private var touchDownTime: Long = 0L
@@ -76,14 +77,12 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
 
             created.setSurface(surface)
 
-            // Pixelboard keeps appearing on this virtual display on some ROMs.
-            // It has no public API to pin its task to display 0, so disable only
-            // this package through Shizuku shell rather than changing global IME,
-            // display scaling, or touch-injection flags.
-            restorePixelboardPackage()
+            // Some ROMs place Pixelboard's IME window on the virtual display despite
+            // the per-display IME policy. Temporarily disable it while this display exists;
+            // restore it when the display closes. Do not change display scaling or touch flags.
+            suppressPixelboardWhileVirtualDisplayActive()
 
-            // Hide IME windows on this virtual display only. Keep Pixelboard enabled
-            // for display 0; never run pm disable-user as part of display creation.
+            // Also request the per-display hide policy where the ROM supports it.
             virtualDisplay = created
             applyVirtualDisplayImePolicy(created.display.displayId)
             val display = created.display
@@ -516,23 +515,43 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         return x.toInt().coerceIn(0, (virtualWidth - 1).coerceAtLeast(0)) to y.toInt().coerceIn(0, (virtualHeight - 1).coerceAtLeast(0))
     }
 
-    private fun restorePixelboardPackage() {
-        // Earlier builds disabled this package globally. Re-enable it so the system IME
-        // remains available on the phone's main display; only the virtual display gets IME_HIDE.
+    private fun suppressPixelboardWhileVirtualDisplayActive() {
         val packageName = "com.akshaykadam.pixelboard"
-        val result = runShizukuShell(
-            "pm enable --user 0 $packageName",
-            timeoutMs = 4000L,
-            maxCharacters = 900
-        )
+        val installed = runShizukuShell("pm list packages --user 0 $packageName", timeoutMs = 2500L)
+        if (installed.first != 0 || !installed.second.contains("package:$packageName")) {
+            Log.i(TAG, "Pixelboard tidak terpasang/terlihat untuk user 0; tidak ada perubahan.")
+            return
+        }
+        val disabled = runShizukuShell("pm list packages -d --user 0 $packageName", timeoutMs = 2500L)
+        if (disabled.second.contains("package:$packageName")) {
+            pixelboardDisabledBySaku = false
+            Log.i(TAG, "Pixelboard sudah nonaktif sebelum virtual display; status asli dipertahankan.")
+            return
+        }
+        val result = runShizukuShell("pm disable-user --user 0 $packageName", timeoutMs = 4000L)
         val output = result.second.trim()
-        if (result.first == 0 && !output.contains("Unknown package", ignoreCase = true) &&
-            !output.contains("not found", ignoreCase = true) &&
-            !output.contains("Error", ignoreCase = true)
+        if (result.first == 0 && !output.contains("Error", ignoreCase = true) &&
+            !output.contains("Unknown package", ignoreCase = true)
         ) {
-            Log.i(TAG, "Package Pixelboard diaktifkan kembali untuk display utama • package=$packageName • $output")
+            pixelboardDisabledBySaku = true
+            Log.i(TAG, "Pixelboard dinonaktifkan sementara agar tidak muncul di virtual display • " + output)
         } else {
-            Log.w(TAG, "Tidak dapat memulihkan package Pixelboard • package=$packageName • exit=${result.first} • $output")
+            Log.w(TAG, "Tidak dapat menonaktifkan Pixelboard • " + output)
+        }
+    }
+
+    private fun restorePixelboardAfterVirtualDisplay() {
+        if (!pixelboardDisabledBySaku) return
+        val packageName = "com.akshaykadam.pixelboard"
+        val result = runShizukuShell("pm enable --user 0 $packageName", timeoutMs = 4000L)
+        val output = result.second.trim()
+        if (result.first == 0 && !output.contains("Error", ignoreCase = true) &&
+            !output.contains("Unknown package", ignoreCase = true)
+        ) {
+            pixelboardDisabledBySaku = false
+            Log.i(TAG, "Pixelboard diaktifkan kembali setelah virtual display ditutup • " + output)
+        } else {
+            Log.w(TAG, "Pemulihan Pixelboard gagal; coba aktifkan kembali lewat Pengaturan aplikasi • " + output)
         }
     }
 
@@ -556,6 +575,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         try {
             virtualDisplay?.release()
             virtualDisplay = null
+            restorePixelboardAfterVirtualDisplay()
             lastError = "Virtual display ditutup."
         } catch (error: Throwable) {
             lastError = "${error.javaClass.simpleName}: ${error.message ?: "gagal menutup display"}"
