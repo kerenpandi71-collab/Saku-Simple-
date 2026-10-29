@@ -1406,7 +1406,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         val keyboardParams = keyboardPanel.layoutParams as? FrameLayout.LayoutParams
         if (keyboardParams != null) {
             keyboardPanel.visibility = if (keyboardPanelVisible) View.VISIBLE else View.GONE
-            val keyboardWidth = (rootWidth * keyboardWidthPercent / 100).coerceIn(dp(260).coerceAtMost(rootWidth), rootWidth)
+            val availableKeyboardWidth = (rootWidth - dp(14)).coerceAtLeast(dp(260).coerceAtMost(rootWidth))
+            val keyboardWidth = (availableKeyboardWidth * keyboardWidthPercent / 100).coerceIn(dp(260).coerceAtMost(rootWidth), rootWidth)
             val keyboardHeight = dp(keyboardHeightDp).coerceAtMost(rootHeight)
             val desiredGravity = if (keyboardHasCustomPosition) Gravity.TOP or Gravity.START else Gravity.BOTTOM
             if (keyboardHasCustomPosition) {
