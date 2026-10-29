@@ -559,7 +559,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                    if (imeBridgeWatcherBusy) return
+                    // Gboard composition updates are forwarded as insert/delete deltas.
                     val current = s ?: return
                     val inserted = current.subSequence(start, (start + count).coerceAtMost(current.length)).toString()
                     // TextWatcher reports replacements made by Gboard's composing region too:
@@ -746,7 +746,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             repeat(deletedCharacters.coerceAtMost(256)) {
                 addKey(android.view.KeyEvent.KEYCODE_DEL)
             }
-            val chunks = insertedText.split('\\n')
+            val chunks = insertedText.split(10.toChar())
             chunks.forEachIndexed { index, chunk ->
                 if (chunk.isNotEmpty()) {
                     val events = runCatching {
