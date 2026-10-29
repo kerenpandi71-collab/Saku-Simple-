@@ -112,13 +112,14 @@ class GamepadOverlayController(
                 dialog.dismiss()
             }
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
-                mappingKey = keys[spinner.selectedItemPosition.coerceIn(0, keys.lastIndex)]
+                val selectedKey = keys[spinner.selectedItemPosition.coerceIn(0, keys.lastIndex)]
+                mappingKey = selectedKey
                 visible = true
                 prefs.edit().putBoolean("visible", true).apply()
                 view.visibility = View.VISIBLE
                 dialog.dismiss()
-                onStatus("Atur " + (labels[mappingKey] ?: mappingKey) + ": sentuh tombol tujuan pada preview virtual display.")
-                val hint = if (mappingKey == "L_STICK") "Sentuh PUSAT joystick gerak ML" else "Sentuh tombol ML untuk: " + (labels[mappingKey] ?: mappingKey)
+                onStatus("Atur " + (labels[selectedKey] ?: selectedKey) + ": sentuh tombol tujuan pada preview virtual display.")
+                val hint = if (selectedKey == "L_STICK") "Sentuh PUSAT joystick gerak ML" else "Sentuh tombol ML untuk: " + (labels[selectedKey] ?: selectedKey)
                 Toast.makeText(context, hint, Toast.LENGTH_LONG).show()
                 view.invalidate()
             }
