@@ -39,8 +39,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var runtimeLog: TextView
     private lateinit var runtimeLogScroll: ScrollView
     private val runtimeLogBuffer = StringBuilder()
-    private var targetWidth = 1280
-    private var targetHeight = 720
+    private var targetWidth = 960
+    private var targetHeight = 820
     private var targetDpi = 160
     private var cursorSensitivity = 0.45f
     private var touchpadHeightPercent = 36
@@ -65,7 +65,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var bottomPanel: LinearLayout
     private lateinit var keyboardPanel: LinearLayout
     private lateinit var imeBridgeEditText: EditText
-    private var keyboardPanelVisible = true
+    private var keyboardPanelVisible = false
     private var cyberShift = false
     private var cyberCtrl = false
     private var cyberAlt = false
@@ -129,7 +129,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         // SurfaceView tetap memenuhi root; toolbar, kursor, touchpad, dan log adalah overlay.
         val root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(7, 24, 45)) }
         preview = SurfaceView(this).apply {
-            contentDescription = "Desktop virtual display 1280 x 720"
+            contentDescription = "Desktop virtual display 960 x 820"
             setOnTouchListener { view, event ->
                 if (!directTouchEnabled) return@setOnTouchListener false
                 handleDirectTouch(event, view.width, view.height)
@@ -180,7 +180,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             background = roundedPanel(220, 12)
         }
         topBar.addView(TextView(this).apply {
-            text = "SAKU DESKTOP  •  1280 × 720"
+            text = "SAKU DESKTOP  •  960 × 820"
             textSize = 12f
             setTextColor(Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
@@ -260,8 +260,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             background = roundedPanel(180, 6)
             layoutParams = LinearLayout.LayoutParams(dp(widthDp), dp(32)).apply { rightMargin = dp(3) }
         }
-        resolutionWidthInput = resolutionInput("1280", "Lebar", 62)
-        resolutionHeightInput = resolutionInput("720", "Tinggi", 58)
+        resolutionWidthInput = resolutionInput("960", "Lebar", 62)
+        resolutionHeightInput = resolutionInput("820", "Tinggi", 58)
         resolutionDpiInput = resolutionInput("160", "DPI", 48)
         resolutionRow.addView(resolutionWidthInput)
         resolutionRow.addView(resolutionHeightInput)
@@ -361,7 +361,25 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 }
                 MotionEvent.ACTION_UP -> {
                     if (!ballDragged) {
-                        topBar.visibility = if (topBar.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                        val menu = android.widget.PopupMenu(this, view)
+                        menu.menu.add(0, 1, 0, "Pengaturan Saku Desktop")
+                        menu.menu.add(0, 2, 1, "Keyboard Android")
+                        menu.menu.add(0, 3, 2, "Keyboard Cyberdeck")
+                        menu.menu.add(0, 4, 3, if (keyboardPanelVisible) "Sembunyikan keyboard Cyberdeck" else "Tampilkan keyboard Cyberdeck")
+                        menu.setOnMenuItemClickListener { item ->
+                            when (item.itemId) {
+                                1 -> topBar.visibility = View.VISIBLE
+                                2 -> showSystemKeyboardBridge()
+                                3 -> showVirtualKeyboard()
+                                4 -> {
+                                    keyboardPanelVisible = !keyboardPanelVisible
+                                    keyboardPanel.visibility = if (keyboardPanelVisible) View.VISIBLE else View.GONE
+                                    updateDesktopLayout(root.width, root.height)
+                                }
+                            }
+                            true
+                        }
+                        menu.show()
                     }
                     true
                 }
@@ -446,9 +464,10 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         keyRow(listOf("A","S","D","F","G","H","J","K","L"), List(9) { 1f })
         keyRow(listOf("SHIFT","Z","X","C","V","B","N","M","⌫"), listOf(1.55f,1f,1f,1f,1f,1f,1f,1f,1.55f))
         keyRow(listOf("?123",",","SPACE",".","ENTER"), listOf(1.45f,0.8f,3.6f,0.8f,1.5f))
-        root.addView(keyboardPanel, FrameLayout.LayoutParams(-1, dp(240), Gravity.TOP).apply {
-            leftMargin = dp(7); rightMargin = dp(7); topMargin = dp(248)
+        root.addView(keyboardPanel, FrameLayout.LayoutParams(-1, dp(240), Gravity.BOTTOM).apply {
+            leftMargin = dp(7); rightMargin = dp(7); bottomMargin = dp(12)
         })
+        keyboardPanel.visibility = View.GONE
 
         bottomPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1302,14 +1321,13 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         val keyboardParams = keyboardPanel.layoutParams as? FrameLayout.LayoutParams
         if (keyboardParams != null) {
             keyboardPanel.visibility = if (keyboardPanelVisible) View.VISIBLE else View.GONE
-            val middleHeight = (rootHeight * 30 / 100).coerceAtLeast(dp(130))
-            val middleTop = rootHeight * 40 / 100
-            if (keyboardParams.topMargin != middleTop || keyboardParams.height != middleHeight ||
-                keyboardParams.gravity != Gravity.TOP
+            val keyboardHeight = dp(240)
+            if (keyboardParams.bottomMargin != dp(12) || keyboardParams.height != keyboardHeight ||
+                keyboardParams.gravity != Gravity.BOTTOM
             ) {
-                keyboardParams.gravity = Gravity.TOP
-                keyboardParams.topMargin = middleTop
-                keyboardParams.height = middleHeight
+                keyboardParams.gravity = Gravity.BOTTOM
+                keyboardParams.bottomMargin = dp(12)
+                keyboardParams.height = keyboardHeight
                 keyboardPanel.layoutParams = keyboardParams
             }
         }
