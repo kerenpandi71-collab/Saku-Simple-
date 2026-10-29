@@ -62,7 +62,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             // doing so causes Direct Touch and multi-pointer gestures to be rejected.
             val flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION or
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_TRUSTED or
+                TRUSTED_FLAG or
                 SUPPORTS_TOUCH_FLAG
 
             val created = manager.createVirtualDisplay(
@@ -593,6 +593,8 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
     companion object {
         private const val TAG = "SakuShizukuService"
         private const val SUPPORTS_TOUCH_FLAG = 1 shl 6
+        // Hidden Android flag; not exposed by the compile-time SDK.
+        private const val TRUSTED_FLAG = 1 shl 10
         private const val INJECT_ASYNC = 0
         private const val INJECT_WAIT_FOR_RESULT = 1
     }
