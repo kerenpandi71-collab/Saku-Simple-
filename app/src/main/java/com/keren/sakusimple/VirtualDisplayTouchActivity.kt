@@ -66,6 +66,15 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var keyboardPanel: LinearLayout
     private lateinit var imeBridgeEditText: EditText
     private var keyboardPanelVisible = false
+    private var keyboardWidthPercent = 100
+    private var keyboardHeightDp = 240
+    private var keyboardHasCustomPosition = false
+    private var keyboardPositionX = 0
+    private var keyboardPositionY = 0
+    private var keyboardDragStartX = 0f
+    private var keyboardDragStartY = 0f
+    private var keyboardDragOriginX = 0
+    private var keyboardDragOriginY = 0
     private var cyberShift = false
     private var cyberCtrl = false
     private var cyberAlt = false
@@ -123,6 +132,12 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val keyboardPrefs = getSharedPreferences("saku_desktop_keyboard", Context.MODE_PRIVATE)
+        keyboardWidthPercent = keyboardPrefs.getInt("width_percent", 100).coerceIn(55, 100)
+        keyboardHeightDp = keyboardPrefs.getInt("height_dp", 240).coerceIn(170, 360)
+        keyboardHasCustomPosition = keyboardPrefs.getBoolean("custom_position", false)
+        keyboardPositionX = keyboardPrefs.getInt("position_x", 0)
+        keyboardPositionY = keyboardPrefs.getInt("position_y", 0)
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
         applyImmersiveMode()
 
@@ -310,6 +325,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             setPadding(dp(2), dp(2), dp(2), 0)
         }
         topBar.addView(status, LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT))
+        topBar.addView(actionButton("Sembunyikan panel pengaturan") {
+            topBar.visibility = View.GONE
+        }, LinearLayout.LayoutParams(-1, dp(30)))
         // Semua pengaturan berada di panel yang dibuka dari bola asisten.
         topBar.visibility = View.GONE
         root.addView(topBar, FrameLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP).apply {
@@ -402,20 +420,87 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        keyboardTitle.addView(TextView(this).apply {
-            text = "Keyboard"
+        val keyboardDragHandle = TextView(this).apply {
+            text = "Keyboard  ⋮⋮"
             textSize = 12f
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             setTextColor(Color.rgb(225, 231, 239))
-        }, LinearLayout.LayoutParams(0, dp(24), 1f))
-        keyboardTitle.addView(actionButton("⌨ Gboard") {
-            showSystemKeyboardBridge()
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(27)))
-        keyboardTitle.addView(actionButton("Sembunyi") {
+            gravity = Gravity.CENTER_VERTICAL
+            setOnTouchListener { _, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        val params = keyboardPanel.layoutParams as? FrameLayout.LayoutParams
+                        if (params != null) {
+                            keyboardHasCustomPosition = true
+                            keyboardPositionX = keyboardPanel.x.toInt().coerceIn(0, (root.width - keyboardPanel.width).coerceAtLeast(0))
+                            keyboardPositionY = keyboardPanel.y.toInt().coerceIn(0, (root.height - keyboardPanel.height).coerceAtLeast(0))
+                            params.gravity = Gravity.TOP or Gravity.START
+                            params.leftMargin = keyboardPositionX
+                            params.topMargin = keyboardPositionY
+                            params.rightMargin = 0
+                            params.bottomMargin = 0
+                            keyboardPanel.layoutParams = params
+                            keyboardDragStartX = event.rawX
+                            keyboardDragStartY = event.rawY
+                            keyboardDragOriginX = keyboardPositionX
+                            keyboardDragOriginY = keyboardPositionY
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val params = keyboardPanel.layoutParams as? FrameLayout.LayoutParams
+                        if (params != null) {
+                            keyboardPositionX = (keyboardDragOriginX + event.rawX - keyboardDragStartX).toInt()
+                                .coerceIn(0, (root.width - keyboardPanel.width).coerceAtLeast(0))
+                            keyboardPositionY = (keyboardDragOriginY + event.rawY - keyboardDragStartY).toInt()
+                                .coerceIn(0, (root.height - keyboardPanel.height).coerceAtLeast(0))
+                            params.gravity = Gravity.TOP or Gravity.START
+                            params.leftMargin = keyboardPositionX
+                            params.topMargin = keyboardPositionY
+                            params.rightMargin = 0
+                            params.bottomMargin = 0
+                            root.updateViewLayout(keyboardPanel, params)
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        getSharedPreferences("saku_desktop_keyboard", Context.MODE_PRIVATE).edit()
+                            .putBoolean("custom_position", true)
+                            .putInt("position_x", keyboardPositionX)
+                            .putInt("position_y", keyboardPositionY)
+                            .apply()
+                        true
+                    }
+                    else -> true
+                }
+            }
+        }
+        keyboardTitle.addView(keyboardDragHandle, LinearLayout.LayoutParams(0, dp(24), 1f))
+        keyboardTitle.addView(actionButton("W−") {
+            keyboardWidthPercent = (keyboardWidthPercent - 5).coerceAtLeast(55)
+            persistKeyboardSize()
+            updateDesktopLayout(root.width, root.height)
+        }, LinearLayout.LayoutParams(dp(35), dp(27)))
+        keyboardTitle.addView(actionButton("W+") {
+            keyboardWidthPercent = (keyboardWidthPercent + 5).coerceAtMost(100)
+            persistKeyboardSize()
+            updateDesktopLayout(root.width, root.height)
+        }, LinearLayout.LayoutParams(dp(35), dp(27)))
+        keyboardTitle.addView(actionButton("H−") {
+            keyboardHeightDp = (keyboardHeightDp - 15).coerceAtLeast(170)
+            persistKeyboardSize()
+            updateDesktopLayout(root.width, root.height)
+        }, LinearLayout.LayoutParams(dp(35), dp(27)))
+        keyboardTitle.addView(actionButton("H+") {
+            keyboardHeightDp = (keyboardHeightDp + 15).coerceAtMost(360)
+            persistKeyboardSize()
+            updateDesktopLayout(root.width, root.height)
+        }, LinearLayout.LayoutParams(dp(35), dp(27)))
+        keyboardTitle.addView(actionButton("×") {
             keyboardPanelVisible = false
             keyboardPanel.visibility = View.GONE
             updateDesktopLayout(root.width, root.height)
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(27)))
+        }, LinearLayout.LayoutParams(dp(32), dp(27)))
         keyboardPanel.addView(keyboardTitle)
 
         fun keyRow(labels: List<String>, weights: List<Float> = labels.map { 1f }) {
@@ -464,7 +549,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         keyRow(listOf("A","S","D","F","G","H","J","K","L"), List(9) { 1f })
         keyRow(listOf("SHIFT","Z","X","C","V","B","N","M","⌫"), listOf(1.55f,1f,1f,1f,1f,1f,1f,1f,1.55f))
         keyRow(listOf("?123",",","SPACE",".","ENTER"), listOf(1.45f,0.8f,3.6f,0.8f,1.5f))
-        root.addView(keyboardPanel, FrameLayout.LayoutParams(-1, dp(240), Gravity.BOTTOM).apply {
+        root.addView(keyboardPanel, FrameLayout.LayoutParams(-1, dp(keyboardHeightDp), Gravity.BOTTOM).apply {
             leftMargin = dp(7); rightMargin = dp(7); bottomMargin = dp(12)
         })
         keyboardPanel.visibility = View.GONE
@@ -1321,16 +1406,38 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         val keyboardParams = keyboardPanel.layoutParams as? FrameLayout.LayoutParams
         if (keyboardParams != null) {
             keyboardPanel.visibility = if (keyboardPanelVisible) View.VISIBLE else View.GONE
-            val keyboardHeight = dp(240)
-            if (keyboardParams.bottomMargin != dp(12) || keyboardParams.height != keyboardHeight ||
-                keyboardParams.gravity != Gravity.BOTTOM
-            ) {
-                keyboardParams.gravity = Gravity.BOTTOM
+            val keyboardWidth = (rootWidth * keyboardWidthPercent / 100).coerceIn(dp(260).coerceAtMost(rootWidth), rootWidth)
+            val keyboardHeight = dp(keyboardHeightDp).coerceAtMost(rootHeight)
+            val desiredGravity = if (keyboardHasCustomPosition) Gravity.TOP or Gravity.START else Gravity.BOTTOM
+            if (keyboardHasCustomPosition) {
+                keyboardPositionX = keyboardPositionX.coerceIn(0, (rootWidth - keyboardWidth).coerceAtLeast(0))
+                keyboardPositionY = keyboardPositionY.coerceIn(0, (rootHeight - keyboardHeight).coerceAtLeast(0))
+                keyboardParams.leftMargin = keyboardPositionX
+                keyboardParams.topMargin = keyboardPositionY
+                keyboardParams.rightMargin = 0
+                keyboardParams.bottomMargin = 0
+            } else {
+                keyboardParams.leftMargin = dp(7)
+                keyboardParams.rightMargin = dp(7)
                 keyboardParams.bottomMargin = dp(12)
+                keyboardParams.topMargin = 0
+            }
+            if (keyboardParams.width != keyboardWidth || keyboardParams.height != keyboardHeight ||
+                keyboardParams.gravity != desiredGravity
+            ) {
+                keyboardParams.width = keyboardWidth
                 keyboardParams.height = keyboardHeight
+                keyboardParams.gravity = desiredGravity
                 keyboardPanel.layoutParams = keyboardParams
             }
         }
+    }
+
+    private fun persistKeyboardSize() {
+        getSharedPreferences("saku_desktop_keyboard", Context.MODE_PRIVATE).edit()
+            .putInt("width_percent", keyboardWidthPercent)
+            .putInt("height_dp", keyboardHeightDp)
+            .apply()
     }
 
     private fun topBarHeight(): Int {
