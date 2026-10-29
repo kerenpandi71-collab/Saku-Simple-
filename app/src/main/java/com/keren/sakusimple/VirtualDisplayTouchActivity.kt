@@ -696,7 +696,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
     }
 
-    private var cyberSymbols = false
 
     private fun showVirtualKeyboard() {
         keyboardPanelVisible = true
