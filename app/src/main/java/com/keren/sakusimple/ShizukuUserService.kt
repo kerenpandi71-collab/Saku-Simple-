@@ -57,12 +57,12 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             val manager = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
                 ?: throw IllegalStateException("DisplayManager tidak tersedia di UserService.")
 
-            // Flags from AOSP DisplayManager:
-            // PUBLIC=1, PRESENTATION=2, SUPPORTS_TOUCH=(1 shl 6), TRUSTED=(1 shl 10).
-            // The last two are hidden and may still be rejected by the device's system policy.
+            // Keep this as a touch-capable presentation display, but deliberately do not mark
+            // it TRUSTED: trusted virtual displays may host the Android system IME, which would
+            // cover the preview while the user is typing with Saku's separate Cyberdeck keyboard.
             val flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION or
-                SUPPORTS_TOUCH_FLAG or TRUSTED_FLAG
+                SUPPORTS_TOUCH_FLAG
 
             val created = manager.createVirtualDisplay(
                 "SakuShizukuVirtualDisplay",
@@ -346,7 +346,8 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                 }
                 val event = android.view.KeyEvent(downTime, now, action, code, 0, metaStates[index])
                 setDisplayIdMethod.invoke(event, displayId)
-                val accepted = injectInputEventMethod.invoke(inputManagerService, event, INJECT_WAIT_FOR_RESULT) as? Boolean ?: false
+                // Async injection avoids waiting for the target app to process every key event.
+                val accepted = injectInputEventMethod.invoke(inputManagerService, event, INJECT_ASYNC) as? Boolean ?: false
                 if (!accepted) {
                     allAccepted = false
                     lastError = "KeyEvent ditolak • display=$displayId • action=$action keyCode=$code"
@@ -591,7 +592,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
     companion object {
         private const val TAG = "SakuShizukuService"
         private const val SUPPORTS_TOUCH_FLAG = 1 shl 6
-        private const val TRUSTED_FLAG = 1 shl 10
+        private const val INJECT_ASYNC = 0
         private const val INJECT_WAIT_FOR_RESULT = 1
     }
 }
