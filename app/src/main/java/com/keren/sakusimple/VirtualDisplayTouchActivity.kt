@@ -26,6 +26,8 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.ScrollView
 import android.widget.SeekBar
+import android.text.Editable
+import android.text.TextWatcher
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -62,6 +64,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var runtimeLogToggle: Button
     private lateinit var bottomPanel: LinearLayout
     private lateinit var keyboardPanel: LinearLayout
+    private lateinit var imeBridgeEditText: EditText
     private var keyboardPanelVisible = true
     private var cyberShift = false
     private var cyberCtrl = false
@@ -84,6 +87,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var dragActive = false
     private lateinit var runtimeLogPanel: LinearLayout
     private var suppressKeyboardWatcher = false
+    private var imeBridgeWatcherBusy = false
     private val cursorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
         color = Color.WHITE
@@ -387,7 +391,10 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             setTextColor(Color.rgb(225, 231, 239))
         }, LinearLayout.LayoutParams(0, dp(24), 1f))
-        keyboardTitle.addView(actionButton("⌨ Sembunyi") {
+        keyboardTitle.addView(actionButton("⌨ Gboard") {
+            showSystemKeyboardBridge()
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(27)))
+        keyboardTitle.addView(actionButton("Sembunyi") {
             keyboardPanelVisible = false
             keyboardPanel.visibility = View.GONE
             updateDesktopLayout(root.width, root.height)
@@ -534,8 +541,36 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             leftMargin = dp(8); rightMargin = dp(8); topMargin = dp(102)
         })
 
-        // Tidak membuat EditText tersembunyi untuk menerima input IME. Keyboard Cyberdeck
-        // mengirim KeyEvent langsung ke virtual display sehingga Gboard tidak terpanggil.
+        // IME bridge: field 1x1 transparan tetap berada di Activity utama (display 0).
+        // IME virtual display sendiri disembunyikan oleh ShizukuUserService.
+        imeBridgeEditText = EditText(this).apply {
+            setSingleLine(false)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_NONE
+            alpha = 0.01f
+            setTextColor(Color.TRANSPARENT)
+            setHintTextColor(Color.TRANSPARENT)
+            background = null
+            isFocusable = true
+            isFocusableInTouchMode = true
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
+            contentDescription = "Jembatan input Gboard ke virtual display"
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    if (imeBridgeWatcherBusy) return
+                    val current = s ?: return
+                    val inserted = current.subSequence(start, (start + count).coerceAtMost(current.length)).toString()
+                    // TextWatcher reports replacements made by Gboard's composing region too:
+                    // delete the old composing characters first, then inject the replacement.
+                    sendImeBridgeDelta(before, inserted)
+                }
+                override fun afterTextChanged(s: Editable?) = Unit
+            })
+        }
+        root.addView(imeBridgeEditText, FrameLayout.LayoutParams(dp(1), dp(1), Gravity.TOP or Gravity.START))
         setContentView(root)
     }
 
@@ -676,6 +711,65 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         keyboardPanel.visibility = View.VISIBLE
         updateDesktopLayout((preview?.parent as? View)?.width ?: 0, (preview?.parent as? View)?.height ?: 0)
         status.text = "Keyboard Cyberdeck aktif • terpisah dari preview dan trackpad."
+    }
+
+    private fun showSystemKeyboardBridge() {
+        if ((virtualDisplayController?.displayId ?: -1) < 0) {
+            status.text = "Mulai virtual display dahulu, lalu buka Gboard."
+            return
+        }
+        imeBridgeEditText.requestFocus()
+        imeBridgeEditText.post {
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            val shown = imm.showSoftInput(imeBridgeEditText, InputMethodManager.SHOW_IMPLICIT)
+            status.text = if (shown) {
+                "Gboard aktif di layar HP • ketikan dikirim ke preview."
+            } else {
+                "Meminta Gboard di layar HP… jika belum muncul, ketuk tombol Gboard sekali lagi."
+            }
+        }
+    }
+
+    private fun sendImeBridgeDelta(deletedCharacters: Int, insertedText: String) {
+        if ((virtualDisplayController?.displayId ?: -1) < 0) return
+        keyboardInputExecutor.execute {
+            val actions = ArrayList<Int>()
+            val keyCodes = ArrayList<Int>()
+            val metaStates = ArrayList<Int>()
+            fun addKey(code: Int) {
+                actions.add(android.view.KeyEvent.ACTION_DOWN)
+                keyCodes.add(code)
+                metaStates.add(0)
+                actions.add(android.view.KeyEvent.ACTION_UP)
+                keyCodes.add(code)
+                metaStates.add(0)
+            }
+            repeat(deletedCharacters.coerceAtMost(256)) {
+                addKey(android.view.KeyEvent.KEYCODE_DEL)
+            }
+            val chunks = insertedText.split('\\n')
+            chunks.forEachIndexed { index, chunk ->
+                if (chunk.isNotEmpty()) {
+                    val events = runCatching {
+                        KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD).getEvents(chunk.toCharArray())
+                    }.getOrNull()
+                    events?.forEach { event ->
+                        actions.add(event.action)
+                        keyCodes.add(event.keyCode)
+                        metaStates.add(event.metaState)
+                    }
+                }
+                if (index < chunks.lastIndex) addKey(android.view.KeyEvent.KEYCODE_ENTER)
+            }
+            if (actions.isEmpty()) return@execute
+            val accepted = virtualDisplayController?.injectKeyEvents(
+                actions.toIntArray(), keyCodes.toIntArray(), metaStates.toIntArray()
+            ) ?: false
+            if (!accepted) runOnUiThread {
+                appendRuntimeLog("Gboard bridge gagal mengirim ke virtual display: ${shizukuBridge.getLastError()}")
+                status.text = "Gagal meneruskan ketikan Gboard. Periksa Log."
+            }
+        }
     }
 
     private fun cyberKey(label: String, utility: Boolean, repeatable: Boolean = false, action: () -> Unit): Button =
