@@ -427,7 +427,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         keyRow(listOf("1","2","3","4","5","6","7","8","9","0","⌫"), listOf(1f,1f,1f,1f,1f,1f,1f,1f,1f,1f,1.3f))
         keyRow(listOf("?123","TAB", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"), listOf(1.4f,1f,1f,1f,1f,1f,1f,1f,1f,1f,1f,1f))
         keyRow(listOf("CAPS", "A", "S", "D", "F", "G", "H", "J", "K", "L"), listOf(1.4f,1f,1f,1f,1f,1f,1f,1f,1f,1f))
-        keyRow(listOf("SHIFT", "Z", "X", "C", "V", "B", "N", "M", "⌫"), listOf(1.4f,1f,1f,1f,1f,1f,1f,1.4f))
+        keyRow(listOf("SHIFT", "Z", "X", "C", "V", "B", "N", "M", "⌫"), listOf(1.4f,1f,1f,1f,1f,1f,1f,1f,1.4f))
         keyRow(listOf("CTRL", "FN", "ALT", "SPACE", "←", "↑", "↓", "ENTER", "→"), listOf(1f,0.8f,0.9f,2.3f,0.8f,0.8f,0.8f,1.2f,0.8f))
         root.addView(keyboardPanel, FrameLayout.LayoutParams(-1, dp(240), Gravity.TOP).apply {
             leftMargin = dp(7); rightMargin = dp(7); topMargin = dp(248)
@@ -810,13 +810,15 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             stateListAnimator = null
             if (repeatable) {
                 var repeatTask: Runnable? = null
+                var repeating = false
                 setOnTouchListener { _, event ->
                     when (event.actionMasked) {
                         MotionEvent.ACTION_DOWN -> {
+                            repeating = true
                             action()
                             val task = object : Runnable {
                                 override fun run() {
-                                    if (isPressed) {
+                                    if (repeating) {
                                         action()
                                         keyboardRepeatHandler.postDelayed(this, 55L)
                                     }
@@ -827,6 +829,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                             true
                         }
                         MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            repeating = false
                             repeatTask?.let(keyboardRepeatHandler::removeCallbacks)
                             repeatTask = null
                             true
@@ -858,7 +861,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             for (j in 0 until row.childCount) {
                 val button = row.getChildAt(j) as? Button ?: continue
                 val original = button.tag as? String ?: continue
-                if (original.length == 1 && original[0].isLetterOrDigit()) {
+                if (original == "?123") {
+                    button.text = if (cyberSymbols) "ABC" else "?123"
+                } else if (original.length == 1 && original[0].isLetterOrDigit()) {
                     button.text = if (cyberSymbols) symbolForCyberdeckKey(original) else original
                 }
             }
@@ -903,20 +908,24 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     }
 
     private fun sendTypedText(text: String) {
-        val events = runCatching {
-            KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD).getEvents(text.toCharArray())
-        }.getOrNull()
-        if (events.isNullOrEmpty()) {
-            appendRuntimeLog("Keyboard: karakter tidak didukung KeyCharacterMap: ${text.take(16)}")
-            return
-        }
-        val actions = IntArray(events.size) { events[it].action }
-        val codes = IntArray(events.size) { events[it].keyCode }
-        val modifierMeta = (if (cyberShift) android.view.KeyEvent.META_SHIFT_ON else 0) or
-            (if (cyberCtrl) android.view.KeyEvent.META_CTRL_ON else 0) or
-            (if (cyberAlt) android.view.KeyEvent.META_ALT_ON else 0)
-        val meta = IntArray(events.size) { events[it].metaState or modifierMeta }
+        // Build KeyEvents and call Shizuku Binder off the UI thread.
+        val shift = cyberShift
+        val ctrl = cyberCtrl
+        val alt = cyberAlt
         mouseInputExecutor.execute {
+            val events = runCatching {
+                KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD).getEvents(text.toCharArray())
+            }.getOrNull()
+            if (events.isNullOrEmpty()) {
+                runOnUiThread { appendRuntimeLog("Keyboard: karakter tidak didukung KeyCharacterMap: ${text.take(16)}") }
+                return@execute
+            }
+            val actions = IntArray(events.size) { events[it].action }
+            val codes = IntArray(events.size) { events[it].keyCode }
+            val modifierMeta = (if (shift) android.view.KeyEvent.META_SHIFT_ON else 0) or
+                (if (ctrl) android.view.KeyEvent.META_CTRL_ON else 0) or
+                (if (alt) android.view.KeyEvent.META_ALT_ON else 0)
+            val meta = IntArray(events.size) { events[it].metaState or modifierMeta }
             val accepted = virtualDisplayController?.injectKeyEvents(actions, codes, meta) ?: false
             if (!accepted) runOnUiThread {
                 status.text = "Teks keyboard gagal dikirim. Periksa Log."
