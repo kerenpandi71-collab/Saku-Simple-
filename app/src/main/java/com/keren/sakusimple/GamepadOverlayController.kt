@@ -198,10 +198,12 @@ class GamepadOverlayController(
 
     private fun drawGamepad(canvas: Canvas) {
         hitRects.clear()
-        val pw = min(width * 0.94f, dp(660).toFloat() * scale)
-        val ph = min(height * heightFraction, dp(285).toFloat() * scale)
-        val left = (panelX * width).coerceIn(0f, max(0f, width - pw))
-        val top = (panelY * height).coerceIn(0f, max(0f, height - ph))
+        val viewWidth = view.width.toFloat()
+        val viewHeight = view.height.toFloat()
+        val pw = min(viewWidth * 0.94f, dp(660).toFloat() * scale)
+        val ph = min(viewHeight * heightFraction, dp(285).toFloat() * scale)
+        val left = (panelX * viewWidth).coerceIn(0f, max(0f, viewWidth - pw))
+        val top = (panelY * viewHeight).coerceIn(0f, max(0f, viewHeight - ph))
         panelRect = RectF(left, top, left + pw, top + ph)
         headerRect = RectF(left, top, left + pw, top + ph * 0.15f)
         paint.style = Paint.Style.FILL; paint.color = Color.argb(218, 4, 5, 8)
