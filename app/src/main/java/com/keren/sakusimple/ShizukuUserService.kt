@@ -94,15 +94,15 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                 Log.w(TAG, "Could not disable Pixelboard: ${error.message}")
             }
 
-            // Keep Android's system IME off this display. The app's own Cyberdeck keyboard
-            // sends KeyEvents through Shizuku, so Gboard must not cover the preview.
+            // Keep Android's system IME off this display when the platform exposes the
+            // hidden VirtualDisplay API. Use reflection so older compile SDKs still build.
             // Keep TRUSTED enabled: this device relies on it for injected touchscreen events.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                runCatching {
-                    created.setDisplayImePolicy(DisplayManager.DISPLAY_IME_POLICY_HIDE)
-                }.onFailure { error ->
-                    Log.w(TAG, "Could not hide system IME on virtual display: ${error.message}")
-                }
+            runCatching {
+                val hideImePolicy = 1 // DisplayManager.DISPLAY_IME_POLICY_HIDE
+                val method = created.javaClass.getMethod("setDisplayImePolicy", Int::class.javaPrimitiveType)
+                method.invoke(created, hideImePolicy)
+            }.onFailure { error ->
+                Log.w(TAG, "Could not hide system IME on virtual display: ${error.message}")
             }
             virtualDisplay = created
             val display = created.display
