@@ -62,6 +62,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var cyberShift = false
     private var cyberCtrl = false
     private var cyberAlt = false
+    private var cyberSymbols = false
+    private val keyboardRepeatHandler = Handler(Looper.getMainLooper())
     private lateinit var panelToggleButton: Button
     private lateinit var directTouchButton: Button
     private lateinit var previewSizeSeekBar: SeekBar
@@ -389,8 +391,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         fun keyRow(labels: List<String>, weights: List<Float> = labels.map { 1f }) {
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
             labels.forEachIndexed { index, label ->
-                val button = cyberKey(label, label.length > 1) {
+                val button = cyberKey(label, label.length > 1, repeatable = label == "⌫" || label.length == 1) {
                     when (label) {
+                        "?123" -> { cyberSymbols = !cyberSymbols; refreshCyberdeckLabels() }
                         "SHIFT" -> { cyberShift = !cyberShift; updateModifierLabels() }
                         "CTRL" -> { cyberCtrl = !cyberCtrl; updateModifierLabels() }
                         "ALT" -> { cyberAlt = !cyberAlt; updateModifierLabels() }
@@ -406,13 +409,10 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         "→" -> sendKeyboardKey(android.view.KeyEvent.KEYCODE_DPAD_RIGHT)
                         "FN" -> status.text = "Fn belum dipetakan ke fungsi sistem tertentu."
                         else -> {
-                            val key = if (cyberShift) label.uppercase() else label.lowercase()
-                            if (key.length == 1 && key[0].isLetter()) sendTypedText(key)
-                            else {
-                                val code = android.view.KeyEvent.keyCodeFromString("KEYCODE_$key")
-                                if (code != android.view.KeyEvent.KEYCODE_UNKNOWN) sendKeyboardKey(code)
-                                else sendTypedText(key)
-                            }
+                            val key = if (cyberSymbols) symbolForCyberdeckKey(label) else label
+                            val printable = if (cyberShift && !cyberSymbols) key.uppercase() else key
+                            if (printable.length == 1 && printable[0].isLetter()) sendTypedText(printable)
+                            else sendTypedText(printable)
                         }
                     }
                 }
@@ -424,10 +424,11 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             keyboardPanel.addView(row, LinearLayout.LayoutParams(-1, 0, 1f))
         }
         keyRow(listOf("ESC", "F1", "F2", "F3", "F4", "F5", "F6"), listOf(1.15f, 1f, 1f, 1f, 1f, 1f, 1f))
-        keyRow(listOf("TAB", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"), listOf(1.25f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f))
-        keyRow(listOf("CAPS", "A", "S", "D", "F", "G", "H", "J", "K", "L"), listOf(1.4f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1f))
-        keyRow(listOf("SHIFT", "Z", "X", "C", "V", "B", "N", "M", "⌫"), listOf(1.4f, 1f, 1f, 1f, 1f, 1f, 1f, 1f, 1.4f))
-        keyRow(listOf("CTRL", "FN", "ALT", "SPACE", "←", "↑", "↓", "→"), listOf(1.05f, 0.85f, 0.9f, 2.5f, 0.8f, 0.8f, 0.8f, 0.8f))
+        keyRow(listOf("1","2","3","4","5","6","7","8","9","0","⌫"), listOf(1f,1f,1f,1f,1f,1f,1f,1f,1f,1f,1.3f))
+        keyRow(listOf("?123","TAB", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"), listOf(1.4f,1f,1f,1f,1f,1f,1f,1f,1f,1f,1f,1f))
+        keyRow(listOf("CAPS", "A", "S", "D", "F", "G", "H", "J", "K", "L"), listOf(1.4f,1f,1f,1f,1f,1f,1f,1f,1f,1f))
+        keyRow(listOf("SHIFT", "Z", "X", "C", "V", "B", "N", "M", "⌫"), listOf(1.4f,1f,1f,1f,1f,1f,1f,1.4f))
+        keyRow(listOf("CTRL", "FN", "ALT", "SPACE", "←", "↑", "↓", "ENTER", "→"), listOf(1f,0.8f,0.9f,2.3f,0.8f,0.8f,0.8f,1.2f,0.8f))
         root.addView(keyboardPanel, FrameLayout.LayoutParams(-1, dp(240), Gravity.TOP).apply {
             leftMargin = dp(7); rightMargin = dp(7); topMargin = dp(248)
         })
@@ -792,7 +793,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         status.text = "Cyberdeck keyboard aktif • tombol dikirim ke virtual display."
     }
 
-    private fun cyberKey(label: String, utility: Boolean, action: () -> Unit): Button =
+    private fun cyberKey(label: String, utility: Boolean, repeatable: Boolean = false, action: () -> Unit): Button =
         Button(this).apply {
             text = label
             textSize = if (label.length > 3) 9f else 13f
@@ -807,8 +808,63 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             minHeight = 0; minimumHeight = 0; minWidth = 0; minimumWidth = 0
             setPadding(dp(2), 0, dp(2), 0)
             stateListAnimator = null
-            setOnClickListener { action() }
+            if (repeatable) {
+                var repeatTask: Runnable? = null
+                setOnTouchListener { _, event ->
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> {
+                            action()
+                            val task = object : Runnable {
+                                override fun run() {
+                                    if (isPressed) {
+                                        action()
+                                        keyboardRepeatHandler.postDelayed(this, 55L)
+                                    }
+                                }
+                            }
+                            repeatTask = task
+                            keyboardRepeatHandler.postDelayed(task, 420L)
+                            true
+                        }
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            repeatTask?.let(keyboardRepeatHandler::removeCallbacks)
+                            repeatTask = null
+                            true
+                        }
+                        else -> true
+                    }
+                }
+            } else {
+                setOnClickListener { action() }
+            }
         }
+
+    private fun symbolForCyberdeckKey(label: String): String = when (label.uppercase()) {
+        "Q" -> "@"; "W" -> "#"; "E" -> "$"; "R" -> "%"; "T" -> "&"
+        "Y" -> "*"; "U" -> "("; "I" -> ")"; "O" -> "-"; "P" -> "+"
+        "A" -> "="; "S" -> "/"; "D" -> "?"; "F" -> "!"; "G" -> ":"
+        "H" -> ";"; "J" -> "["; "K" -> "]"; "L" -> "{"
+        "Z" -> "}"; "X" -> "_"; "C" -> "\\"; "V" -> "|"
+        "B" -> "~"; "N" -> "<"; "M" -> ">"
+        "1" -> "!"; "2" -> "@"; "3" -> "#"; "4" -> "$"; "5" -> "%"
+        "6" -> "&"; "7" -> "*"; "8" -> "("; "9" -> ")"; "0" -> "="
+        else -> label
+    }
+
+    private fun refreshCyberdeckLabels() {
+        if (!::keyboardPanel.isInitialized) return
+        for (i in 0 until keyboardPanel.childCount) {
+            val row = keyboardPanel.getChildAt(i) as? LinearLayout ?: continue
+            for (j in 0 until row.childCount) {
+                val button = row.getChildAt(j) as? Button ?: continue
+                val original = button.tag as? String ?: continue
+                if (original.length == 1 && original[0].isLetterOrDigit()) {
+                    button.text = if (cyberSymbols) symbolForCyberdeckKey(original) else original
+                }
+            }
+        }
+        updateModifierLabels()
+    }
 
     private fun updateModifierLabels() {
         if (!::keyboardPanel.isInitialized) return
