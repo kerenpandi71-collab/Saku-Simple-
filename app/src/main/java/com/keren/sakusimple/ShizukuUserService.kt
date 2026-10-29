@@ -57,11 +57,12 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             val manager = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
                 ?: throw IllegalStateException("DisplayManager tidak tersedia di UserService.")
 
-            // Keep this as a touch-capable presentation display, but deliberately do not mark
-            // it TRUSTED: trusted virtual displays may host the Android system IME, which would
-            // cover the preview while the user is typing with Saku's separate Cyberdeck keyboard.
+            // TRUSTED is required on this device path for InputManager to accept injected
+            // touchscreen events on the virtual display. Do not remove it to solve IME focus:
+            // doing so causes Direct Touch and multi-pointer gestures to be rejected.
             val flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION or
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_TRUSTED or
                 SUPPORTS_TOUCH_FLAG
 
             val created = manager.createVirtualDisplay(
