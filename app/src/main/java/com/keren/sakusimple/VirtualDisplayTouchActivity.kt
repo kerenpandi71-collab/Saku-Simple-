@@ -1281,8 +1281,16 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
     private fun updateDesktopLayout(rootWidth: Int, rootHeight: Int) {
         if (rootWidth <= 0 || rootHeight <= 0 || !::bottomPanel.isInitialized) return
-        val desktopWidth = (rootWidth * previewSizePercent / 100).coerceIn(dp(180), rootWidth)
-        val desktopHeight = (rootHeight * 40 / 100).coerceAtLeast(dp(100))
+        // Pertahankan rasio resolusi virtual; jangan meregangkan SurfaceView.
+        val maxPreviewWidth = (rootWidth * previewSizePercent / 100).coerceIn(dp(180), rootWidth)
+        val maxPreviewHeight = (rootHeight * 40 / 100).coerceAtLeast(dp(100))
+        val aspect = targetWidth.toFloat() / targetHeight.toFloat()
+        var desktopWidth = maxPreviewWidth
+        var desktopHeight = (desktopWidth / aspect).toInt()
+        if (desktopHeight > maxPreviewHeight) {
+            desktopHeight = maxPreviewHeight
+            desktopWidth = (desktopHeight * aspect).toInt()
+        }
         val previewParams = preview?.layoutParams as? FrameLayout.LayoutParams
         if (previewParams != null &&
             (previewParams.width != desktopWidth || previewParams.height != desktopHeight ||
