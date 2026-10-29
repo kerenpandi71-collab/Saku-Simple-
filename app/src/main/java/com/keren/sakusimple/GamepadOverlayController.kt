@@ -119,6 +119,7 @@ class GamepadOverlayController(
             setTextColor(Color.WHITE)
             textSize = 12f
         })
+        lateinit var dialog: AlertDialog
         val triggerList = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
         keys.forEach { key ->
             triggerList.addView(Button(context).apply {
@@ -153,7 +154,6 @@ class GamepadOverlayController(
                 Toast.makeText(context, "Mapping dihapus", Toast.LENGTH_SHORT).show()
             }
         })
-        lateinit var dialog: AlertDialog
         dialog = AlertDialog.Builder(context).setTitle("Gamepad ML • Portrait").setView(box)
             .setPositiveButton("Simpan", null).setNeutralButton("Letakkan mapping", null).setNegativeButton("Tutup", null).create()
         dialog.setOnShowListener {
