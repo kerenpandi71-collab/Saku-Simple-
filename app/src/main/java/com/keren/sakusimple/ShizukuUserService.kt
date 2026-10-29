@@ -75,6 +75,25 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             ) ?: throw IllegalStateException("createVirtualDisplay mengembalikan null.")
 
             created.setSurface(surface)
+
+            // Pixelboard is being auto-routed onto this secondary display on some devices.
+            // Stop that package when the virtual display is created so it cannot cover the
+            // intended preview. This is a temporary force-stop, not a package disable/uninstall.
+            runCatching {
+                val stopped = runShizukuShell(
+                    "am force-stop --user 0 com.akshaykadam.pixelboard",
+                    timeoutMs = 2500L,
+                    maxCharacters = 300
+                )
+                if (stopped.first == 0) {
+                    Log.i(TAG, "Pixelboard force-stopped after virtual display creation.")
+                } else {
+                    Log.w(TAG, "Pixelboard suppression command failed: ${stopped.second}")
+                }
+            }.onFailure { error ->
+                Log.w(TAG, "Could not suppress Pixelboard on virtual display: ${error.message}")
+            }
+
             // Keep Android's system IME off this display. The app's own Cyberdeck keyboard
             // sends KeyEvents through Shizuku, so Gboard must not cover the preview.
             // Keep TRUSTED enabled: this device relies on it for injected touchscreen events.
