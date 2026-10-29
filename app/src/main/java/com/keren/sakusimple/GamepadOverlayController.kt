@@ -153,7 +153,8 @@ class GamepadOverlayController(
                 Toast.makeText(context, "Mapping dihapus", Toast.LENGTH_SHORT).show()
             }
         })
-        val dialog = AlertDialog.Builder(context).setTitle("Gamepad ML • Portrait").setView(box)
+        lateinit var dialog: AlertDialog
+        dialog = AlertDialog.Builder(context).setTitle("Gamepad ML • Portrait").setView(box)
             .setPositiveButton("Simpan", null).setNeutralButton("Letakkan mapping", null).setNegativeButton("Tutup", null).create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
