@@ -13,6 +13,7 @@ import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.SeekBar
+import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
@@ -62,6 +63,10 @@ class GamepadOverlayController(
     private var analogLastY = 0f
     private var analogFingerStartX = 0f
     private var analogFingerStartY = 0f
+    private var analogPointerId = -1
+    private var analogKnobDx = 0f
+    private var analogKnobDy = 0f
+    private val analogTravel = 0.12f
     private val pendingAnalogMove = AtomicReference<Point?>(null)
     private val analogMoveScheduled = AtomicBoolean(false)
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -109,6 +114,33 @@ class GamepadOverlayController(
             text = "Pilih fungsi → Letakkan mapping → sentuh lokasi tombol ML di preview. Setelah muncul, marker berlabel bisa diseret untuk mengoreksi posisi. Untuk joystick, letakkan di TENGAH joystick ML. Setiap tombol di panel punya mapping sendiri."
             setTextColor(Color.WHITE)
         })
+        box.addView(TextView(context).apply {
+            text = "SETIAP FUNGSI PUNYA TRIGGER SENDIRI — tekan Atur pada masing-masing tombol:"
+            setTextColor(Color.WHITE)
+            textSize = 12f
+        })
+        val triggerList = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        keys.forEach { key ->
+            triggerList.addView(Button(context).apply {
+                val state = if (targets.containsKey(key)) "✓" else "＋"
+                text = state + "  " + (labels[key] ?: key) + "  •  Atur"
+                isAllCaps = false
+                setOnClickListener {
+                    mappingKey = key
+                    visible = true
+                    prefs.edit().putBoolean("visible", true).apply()
+                    view.visibility = View.VISIBLE
+                    dialog.dismiss()
+                    onStatus("Atur " + (labels[key] ?: key) + ": sentuh targetnya pada preview virtual display.")
+                    Toast.makeText(context, "Sentuh posisi " + (labels[key] ?: key), Toast.LENGTH_LONG).show()
+                    view.invalidate()
+                }
+            }, LinearLayout.LayoutParams(-1, dp(42)))
+        }
+        box.addView(ScrollView(context).apply {
+            isFillViewport = true
+            addView(triggerList)
+        }, LinearLayout.LayoutParams(-1, dp(240)))
         box.addView(spinner)
         box.addView(Button(context).apply {
             text = "Hapus semua mapping"
@@ -194,6 +226,9 @@ class GamepadOverlayController(
                 analogLastX = target.x; analogLastY = target.y
                 analogFingerStartX = x
                 analogFingerStartY = y
+                analogPointerId = event.getPointerId(event.actionIndex)
+                analogKnobDx = 0f
+                analogKnobDy = 0f
                 val size = displaySize()
                 io.execute { injectTouch(MotionEvent.ACTION_DOWN, target.x * (size.first - 1), target.y * (size.second - 1)) }
             } else sendMappedTap(hit)
@@ -227,31 +262,51 @@ class GamepadOverlayController(
             return true
         }
         if (event.actionMasked == MotionEvent.ACTION_MOVE && analogPointer) {
+            val pointerIndex = event.findPointerIndex(analogPointerId)
+            if (pointerIndex < 0) return true
             val rect = hitRects["STICK"] ?: return true
             val target = targets["STICK"] ?: Point(0.15f, 0.72f)
-            val radius = max(1f, min(rect.width(), rect.height()) * 0.42f)
-            val dx = (x - analogFingerStartX) / radius
-            val dy = (y - analogFingerStartY) / radius
-            val length = kotlin.math.sqrt(dx * dx + dy * dy).coerceAtLeast(1f)
-            val nx = (target.x + dx / length * min(1f, kotlin.math.sqrt(dx * dx + dy * dy)) * 0.095f).coerceIn(0f, 1f)
-            val ny = (target.y + dy / length * min(1f, kotlin.math.sqrt(dx * dx + dy * dy)) * 0.095f).coerceIn(0f, 1f)
+            val radius = max(1f, min(rect.width(), rect.height()) * 0.78f)
+            val dx = (event.getX(pointerIndex) - analogFingerStartX) / radius
+            val dy = (event.getY(pointerIndex) - analogFingerStartY) / radius
+            val magnitude = kotlin.math.sqrt(dx * dx + dy * dy)
+            val clamped = min(1f, magnitude)
+            analogKnobDx = if (magnitude > 0f) dx / magnitude * clamped else 0f
+            analogKnobDy = if (magnitude > 0f) dy / magnitude * clamped else 0f
+            val nx = (target.x + analogKnobDx * analogTravel).coerceIn(0f, 1f)
+            val ny = (target.y + analogKnobDy * analogTravel).coerceIn(0f, 1f)
             analogLastX = nx; analogLastY = ny
             val size = displaySize()
             queueAnalogMove(nx * (size.first - 1), ny * (size.second - 1))
+            view.invalidate()
+            return true
+        }
+        if (event.actionMasked == MotionEvent.ACTION_POINTER_UP && analogPointer &&
+            event.getPointerId(event.actionIndex) == analogPointerId) {
+            releaseAnalog()
             return true
         }
         if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
             if (draggingTargetKey != null) { draggingTargetKey = null; return true }
             if (draggingPanel) { draggingPanel = false; return true }
             if (analogPointer) {
-                analogPointer = false
-                val size = displaySize()
-                io.execute { injectTouch(MotionEvent.ACTION_UP, analogLastX * (size.first - 1), analogLastY * (size.second - 1)) }
+                releaseAnalog()
                 return true
             }
             return panelRect.contains(x, y) || mappingKey != null
         }
         return panelRect.contains(x, y) || mappingKey != null
+    }
+
+    private fun releaseAnalog() {
+        if (!analogPointer) return
+        analogPointer = false
+        analogPointerId = -1
+        analogKnobDx = 0f
+        analogKnobDy = 0f
+        val size = displaySize()
+        io.execute { injectTouch(MotionEvent.ACTION_UP, analogLastX * (size.first - 1), analogLastY * (size.second - 1)) }
+        view.invalidate()
     }
 
     /** Coalesce fast finger movement while keeping the injected touch stream ordered. */
@@ -392,11 +447,13 @@ class GamepadOverlayController(
         canvas.drawCircle(cx, cy, radius * 0.60f, paint)
         paint.style = Paint.Style.FILL
         paint.color = Color.rgb(35, 115, 220)
-        canvas.drawCircle(cx, cy, radius * 0.43f, paint)
+        val knobX = cx + analogKnobDx * radius * 0.48f
+        val knobY = cy + analogKnobDy * radius * 0.48f
+        canvas.drawCircle(knobX, knobY, radius * 0.43f, paint)
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = dp(2).toFloat()
         paint.color = Color.rgb(135, 210, 255)
-        canvas.drawCircle(cx, cy, radius * 0.27f, paint)
+        canvas.drawCircle(knobX, knobY, radius * 0.27f, paint)
         paint.style = Paint.Style.FILL
         paint.color = Color.WHITE
         paint.textAlign = Paint.Align.CENTER
@@ -452,10 +509,7 @@ class GamepadOverlayController(
     }
 
     fun close() {
-        if (analogPointer) {
-            val size = displaySize()
-            io.execute { injectTouch(MotionEvent.ACTION_UP, analogLastX * (size.first - 1), analogLastY * (size.second - 1)) }
-        }
+        if (analogPointer) releaseAnalog()
         io.shutdown()
     }
 
