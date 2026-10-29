@@ -76,6 +76,12 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
 
             created.setSurface(surface)
 
+            // Pixelboard keeps appearing on this virtual display on some ROMs.
+            // It has no public API to pin its task to display 0, so disable only
+            // this package through Shizuku shell rather than changing global IME,
+            // display scaling, or touch-injection flags.
+            disablePixelboardPackage()
+
             // DISPLAY_IME_POLICY_HIDE is 2 (LOCAL=0, FALLBACK_DISPLAY=1, HIDE=2).
             // Apply only to this virtual display: don't disable Pixelboard/Gboard globally.
             runCatching {
@@ -492,6 +498,24 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             return null
         }
         return x.toInt().coerceIn(0, (virtualWidth - 1).coerceAtLeast(0)) to y.toInt().coerceIn(0, (virtualHeight - 1).coerceAtLeast(0))
+    }
+
+    private fun disablePixelboardPackage() {
+        val packageName = "com.akshaykadam.pixelboard"
+        val result = runShizukuShell(
+            "pm disable-user --user 0 $packageName",
+            timeoutMs = 4000L,
+            maxCharacters = 900
+        )
+        val output = result.second.trim()
+        if (result.first == 0 && !output.contains("Unknown package", ignoreCase = true) &&
+            !output.contains("not found", ignoreCase = true) &&
+            !output.contains("Error", ignoreCase = true)
+        ) {
+            Log.i(TAG, "Pixelboard dinonaktifkan agar tidak muncul di virtual display • package=$packageName • $output")
+        } else {
+            Log.w(TAG, "Tidak dapat menonaktifkan Pixelboard • package=$packageName • exit=${result.first} • $output")
+        }
     }
 
     private fun runInputCommand(displayId: Int, command: String, action: String): Boolean {
