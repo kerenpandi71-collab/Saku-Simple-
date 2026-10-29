@@ -80,7 +80,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             // It has no public API to pin its task to display 0, so disable only
             // this package through Shizuku shell rather than changing global IME,
             // display scaling, or touch-injection flags.
-            disablePixelboardPackage()
+            restorePixelboardPackage()
 
             // DISPLAY_IME_POLICY_HIDE is 2 (LOCAL=0, FALLBACK_DISPLAY=1, HIDE=2).
             // Apply only to this virtual display: don't disable Pixelboard/Gboard globally.
@@ -500,10 +500,12 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         return x.toInt().coerceIn(0, (virtualWidth - 1).coerceAtLeast(0)) to y.toInt().coerceIn(0, (virtualHeight - 1).coerceAtLeast(0))
     }
 
-    private fun disablePixelboardPackage() {
+    private fun restorePixelboardPackage() {
+        // Earlier builds disabled this package globally. Re-enable it so the system IME
+        // remains available on the phone's main display; only the virtual display gets IME_HIDE.
         val packageName = "com.akshaykadam.pixelboard"
         val result = runShizukuShell(
-            "pm disable-user --user 0 $packageName",
+            "pm enable --user 0 $packageName",
             timeoutMs = 4000L,
             maxCharacters = 900
         )
@@ -512,9 +514,9 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             !output.contains("not found", ignoreCase = true) &&
             !output.contains("Error", ignoreCase = true)
         ) {
-            Log.i(TAG, "Pixelboard dinonaktifkan agar tidak muncul di virtual display • package=$packageName • $output")
+            Log.i(TAG, "Package Pixelboard diaktifkan kembali untuk display utama • package=$packageName • $output")
         } else {
-            Log.w(TAG, "Tidak dapat menonaktifkan Pixelboard • package=$packageName • exit=${result.first} • $output")
+            Log.w(TAG, "Tidak dapat memulihkan package Pixelboard • package=$packageName • exit=${result.first} • $output")
         }
     }
 
