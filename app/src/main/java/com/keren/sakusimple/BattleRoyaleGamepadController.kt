@@ -20,7 +20,8 @@ class BattleRoyaleGamepadController(
     private val displaySize: () -> Pair<Int, Int>,
     private val inject: (Int, IntArray, FloatArray, FloatArray) -> Boolean
 ) {
-    private val prefs = context.getSharedPreferences("saku_battle_royale_gamepad", Context.MODE_PRIVATE)
+    private val appContext: Context = context.applicationContext
+    private val prefs = appContext.getSharedPreferences("saku_battle_royale_gamepad", Context.MODE_PRIVATE)
     private val points = linkedMapOf<Int, Pair<Float, Float>>()
     private val physical = mutableMapOf<Int, Int>()
     private val buttonIds = mapOf("FIRE" to 2, "ADS" to 3, "JUMP" to 4, "CROUCH" to 5,
@@ -260,6 +261,6 @@ class BattleRoyaleGamepadController(
         points.keys.toList().asReversed().forEach { up(it) }
         physical.clear(); stickFinger = -1; cameraFinger = -1
     }
-    private fun dp(v: Int) = (v * view.context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
+    private fun dp(v: Int): Int = (v * appContext.resources.displayMetrics.density).toInt().coerceAtLeast(1)
     fun close() { releaseAll(); (view.parent as? FrameLayout)?.removeView(view) }
 }
