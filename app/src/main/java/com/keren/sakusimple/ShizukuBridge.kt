@@ -248,6 +248,19 @@ class ShizukuBridge(
         }
     }
 
+    fun runShellCommand(command: String): Boolean {
+        return try {
+            val service = remote ?: throw IllegalStateException("Shizuku UserService belum terhubung.")
+            val accepted = service.runShellCommand(command)
+            if (!accepted) onStatus("Perintah input Shizuku gagal: ${service.getLastError()}")
+            accepted
+        } catch (error: Throwable) {
+            Log.e(TAG, "runShellCommand failed", error)
+            onStatus("Shell Shizuku gagal: ${error.cause?.message ?: error.message}")
+            false
+        }
+    }
+
     fun getLastError(): String = try {
         remote?.getLastError() ?: "Shizuku UserService belum terhubung."
     } catch (error: Throwable) {
