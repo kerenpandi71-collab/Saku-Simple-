@@ -526,6 +526,23 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         return accepted
     }
 
+    override fun runShellCommand(command: String): Boolean {
+        // Only expose Android's input command to this bridge; never accept arbitrary shell code.
+        val safeCommand = command.trim()
+        val allowed = Regex("""^input -d [0-9]{1,5} (?:text '[^'\n]*(?:'\\''[^'\n]*)*'|keyevent (?:67|66|279))$""")
+        if (!allowed.matches(safeCommand)) {
+            lastError = "Perintah shell ditolak: hanya input text/backspace/enter/paste yang diizinkan."
+            return false
+        }
+        val displayMatch = Regex("""^input -d ([0-9]{1,5}) """).find(safeCommand)
+        val displayId = displayMatch?.groupValues?.get(1)?.toIntOrNull() ?: -1
+        if (displayId !in 0..10000) {
+            lastError = "Display ID tidak valid untuk input teks."
+            return false
+        }
+        return runInputCommand(displayId, safeCommand, "IME_TEXT")
+    }
+
     override fun releaseVirtualDisplay() {
         val identity = Binder.clearCallingIdentity()
         try {
