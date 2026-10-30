@@ -37,8 +37,8 @@ class GamepadOverlayController(
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "SakuGamepadInput").apply { isDaemon = true } }
     private val mobaKeys = listOf("STICK", "SKILL_1", "SKILL_2", "ULTIMATE", "BATTLE_SPELL", "BLINK", "ATTACK", "ITEM_CUSTOM", "RECALL", "REGEN", "FLICKER")
     private val battleKeys = listOf("BR_STICK", "BR_CAMERA", "BR_FIRE", "BR_ADS", "BR_JUMP", "BR_CROUCH", "BR_RELOAD", "BR_WEAPON", "BR_INTERACT", "BR_SPRINT")
-    private val keys get() = if (battleRoyale) battleKeys else mobaKeys
-    private var battleRoyale = prefs.getBoolean("profile_battle_royale", false)
+    private val keys get() = mobaKeys
+    private var battleRoyale = false
     private var cameraSensitivity = prefs.getFloat("br_camera_sensitivity", 1.35f).coerceIn(0.35f, 3f)
     private var cameraPointerActive = false
     private var cameraLastX = 0f
@@ -108,12 +108,6 @@ class GamepadOverlayController(
 
     fun showSettings() {
         val box = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), dp(4)) }
-        val profile = Spinner(context).apply {
-            adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, listOf("MOBA • Mobile Legends", "BATTLE ROYALE • PUBG / Blood Strike"))
-            setSelection(if (battleRoyale) 1 else 0)
-        }
-        box.addView(TextView(context).apply { text = "Profil kontrol"; setTextColor(Color.WHITE) })
-        box.addView(profile)
         box.addView(TextView(context).apply { text = "Sensitivitas kamera BR"; setTextColor(Color.WHITE) })
         val camera = SeekBar(context).apply { max = 265; progress = ((cameraSensitivity - 0.35f) * 100).toInt().coerceIn(0, 265) }
         box.addView(camera)
@@ -174,13 +168,12 @@ class GamepadOverlayController(
                 Toast.makeText(context, "Mapping dihapus", Toast.LENGTH_SHORT).show()
             }
         })
-        dialog = AlertDialog.Builder(context).setTitle(if (battleRoyale) "Gamepad Battle Royale" else "Gamepad ML • Portrait").setView(box)
+        dialog = AlertDialog.Builder(context).setTitle("Gamepad MOBA • Mobile Legends").setView(box)
             .setPositiveButton("Simpan", null).setNeutralButton("Letakkan mapping", null).setNegativeButton("Tutup", null).create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                battleRoyale = profile.selectedItemPosition == 1
                 cameraSensitivity = (0.35f + camera.progress / 100f).coerceIn(0.35f, 3f)
-                prefs.edit().putBoolean("profile_battle_royale", battleRoyale).putFloat("br_camera_sensitivity", cameraSensitivity).apply()
+                prefs.edit().putFloat("br_camera_sensitivity", cameraSensitivity).apply()
                 mappingKey = null
                 releaseAllTouchPoints()
                 heightFraction = (0.22f + height.progress / 100f).coerceIn(0.22f, 0.58f)
