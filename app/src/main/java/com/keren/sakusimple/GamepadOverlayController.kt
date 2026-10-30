@@ -29,8 +29,7 @@ class GamepadOverlayController(
     private val context: Context,
     private val root: android.widget.FrameLayout,
     private val displaySize: () -> Pair<Int, Int>,
-    private val injectTap: (Float, Float) -> Boolean,
-    private val injectTouch: (Int, Float, Float) -> Boolean,
+    private val injectTouchPoints: (Int, IntArray, FloatArray, FloatArray) -> Boolean,
     private val onStatus: (String) -> Unit
 ) {
     private data class Point(val x: Float, val y: Float)
@@ -59,16 +58,17 @@ class GamepadOverlayController(
     private var startPanelX = 0f
     private var startPanelY = 0f
     private var analogPointer = false
-    private var analogLastX = 0f
-    private var analogLastY = 0f
-    private var analogFingerStartX = 0f
-    private var analogFingerStartY = 0f
     private var analogPointerId = -1
     private var analogKnobDx = 0f
     private var analogKnobDy = 0f
     private val analogTravel = 0.12f
-    private val pendingAnalogMove = AtomicReference<Point?>(null)
-    private val analogMoveScheduled = AtomicBoolean(false)
+    private val activeTouchPoints = linkedMapOf<Int, Point>()
+    private val controlPointerIds = mutableMapOf<String, Int>()
+    private val physicalControls = mutableMapOf<Int, String>()
+    private val pendingTouchMove = AtomicReference<TouchFrame?>(null)
+    private val touchMoveScheduled = AtomicBoolean(false)
+    private data class TouchFrame(val action: Int, val ids: IntArray, val xs: FloatArray, val ys: FloatArray)
+    private var dragPointerId = -1
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val hitRects = mutableMapOf<String, RectF>()
     private var panelRect = RectF()
@@ -184,160 +184,237 @@ class GamepadOverlayController(
     }
 
     private fun handleTouch(event: MotionEvent): Boolean {
-        val x = event.x
-        val y = event.y
-        if (mappingKey != null && event.actionMasked == MotionEvent.ACTION_UP && !panelRect.contains(x, y)) {
-            val preview = findPreview(root)
-            val key = mappingKey ?: return true
-            if (preview != null && preview.width > 0 && preview.height > 0) {
-                val loc = IntArray(2)
-                preview.getLocationOnScreen(loc)
-                val sx = ((event.rawX - loc[0]) / preview.width).coerceIn(0f, 1f)
-                val sy = ((event.rawY - loc[1]) / preview.height).coerceIn(0f, 1f)
-                targets[key] = Point(sx, sy)
-                saveTargets()
-                mappingKey = null
-                view.invalidate()
-                view.visibility = if (visible) View.VISIBLE else View.GONE
-                onStatus((labels[key] ?: key) + " tersimpan. Marker bisa diseret untuk mengoreksi posisi.")
+        val actionIndex = event.actionIndex.coerceIn(0, event.pointerCount - 1)
+        val physicalId = event.getPointerId(actionIndex)
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                val x = event.getX(actionIndex)
+                val y = event.getY(actionIndex)
+                if (mappingKey != null && !panelRect.contains(x, y)) {
+                    placeMapping(event, actionIndex)
+                    return true
+                }
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                    val marker = targetHitRects.entries.firstOrNull { it.value.contains(x, y) }?.key
+                    if (marker != null && mappingKey == null) {
+                        draggingTargetKey = marker
+                        dragPointerId = physicalId
+                        return true
+                    }
+                    if (headerRect.contains(x, y) && panelRect.contains(x, y)) {
+                        draggingPanel = true
+                        dragPointerId = physicalId
+                        dragRawX = event.rawX
+                        dragRawY = event.rawY
+                        startPanelX = panelX
+                        startPanelY = panelY
+                        return true
+                    }
+                }
+                if (!panelRect.contains(x, y)) return mappingKey != null
+                val hit = hitRects.entries.firstOrNull { it.value.contains(x, y) }?.key ?: return true
+                if (hit == "STICK") {
+                    if (analogPointer) return true
+                    analogPointer = true
+                    analogPointerId = physicalId
+                    pressMappedControl("STICK")
+                    updateAnalogFromFinger(x, y)
+                } else {
+                    physicalControls[physicalId] = hit
+                    pressMappedControl(hit)
+                }
                 return true
             }
+            MotionEvent.ACTION_MOVE -> {
+                for (index in 0 until event.pointerCount) {
+                    val id = event.getPointerId(index)
+                    val x = event.getX(index)
+                    val y = event.getY(index)
+                    if (id == analogPointerId && analogPointer) updateAnalogFromFinger(x, y)
+                    if (id == dragPointerId) {
+                        if (draggingTargetKey != null) moveTargetMarker(event, index)
+                        else if (draggingPanel) movePanel(event, index)
+                    }
+                }
+                return true
+            }
+            MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_UP -> {
+                val x = event.getX(actionIndex)
+                val y = event.getY(actionIndex)
+                if (physicalId == dragPointerId) {
+                    if (draggingTargetKey != null) draggingTargetKey = null
+                    if (draggingPanel) draggingPanel = false
+                    dragPointerId = -1
+                    return true
+                }
+                if (physicalId == analogPointerId && analogPointer) {
+                    releaseMappedControl("STICK")
+                    analogPointer = false
+                    analogPointerId = -1
+                    analogKnobDx = 0f
+                    analogKnobDy = 0f
+                    view.invalidate()
+                    return true
+                }
+                val control = physicalControls.remove(physicalId)
+                if (control != null) releaseMappedControl(control)
+                if (mappingKey != null && !panelRect.contains(x, y)) placeMapping(event, actionIndex)
+                return true
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                physicalControls.clear()
+                analogPointer = false
+                analogPointerId = -1
+                analogKnobDx = 0f
+                analogKnobDy = 0f
+                draggingTargetKey = null
+                draggingPanel = false
+                dragPointerId = -1
+                releaseAllTouchPoints()
+                view.invalidate()
+                return true
+            }
+        }
+        return panelRect.contains(event.x, event.y) || mappingKey != null
+    }
+
+    private fun placeMapping(event: MotionEvent, index: Int) {
+        val preview = findPreview(root)
+        val key = mappingKey ?: return
+        if (preview == null || preview.width <= 0 || preview.height <= 0) {
             mappingKey = null
             onStatus("Preview belum tersedia; mulai virtual display dahulu.")
             view.invalidate()
-            return true
+            return
         }
-        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-            val marker = targetHitRects.entries.firstOrNull { it.value.contains(x, y) }?.key
-            if (marker != null && mappingKey == null) {
-                draggingTargetKey = marker
-                return true
-            }
-            if (!panelRect.contains(x, y)) return mappingKey != null
-            if (headerRect.contains(x, y)) {
-                draggingPanel = true
-                dragRawX = event.rawX; dragRawY = event.rawY
-                startPanelX = panelX; startPanelY = panelY
-                return true
-            }
-            val hit = hitRects.entries.firstOrNull { it.value.contains(x, y) }?.key ?: return true
-            if (hit == "STICK") {
-                val target = targets[hit] ?: Point(0.15f, 0.72f)
-                analogPointer = true
-                analogLastX = target.x; analogLastY = target.y
-                analogFingerStartX = x
-                analogFingerStartY = y
-                analogPointerId = event.getPointerId(event.actionIndex)
-                analogKnobDx = 0f
-                analogKnobDy = 0f
-                val size = displaySize()
-                io.execute { injectTouch(MotionEvent.ACTION_DOWN, target.x * (size.first - 1), target.y * (size.second - 1)) }
-            } else sendMappedTap(hit)
-            return true
-        }
-        if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
-            val index = event.actionIndex
-            val px = event.getX(index); val py = event.getY(index)
-            val hit = hitRects.entries.firstOrNull { it.key != "STICK" && it.value.contains(px, py) }?.key
-            if (hit != null) sendMappedTap(hit)
-            return true
-        }
-        if (event.actionMasked == MotionEvent.ACTION_MOVE && draggingTargetKey != null) {
-            val key = draggingTargetKey ?: return true
-            val preview = findPreview(root)
-            if (preview != null && preview.width > 0 && preview.height > 0) {
-                val loc = IntArray(2); preview.getLocationOnScreen(loc)
-                val sx = ((event.rawX - loc[0]) / preview.width).coerceIn(0f, 1f)
-                val sy = ((event.rawY - loc[1]) / preview.height).coerceIn(0f, 1f)
-                targets[key] = Point(sx, sy)
-                saveTargets()
-                view.invalidate()
-            }
-            return true
-        }
-        if (event.actionMasked == MotionEvent.ACTION_MOVE && draggingPanel) {
-            panelX = (startPanelX + (event.rawX - dragRawX) / max(1f, root.width.toFloat())).coerceIn(0f, 0.72f)
-            panelY = (startPanelY + (event.rawY - dragRawY) / max(1f, root.height.toFloat())).coerceIn(0.2f, 0.9f)
-            prefs.edit().putFloat("panel_x", panelX).putFloat("panel_y", panelY).apply()
-            view.invalidate()
-            return true
-        }
-        if (event.actionMasked == MotionEvent.ACTION_MOVE && analogPointer) {
-            val pointerIndex = event.findPointerIndex(analogPointerId)
-            if (pointerIndex < 0) return true
-            val rect = hitRects["STICK"] ?: return true
-            val target = targets["STICK"] ?: Point(0.15f, 0.72f)
-            val radius = max(1f, min(rect.width(), rect.height()) * 0.78f)
-            val dx = (event.getX(pointerIndex) - analogFingerStartX) / radius
-            val dy = (event.getY(pointerIndex) - analogFingerStartY) / radius
-            val magnitude = kotlin.math.sqrt(dx * dx + dy * dy)
-            val clamped = min(1f, magnitude)
-            analogKnobDx = if (magnitude > 0f) dx / magnitude * clamped else 0f
-            analogKnobDy = if (magnitude > 0f) dy / magnitude * clamped else 0f
-            val nx = (target.x + analogKnobDx * analogTravel).coerceIn(0f, 1f)
-            val ny = (target.y + analogKnobDy * analogTravel).coerceIn(0f, 1f)
-            analogLastX = nx; analogLastY = ny
-            val size = displaySize()
-            queueAnalogMove(nx * (size.first - 1), ny * (size.second - 1))
-            view.invalidate()
-            return true
-        }
-        if (event.actionMasked == MotionEvent.ACTION_POINTER_UP && analogPointer &&
-            event.getPointerId(event.actionIndex) == analogPointerId) {
-            releaseAnalog()
-            return true
-        }
-        if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
-            if (draggingTargetKey != null) { draggingTargetKey = null; return true }
-            if (draggingPanel) { draggingPanel = false; return true }
-            if (analogPointer) {
-                releaseAnalog()
-                return true
-            }
-            return panelRect.contains(x, y) || mappingKey != null
-        }
-        return panelRect.contains(x, y) || mappingKey != null
+        val loc = IntArray(2)
+        preview.getLocationOnScreen(loc)
+        val sx = ((event.rawX - loc[0]) / preview.width).coerceIn(0f, 1f)
+        val sy = ((event.rawY - loc[1]) / preview.height).coerceIn(0f, 1f)
+        targets[key] = Point(sx, sy)
+        saveTargets()
+        mappingKey = null
+        view.invalidate()
+        view.visibility = if (visible) View.VISIBLE else View.GONE
+        onStatus((labels[key] ?: key) + " tersimpan. Marker bisa diseret untuk mengoreksi posisi.")
     }
 
-    private fun releaseAnalog() {
-        if (!analogPointer) return
-        analogPointer = false
-        analogPointerId = -1
-        analogKnobDx = 0f
-        analogKnobDy = 0f
-        val size = displaySize()
-        io.execute { injectTouch(MotionEvent.ACTION_UP, analogLastX * (size.first - 1), analogLastY * (size.second - 1)) }
+    private fun moveTargetMarker(event: MotionEvent, index: Int) {
+        val key = draggingTargetKey ?: return
+        val preview = findPreview(root) ?: return
+        if (preview.width <= 0 || preview.height <= 0) return
+        val loc = IntArray(2)
+        preview.getLocationOnScreen(loc)
+        val sx = ((event.rawX - loc[0]) / preview.width).coerceIn(0f, 1f)
+        val sy = ((event.rawY - loc[1]) / preview.height).coerceIn(0f, 1f)
+        targets[key] = Point(sx, sy)
+        saveTargets()
         view.invalidate()
     }
 
-    /** Coalesce fast finger movement while keeping the injected touch stream ordered. */
-    private fun queueAnalogMove(x: Float, y: Float) {
-        pendingAnalogMove.set(Point(x, y))
-        scheduleAnalogDrain()
+    private fun movePanel(event: MotionEvent, index: Int) {
+        panelX = (startPanelX + (event.rawX - dragRawX) / max(1f, root.width.toFloat())).coerceIn(0f, 0.72f)
+        panelY = (startPanelY + (event.rawY - dragRawY) / max(1f, root.height.toFloat())).coerceIn(0f, 0.9f)
+        prefs.edit().putFloat("panel_x", panelX).putFloat("panel_y", panelY).apply()
+        view.invalidate()
     }
 
-    private fun scheduleAnalogDrain() {
-        if (!analogMoveScheduled.compareAndSet(false, true)) return
+    /** Dextop-style radial normalization, adapted to a virtual-display touch target. */
+    private fun updateAnalogFromFinger(x: Float, y: Float) {
+        val rect = hitRects["STICK"] ?: return
+        val target = targets["STICK"] ?: Point(0.15f, 0.72f)
+        val range = max(1f, min(rect.width(), rect.height()) * 0.42f)
+        var vx = ((x - rect.centerX()) / range).coerceIn(-1f, 1f)
+        var vy = ((y - rect.centerY()) / range).coerceIn(-1f, 1f)
+        val magnitude = kotlin.math.sqrt(vx * vx + vy * vy)
+        if (magnitude > 1f) { vx /= magnitude; vy /= magnitude }
+        if (magnitude < 0.08f) { vx = 0f; vy = 0f }
+        analogKnobDx = vx
+        analogKnobDy = vy
+        val nx = (target.x + vx * analogTravel).coerceIn(0f, 1f)
+        val ny = (target.y + vy * analogTravel).coerceIn(0f, 1f)
+        updateActiveTouchPoint("STICK", Point(nx, ny))
+        view.invalidate()
+    }
+
+    private fun pointerIdFor(key: String): Int = if (key == "STICK") 0 else (keys.indexOf(key) + 1).coerceAtLeast(1)
+
+    private fun pressMappedControl(key: String) {
+        if (key in controlPointerIds) return
+        val point = targets[key]
+        if (point == null) {
+            onStatus("Tombol " + (labels[key] ?: key) + " belum dipetakan. Buka pengaturan gamepad.")
+            return
+        }
+        val id = pointerIdFor(key)
+        if (activeTouchPoints.isEmpty()) {
+            activeTouchPoints[id] = point
+            dispatchTouchFrame(MotionEvent.ACTION_DOWN)
+        } else {
+            activeTouchPoints[id] = point
+            val index = activeTouchPoints.keys.indexOf(id)
+            dispatchTouchFrame(MotionEvent.ACTION_POINTER_DOWN or (index shl MotionEvent.ACTION_POINTER_INDEX_SHIFT))
+        }
+        controlPointerIds[key] = id
+    }
+
+    private fun updateActiveTouchPoint(key: String, point: Point) {
+        val id = controlPointerIds[key] ?: pointerIdFor(key)
+        if (id !in activeTouchPoints) return
+        activeTouchPoints[id] = point
+        queueTouchMove()
+    }
+
+    private fun releaseMappedControl(key: String) {
+        val id = controlPointerIds.remove(key) ?: pointerIdFor(key)
+        if (id !in activeTouchPoints) return
+        val ids = activeTouchPoints.keys.toList()
+        val index = ids.indexOf(id)
+        val action = if (ids.size == 1) MotionEvent.ACTION_UP else
+            MotionEvent.ACTION_POINTER_UP or (index shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)
+        dispatchTouchFrame(action)
+        activeTouchPoints.remove(id)
+    }
+
+    private fun releaseAllTouchPoints() {
+        if (activeTouchPoints.isEmpty()) return
+        dispatchTouchFrame(MotionEvent.ACTION_CANCEL)
+        activeTouchPoints.clear()
+        controlPointerIds.clear()
+    }
+
+    private fun currentTouchFrame(action: Int): TouchFrame {
+        val entries = activeTouchPoints.entries.toList()
+        val size = displaySize()
+        return TouchFrame(
+            action,
+            IntArray(entries.size) { entries[it].key },
+            FloatArray(entries.size) { entries[it].value.x * (size.first - 1) },
+            FloatArray(entries.size) { entries[it].value.y * (size.second - 1) }
+        )
+    }
+
+    private fun dispatchTouchFrame(action: Int) {
+        val frame = currentTouchFrame(action)
         io.execute {
-            try {
-                while (true) {
-                    val next = pendingAnalogMove.getAndSet(null) ?: break
-                    injectTouch(MotionEvent.ACTION_MOVE, next.x, next.y)
-                }
-            } finally {
-                analogMoveScheduled.set(false)
-                if (pendingAnalogMove.get() != null) scheduleAnalogDrain()
-            }
+            val accepted = injectTouchPoints(frame.action, frame.ids, frame.xs, frame.ys)
+            if (!accepted) onStatus("Input gamepad gagal dikirim ke virtual display.")
         }
     }
 
-    private fun sendMappedTap(key: String) {
-        val p = targets[key]
-        if (p == null) { onStatus("Tombol " + key + " belum dipetakan. Buka pengaturan gamepad."); return }
-        val size = displaySize()
+    private fun queueTouchMove() {
+        pendingTouchMove.set(currentTouchFrame(MotionEvent.ACTION_MOVE))
+        if (!touchMoveScheduled.compareAndSet(false, true)) return
         io.execute {
-            val ok = injectTap((p.x * size.first).coerceIn(0f, (size.first - 1).toFloat()), (p.y * size.second).coerceIn(0f, (size.second - 1).toFloat()))
-            if (!ok) onStatus("Mapping " + key + " gagal dikirim. Periksa Shizuku dan virtual display.")
+            try {
+                while (true) {
+                    val frame = pendingTouchMove.getAndSet(null) ?: break
+                    injectTouchPoints(frame.action, frame.ids, frame.xs, frame.ys)
+                }
+            } finally {
+                touchMoveScheduled.set(false)
+                if (pendingTouchMove.get() != null) queueTouchMove()
+            }
         }
     }
 
@@ -510,7 +587,7 @@ class GamepadOverlayController(
     }
 
     fun close() {
-        if (analogPointer) releaseAnalog()
+        releaseAllTouchPoints()
         io.shutdown()
     }
 

@@ -184,8 +184,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             this,
             root,
             { Pair(targetWidth, targetHeight) },
-            { x, y -> virtualDisplayController?.injectTouchClick(x, y) ?: false },
-            { action, x, y -> virtualDisplayController?.injectTouchEvent(action, x, y) ?: false }
+            { action, ids, xs, ys -> virtualDisplayController?.injectTouchPoints(action, ids, xs, ys) ?: false }
         ) { message ->
             runOnUiThread {
                 if (::status.isInitialized) status.text = message
