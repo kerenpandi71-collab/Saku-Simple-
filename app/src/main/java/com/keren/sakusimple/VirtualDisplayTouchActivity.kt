@@ -19,6 +19,10 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.KeyCharacterMap
 import android.view.inputmethod.InputMethodManager
+import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputConnectionWrapper
+import android.view.inputmethod.EditorInfo
+import android.view.KeyEvent
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -26,8 +30,6 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.ScrollView
 import android.widget.SeekBar
-import android.text.Editable
-import android.text.TextWatcher
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -647,7 +649,33 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
         // IME bridge: field 1x1 transparan tetap berada di Activity utama (display 0).
         // IME virtual display sendiri disembunyikan oleh ShizukuUserService.
-        imeBridgeEditText = EditText(this).apply {
+        imeBridgeEditText = object : EditText(this) {
+            override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
+                val base = super.onCreateInputConnection(outAttrs) ?: return null
+                return object : InputConnectionWrapper(base, false) {
+                    override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                        val committed = text?.toString().orEmpty()
+                        val result = super.commitText(text, newCursorPosition)
+                        if (committed.isNotEmpty()) sendImeBridgeText(committed)
+                        return result
+                    }
+                    override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
+                        if (beforeLength > 0) sendImeBridgeDelete(beforeLength)
+                        return super.deleteSurroundingText(beforeLength, afterLength)
+                    }
+                    override fun sendKeyEvent(event: KeyEvent): Boolean {
+                        if (event.action == KeyEvent.ACTION_DOWN) {
+                            when (event.keyCode) {
+                                KeyEvent.KEYCODE_DEL -> sendImeBridgeDelete(1)
+                                KeyEvent.KEYCODE_ENTER -> sendImeBridgeText("\n")
+                                else -> event.unicodeChar.takeIf { it > 0 }?.let { sendImeBridgeText(String(Character.toChars(it))) }
+                            }
+                        }
+                        return true
+                    }
+                }
+            }
+        }.apply {
             setSingleLine(false)
             inputType = android.text.InputType.TYPE_CLASS_TEXT or
                 android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
@@ -662,18 +690,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             setShowSoftInputOnFocus(true)
             importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
             contentDescription = "Jembatan input Gboard ke virtual display"
-            addTextChangedListener(object : TextWatcher {
-                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                    // Gboard composition updates are forwarded as insert/delete deltas.
-                    val current = s ?: return
-                    val inserted = current.subSequence(start, (start + count).coerceAtMost(current.length)).toString()
-                    // TextWatcher reports replacements made by Gboard's composing region too:
-                    // delete the old composing characters first, then inject the replacement.
-                    sendImeBridgeDelta(before, inserted)
-                }
-                override fun afterTextChanged(s: Editable?) = Unit
-            })
+
         }
         root.addView(imeBridgeEditText, FrameLayout.LayoutParams(dp(1), dp(1), Gravity.TOP or Gravity.START))
         setContentView(root)
@@ -850,6 +867,50 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 status.text = "Keyboard Android aktif • teks diteruskan ke virtual display."
             }
         }, 250L)
+    }
+
+    private fun sendImeBridgeText(text: String) {
+        val id = virtualDisplayController?.displayId ?: -1
+        if (id < 0 || text.isEmpty()) return
+        keyboardInputExecutor.execute {
+            val actions = ArrayList<Int>()
+            val codes = ArrayList<Int>()
+            val metas = ArrayList<Int>()
+            text.forEach { character ->
+                if (character == '\n' || character == '\r') {
+                    actions.add(KeyEvent.ACTION_DOWN); codes.add(KeyEvent.KEYCODE_ENTER); metas.add(0)
+                    actions.add(KeyEvent.ACTION_UP); codes.add(KeyEvent.KEYCODE_ENTER); metas.add(0)
+                } else {
+                    runCatching {
+                        KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD).getEvents(character.toString().toCharArray())
+                    }.getOrNull()?.forEach { event ->
+                        actions.add(event.action); codes.add(event.keyCode); metas.add(event.metaState)
+                    }
+                }
+            }
+            if (actions.isEmpty()) return@execute
+            val accepted = virtualDisplayController?.injectKeyEvents(id, actions.toIntArray(), codes.toIntArray(), metas.toIntArray()) ?: false
+            if (!accepted) runOnUiThread {
+                appendRuntimeLog("IME commit gagal ke display $id: ${shizukuBridge.getLastError()}")
+                status.text = "Input ditolak. Periksa koneksi/izin Shizuku dan fokus aplikasi virtual display."
+            }
+        }
+    }
+
+    private fun sendImeBridgeDelete(count: Int) {
+        val id = virtualDisplayController?.displayId ?: -1
+        if (id < 0 || count <= 0) return
+        keyboardInputExecutor.execute {
+            val actions = IntArray(count.coerceAtMost(64) * 2) { i ->
+                if (i % 2 == 0) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP
+            }
+            val codes = IntArray(actions.size) { KeyEvent.KEYCODE_DEL }
+            val metas = IntArray(actions.size)
+            val accepted = virtualDisplayController?.injectKeyEvents(id, actions, codes, metas) ?: false
+            if (!accepted) runOnUiThread {
+                appendRuntimeLog("IME delete gagal: ${shizukuBridge.getLastError()}")
+            }
+        }
     }
 
     private fun sendImeBridgeDelta(deletedCharacters: Int, insertedText: String) {
