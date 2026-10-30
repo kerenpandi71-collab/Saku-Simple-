@@ -905,46 +905,64 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }, 250L)
     }
 
+    private fun shellQuote(value: String): String =
+        "'" + value.replace("'", "'\\''") + "'"
+
     private fun sendImeBridgeText(text: String) {
-        val id = virtualDisplayController?.displayId ?: -1
-        if (id < 0 || text.isEmpty()) return
+        val displayId = virtualDisplayController?.displayId ?: -1
+        if (displayId < 0 || text.isEmpty()) return
         keyboardInputExecutor.execute {
-            val actions = ArrayList<Int>()
-            val codes = ArrayList<Int>()
-            val metas = ArrayList<Int>()
-            text.forEach { character ->
-                if (character == '\n' || character == '\r') {
-                    actions.add(KeyEvent.ACTION_DOWN); codes.add(KeyEvent.KEYCODE_ENTER); metas.add(0)
-                    actions.add(KeyEvent.ACTION_UP); codes.add(KeyEvent.KEYCODE_ENTER); metas.add(0)
-                } else {
-                    runCatching {
-                        KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD).getEvents(character.toString().toCharArray())
-                    }.getOrNull()?.forEach { event ->
-                        actions.add(event.action); codes.add(event.keyCode); metas.add(event.metaState)
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val parts = text.split('\n')
+            var allAccepted = true
+            parts.forEachIndexed { index, part ->
+                if (part.isNotEmpty()) {
+                    // Android's input tool uses %s as its space escape. Shell quoting
+                    // protects quotes, semicolons, $, backticks and other metacharacters.
+                    val encoded = part.replace("%", "%25").replace(" ", "%s")
+                    val command = "input -d $displayId text ${shellQuote(encoded)}"
+                    var accepted = shizukuBridge.runShellCommand(command)
+                    if (!accepted) {
+                        // Fallback for Unicode/symbols unsupported by the input tool.
+                        runCatching {
+                            clipboard.setPrimaryClip(ClipData.newPlainText("Saku keyboard", part))
+                        }.onFailure {
+                            appendRuntimeLog("Clipboard fallback gagal: ${it.message}")
+                        }
+                        accepted = shizukuBridge.runShellCommand("input -d $displayId keyevent 279")
+                    }
+                    if (!accepted) {
+                        allAccepted = false
+                        runOnUiThread {
+                            appendRuntimeLog("Teks gagal dikirim ke display $displayId: ${shizukuBridge.getLastError()}")
+                            status.text = "Input teks gagal • periksa fokus virtual display dan izin Shizuku."
+                        }
+                    }
+                }
+                if (index < parts.lastIndex) {
+                    if (!shizukuBridge.runShellCommand("input -d $displayId keyevent 66")) {
+                        allAccepted = false
                     }
                 }
             }
-            if (actions.isEmpty()) return@execute
-            val accepted = virtualDisplayController?.injectKeyEvents(actions.toIntArray(), codes.toIntArray(), metas.toIntArray()) ?: false
-            if (!accepted) runOnUiThread {
-                appendRuntimeLog("IME commit gagal ke display $id: ${shizukuBridge.getLastError()}")
-                status.text = "Input ditolak. Periksa koneksi/izin Shizuku dan fokus aplikasi virtual display."
+            if (allAccepted) runOnUiThread {
+                status.text = "Teks dikirim melalui Shizuku ke display $displayId."
             }
         }
     }
 
     private fun sendImeBridgeDelete(count: Int) {
-        val id = virtualDisplayController?.displayId ?: -1
-        if (id < 0 || count <= 0) return
+        val displayId = virtualDisplayController?.displayId ?: -1
+        if (displayId < 0 || count <= 0) return
         keyboardInputExecutor.execute {
-            val actions = IntArray(count.coerceAtMost(64) * 2) { i ->
-                if (i % 2 == 0) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP
-            }
-            val codes = IntArray(actions.size) { KeyEvent.KEYCODE_DEL }
-            val metas = IntArray(actions.size)
-            val accepted = virtualDisplayController?.injectKeyEvents(actions, codes, metas) ?: false
-            if (!accepted) runOnUiThread {
-                appendRuntimeLog("IME delete gagal: ${shizukuBridge.getLastError()}")
+            repeat(count.coerceAtMost(64)) {
+                if (!shizukuBridge.runShellCommand("input -d $displayId keyevent 67")) {
+                    runOnUiThread {
+                        appendRuntimeLog("Backspace gagal: ${shizukuBridge.getLastError()}")
+                        status.text = "Backspace gagal dikirim ke virtual display."
+                    }
+                    return@execute
+                }
             }
         }
     }
