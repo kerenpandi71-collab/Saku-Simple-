@@ -531,7 +531,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         val safeCommand = command.trim()
         val displayPrefix = Regex("""^input -d ([0-9]{1,5}) """).find(safeCommand)
         val tail = displayPrefix?.let { safeCommand.substring(it.range.last + 1) }.orEmpty()
-        val isKeyEvent = tail == "keyevent 67" || tail == "keyevent 66" || tail == "keyevent 279"
+        val isKeyEvent = tail == "keyevent 67" || tail == "keyevent 66" || tail == "keyevent 112" || tail == "keyevent 279"
         val isText = tail.startsWith("text '") && tail.endsWith("'") &&
             !tail.contains('\n') && !tail.contains(';') && !tail.contains('`') &&
             tail.removePrefix("text '").removeSuffix("'").replace("'\\''", "").none { it == '\'' }
