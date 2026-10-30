@@ -35,12 +35,23 @@ class GamepadOverlayController(
     private data class Point(val x: Float, val y: Float)
     private val prefs = context.getSharedPreferences("saku_gamepad_overlay", Context.MODE_PRIVATE)
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "SakuGamepadInput").apply { isDaemon = true } }
-    private val keys = listOf("STICK", "SKILL_1", "SKILL_2", "ULTIMATE", "BATTLE_SPELL", "BLINK", "ATTACK", "ITEM_CUSTOM", "RECALL", "REGEN", "FLICKER")
+    private val mobaKeys = listOf("STICK", "SKILL_1", "SKILL_2", "ULTIMATE", "BATTLE_SPELL", "BLINK", "ATTACK", "ITEM_CUSTOM", "RECALL", "REGEN", "FLICKER")
+    private val battleKeys = listOf("BR_STICK", "BR_CAMERA", "BR_FIRE", "BR_ADS", "BR_JUMP", "BR_CROUCH", "BR_RELOAD", "BR_WEAPON", "BR_INTERACT", "BR_SPRINT")
+    private val keys get() = if (battleRoyale) battleKeys else mobaKeys
+    private var battleRoyale = prefs.getBoolean("profile_battle_royale", false)
+    private var cameraSensitivity = prefs.getFloat("br_camera_sensitivity", 1.35f).coerceIn(0.35f, 3f)
+    private var cameraPointerActive = false
+    private var cameraLastX = 0f
+    private var cameraLastY = 0f
+    private val cameraPointerId = 30
     private val labels = mapOf(
         "STICK" to "Joystick gerak 360°", "SKILL_1" to "Skill 1", "SKILL_2" to "Skill 2",
         "ULTIMATE" to "Skill 3 / Ultimate", "BATTLE_SPELL" to "Battle Spell", "BLINK" to "Blink",
         "ATTACK" to "Serang dasar", "ITEM_CUSTOM" to "Item / tombol custom",
-        "RECALL" to "Recall", "REGEN" to "Regen", "FLICKER" to "Flicker"
+        "RECALL" to "Recall", "REGEN" to "Regen", "FLICKER" to "Flicker",
+        "BR_STICK" to "Joystick gerak", "BR_CAMERA" to "Geser kamera", "BR_FIRE" to "Tembak",
+        "BR_ADS" to "Bidik / ADS", "BR_JUMP" to "Lompat", "BR_CROUCH" to "Jongkok",
+        "BR_RELOAD" to "Reload", "BR_WEAPON" to "Ganti senjata", "BR_INTERACT" to "Interaksi", "BR_SPRINT" to "Sprint"
     )
     private val targets = mutableMapOf<String, Point>()
     private var visible = prefs.getBoolean("visible", true)
@@ -97,6 +108,15 @@ class GamepadOverlayController(
 
     fun showSettings() {
         val box = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), dp(4)) }
+        val profile = Spinner(context).apply {
+            adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, listOf("MOBA • Mobile Legends", "BATTLE ROYALE • PUBG / Blood Strike"))
+            setSelection(if (battleRoyale) 1 else 0)
+        }
+        box.addView(TextView(context).apply { text = "Profil kontrol"; setTextColor(Color.WHITE) })
+        box.addView(profile)
+        box.addView(TextView(context).apply { text = "Sensitivitas kamera BR"; setTextColor(Color.WHITE) })
+        val camera = SeekBar(context).apply { max = 265; progress = ((cameraSensitivity - 0.35f) * 100).toInt().coerceIn(0, 265) }
+        box.addView(camera)
         box.addView(TextView(context).apply { text = "Tinggi gamepad"; setTextColor(Color.WHITE) })
         val height = SeekBar(context).apply { max = 36; progress = ((heightFraction - 0.22f) * 100).toInt().coerceIn(0, 36) }
         box.addView(height)
@@ -154,10 +174,15 @@ class GamepadOverlayController(
                 Toast.makeText(context, "Mapping dihapus", Toast.LENGTH_SHORT).show()
             }
         })
-        dialog = AlertDialog.Builder(context).setTitle("Gamepad ML • Portrait").setView(box)
+        dialog = AlertDialog.Builder(context).setTitle(if (battleRoyale) "Gamepad Battle Royale" else "Gamepad ML • Portrait").setView(box)
             .setPositiveButton("Simpan", null).setNeutralButton("Letakkan mapping", null).setNegativeButton("Tutup", null).create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                battleRoyale = profile.selectedItemPosition == 1
+                cameraSensitivity = (0.35f + camera.progress / 100f).coerceIn(0.35f, 3f)
+                prefs.edit().putBoolean("profile_battle_royale", battleRoyale).putFloat("br_camera_sensitivity", cameraSensitivity).apply()
+                mappingKey = null
+                releaseAllTouchPoints()
                 heightFraction = (0.22f + height.progress / 100f).coerceIn(0.22f, 0.58f)
                 scale = (0.7f + size.progress / 100f).coerceIn(0.7f, 1.3f)
                 transparencyPercent = (10 + transparency.progress).coerceIn(10, 90)
@@ -213,7 +238,13 @@ class GamepadOverlayController(
                 }
                 if (!panelRect.contains(x, y)) return mappingKey != null
                 val hit = hitRects.entries.firstOrNull { it.value.contains(x, y) }?.key ?: return true
-                if (hit == "STICK") {
+                if (battleRoyale && hit == "BR_CAMERA") {
+                    cameraPointerActive = true
+                    cameraLastX = x
+                    cameraLastY = y
+                    physicalControls[physicalId] = "BR_CAMERA"
+                    pressCameraPointer()
+                } else if (hit == "STICK" || hit == "BR_STICK") {
                     if (analogPointer) return true
                     analogPointer = true
                     analogPointerId = physicalId
@@ -231,6 +262,7 @@ class GamepadOverlayController(
                     val x = event.getX(index)
                     val y = event.getY(index)
                     if (id == analogPointerId && analogPointer) updateAnalogFromFinger(x, y)
+                    if (cameraPointerActive && physicalControls[id] == "BR_CAMERA") updateCameraFromFinger(x, y)
                     if (id == dragPointerId) {
                         if (draggingTargetKey != null) moveTargetMarker(event, index)
                         else if (draggingPanel) movePanel(event, index)
@@ -245,6 +277,11 @@ class GamepadOverlayController(
                     if (draggingTargetKey != null) draggingTargetKey = null
                     if (draggingPanel) draggingPanel = false
                     dragPointerId = -1
+                    return true
+                }
+                if (physicalControls.remove(physicalId) == "BR_CAMERA") {
+                    cameraPointerActive = false
+                    releaseMappedControl("BR_CAMERA")
                     return true
                 }
                 if (physicalId == analogPointerId && analogPointer) {
@@ -322,7 +359,7 @@ class GamepadOverlayController(
     /** Dextop-style radial normalization, adapted to a virtual-display touch target. */
     private fun updateAnalogFromFinger(x: Float, y: Float) {
         val rect = hitRects["STICK"] ?: return
-        val target = targets["STICK"] ?: Point(0.15f, 0.72f)
+        val target = targets[if (battleRoyale) "BR_STICK" else "STICK"] ?: Point(0.15f, 0.72f)
         val range = max(1f, min(rect.width(), rect.height()) * 0.42f)
         var vx = ((x - rect.centerX()) / range).coerceIn(-1f, 1f)
         var vy = ((y - rect.centerY()) / range).coerceIn(-1f, 1f)
@@ -333,11 +370,35 @@ class GamepadOverlayController(
         analogKnobDy = vy
         val nx = (target.x + vx * analogTravel).coerceIn(0f, 1f)
         val ny = (target.y + vy * analogTravel).coerceIn(0f, 1f)
-        updateActiveTouchPoint("STICK", Point(nx, ny))
+        updateActiveTouchPoint(if (battleRoyale) "BR_STICK" else "STICK", Point(nx, ny))
         view.invalidate()
     }
 
-    private fun pointerIdFor(key: String): Int = if (key == "STICK") 0 else (keys.indexOf(key) + 1).coerceAtLeast(1)
+    private fun pointerIdFor(key: String): Int = when (key) {
+        "STICK", "BR_STICK" -> 0
+        "BR_CAMERA" -> cameraPointerId
+        else -> (keys.indexOf(key) + 1).coerceAtLeast(1)
+    }
+
+    private fun pressCameraPointer() {
+        if (cameraPointerId in activeTouchPoints) return
+        val point = targets["BR_CAMERA"] ?: Point(0.72f, 0.58f)
+        val action = if (activeTouchPoints.isEmpty()) MotionEvent.ACTION_DOWN else MotionEvent.ACTION_POINTER_DOWN or (activeTouchPoints.size shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)
+        activeTouchPoints[cameraPointerId] = point
+        controlPointerIds["BR_CAMERA"] = cameraPointerId
+        dispatchTouchFrame(action)
+    }
+
+    private fun updateCameraFromFinger(x: Float, y: Float) {
+        val dx = (x - cameraLastX) * cameraSensitivity
+        val dy = (y - cameraLastY) * cameraSensitivity
+        cameraLastX = x
+        cameraLastY = y
+        val size = displaySize()
+        val old = activeTouchPoints[cameraPointerId] ?: return
+        activeTouchPoints[cameraPointerId] = Point((old.x + dx / max(1f, size.first.toFloat())).coerceIn(0f, 1f), (old.y + dy / max(1f, size.second.toFloat())).coerceIn(0f, 1f))
+        queueTouchMove()
+    }
 
     private fun pressMappedControl(key: String) {
         if (key in controlPointerIds) return
@@ -444,10 +505,22 @@ class GamepadOverlayController(
         paint.color = Color.WHITE
         paint.textAlign = Paint.Align.CENTER
         paint.textSize = dp(10).toFloat()
-        canvas.drawText("SAKU • ML PORTRAIT • SERET HEADER", headerRect.centerX(), headerRect.centerY() + dp(3).toFloat(), paint)
+        canvas.drawText(if (battleRoyale) "SAKU • BATTLE ROYALE • SERET HEADER" else "SAKU • ML PORTRAIT • SERET HEADER", headerRect.centerX(), headerRect.centerY() + dp(3).toFloat(), paint)
         paint.textAlign = Paint.Align.LEFT
 
         val r = min(ph * 0.115f, dp(40).toFloat() * scale)
+        if (battleRoyale) {
+            drawStick(canvas, left + pw * 0.15f, top + ph * 0.68f, r * 1.38f)
+            drawButton(canvas, "BR_CAMERA", left + pw * 0.69f, top + ph * 0.56f, r * 2.45f, "LOOK", Color.rgb(70, 170, 255), "Geser kamera")
+            drawButton(canvas, "BR_FIRE", left + pw * 0.91f, top + ph * 0.65f, r * 1.02f, "FIRE", Color.rgb(235, 75, 65), "Tembak")
+            drawButton(canvas, "BR_ADS", left + pw * 0.78f, top + ph * 0.34f, r * 0.72f, "ADS", Color.rgb(80, 145, 230), "Bidik")
+            drawButton(canvas, "BR_JUMP", left + pw * 0.91f, top + ph * 0.34f, r * 0.68f, "JUMP", Color.rgb(80, 190, 130), "Lompat")
+            drawButton(canvas, "BR_CROUCH", left + pw * 0.78f, top + ph * 0.78f, r * 0.66f, "C", Color.rgb(170, 125, 220), "Jongkok")
+            drawButton(canvas, "BR_RELOAD", left + pw * 0.91f, top + ph * 0.83f, r * 0.62f, "R", Color.rgb(220, 170, 65), "Reload")
+            drawButton(canvas, "BR_WEAPON", left + pw * 0.57f, top + ph * 0.84f, r * 0.58f, "SWAP", Color.rgb(85, 160, 190), "Senjata")
+            drawButton(canvas, "BR_INTERACT", left + pw * 0.42f, top + ph * 0.84f, r * 0.55f, "USE", Color.rgb(80, 180, 155), "Interaksi")
+            drawButton(canvas, "BR_SPRINT", left + pw * 0.28f, top + ph * 0.40f, r * 0.56f, "RUN", Color.rgb(70, 190, 115), "Sprint")
+        } else {
         drawStick(canvas, left + pw * 0.17f, top + ph * 0.61f, r * 1.30f)
         // Skill cluster and large basic-attack button follow the supplied portrait reference.
         drawButton(canvas, "SKILL_1", left + pw * 0.68f, top + ph * 0.72f, r * 0.78f, "1", Color.rgb(64, 130, 255), "Skill 1")
@@ -460,6 +533,7 @@ class GamepadOverlayController(
         drawButton(canvas, "RECALL", left + pw * 0.34f, top + ph * 0.85f, r * 0.42f, "R", Color.rgb(80, 190, 255), "Recall")
         drawButton(canvas, "REGEN", left + pw * 0.43f, top + ph * 0.85f, r * 0.42f, "+", Color.rgb(75, 220, 115), "Regen")
         drawButton(canvas, "FLICKER", left + pw * 0.52f, top + ph * 0.85f, r * 0.42f, "✦", Color.rgb(255, 180, 65), "Flicker")
+        }
 
         val preview = findPreview(root)
         if (preview != null && preview.width > 0 && preview.height > 0) {
