@@ -536,7 +536,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             !tail.contains('\n') && !tail.contains(';') && !tail.contains('`') &&
             tail.removePrefix("text '").removeSuffix("'").replace("'\\''", "").none { it == '\'' }
         val allowed = displayPrefix != null && (isKeyEvent || isText)
-        if (!allowed.matches(safeCommand)) {
+        if (!allowed) {
             lastError = "Perintah shell ditolak: hanya input text/backspace/enter/paste yang diizinkan."
             return false
         }
