@@ -65,6 +65,8 @@ class GamepadOverlayController(
     private val activeTouchPoints = linkedMapOf<Int, Point>()
     private val controlPointerIds = mutableMapOf<String, Int>()
     private val physicalControls = mutableMapOf<Int, String>()
+    // Directional MLBB controls follow the finger while held.
+    private val aimDragControls = setOf("SKILL_1", "SKILL_2", "ULTIMATE", "FLICKER")
     private val pendingTouchMove = AtomicReference<TouchFrame?>(null)
     private val touchMoveScheduled = AtomicBoolean(false)
     private data class TouchFrame(val action: Int, val ids: IntArray, val xs: FloatArray, val ys: FloatArray)
@@ -228,6 +230,8 @@ class GamepadOverlayController(
                     val x = event.getX(index)
                     val y = event.getY(index)
                     if (id == analogPointerId && analogPointer) updateAnalogFromFinger(x, y)
+                    val heldControl = physicalControls[id]
+                    if (heldControl != null && heldControl in aimDragControls && heldControl in controlPointerIds) updateMappedAimFromFinger(heldControl, event, index)
                     if (id == dragPointerId) {
                         if (draggingTargetKey != null) moveTargetMarker(event, index)
                         else if (draggingPanel) movePanel(event, index)
@@ -332,6 +336,20 @@ class GamepadOverlayController(
         val ny = (target.y + vy * analogTravel).coerceIn(0f, 1f)
         updateActiveTouchPoint("STICK", Point(nx, ny))
         view.invalidate()
+    }
+
+
+    /** Keep the mapped virtual finger down and move it with the user's aim gesture. */
+    private fun updateMappedAimFromFinger(key: String, event: MotionEvent, index: Int) {
+        val preview = findPreview(root) ?: return
+        if (preview.width <= 0 || preview.height <= 0) return
+        val loc = IntArray(2)
+        preview.getLocationOnScreen(loc)
+        val rawX = event.rawX + event.getX(index) - event.getX(0)
+        val rawY = event.rawY + event.getY(index) - event.getY(0)
+        val nx = ((rawX - loc[0]) / preview.width).coerceIn(0f, 1f)
+        val ny = ((rawY - loc[1]) / preview.height).coerceIn(0f, 1f)
+        updateActiveTouchPoint(key, Point(nx, ny))
     }
 
     private fun pointerIdFor(key: String): Int = when (key) {
