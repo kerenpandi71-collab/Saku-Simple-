@@ -127,8 +127,8 @@ class BattleRoyaleGamepadController(
                     if(pid==stickFinger) updateStick(x,y)
                     if(pid==cameraFinger) {
                         val dx=x-cameraLastX; val dy=y-cameraLastY; cameraLastX=x; cameraLastY=y
-                        cameraX=(cameraX+dx*cameraSensitivity/max(1f,view.width)*.9f).coerceIn(.05f,.95f)
-                        cameraY=(cameraY+dy*cameraSensitivity/max(1f,view.height)*.9f).coerceIn(.05f,.95f)
+                        cameraX=(cameraX+dx*cameraSensitivity/max(1,view.width).toFloat()*.9f).coerceIn(.05f,.95f)
+                        cameraY=(cameraY+dy*cameraSensitivity/max(1,view.height).toFloat()*.9f).coerceIn(.05f,.95f)
                         move(10,cameraX,cameraY)
                     }
                 }
@@ -176,6 +176,6 @@ class BattleRoyaleGamepadController(
         inject(action,ids,xs,ys)
     }
     private fun releaseAll() { points.keys.toList().asReversed().forEach { up(it) }; physical.clear(); stickFinger=-1; cameraFinger=-1 }
-    private fun dp(v:Int)= (v*view.resources.displayMetrics.density).toInt().coerceAtLeast(1)
+    private fun dp(v: Int): Int = (v * view.context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
     fun close() { releaseAll(); (view.parent as? FrameLayout)?.removeView(view) }
 }
