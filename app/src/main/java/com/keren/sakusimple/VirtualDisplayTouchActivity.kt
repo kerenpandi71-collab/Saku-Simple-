@@ -913,48 +913,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
     }
 
-    private fun sendImeBridgeDelta(deletedCharacters: Int, insertedText: String) {
-        if ((virtualDisplayController?.displayId ?: -1) < 0) return
-        keyboardInputExecutor.execute {
-            val actions = ArrayList<Int>()
-            val keyCodes = ArrayList<Int>()
-            val metaStates = ArrayList<Int>()
-            fun addKey(code: Int) {
-                actions.add(android.view.KeyEvent.ACTION_DOWN)
-                keyCodes.add(code)
-                metaStates.add(0)
-                actions.add(android.view.KeyEvent.ACTION_UP)
-                keyCodes.add(code)
-                metaStates.add(0)
-            }
-            repeat(deletedCharacters.coerceAtMost(256)) {
-                addKey(android.view.KeyEvent.KEYCODE_DEL)
-            }
-            val chunks = insertedText.split(10.toChar())
-            chunks.forEachIndexed { index, chunk ->
-                if (chunk.isNotEmpty()) {
-                    val events = runCatching {
-                        KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD).getEvents(chunk.toCharArray())
-                    }.getOrNull()
-                    events?.forEach { event ->
-                        actions.add(event.action)
-                        keyCodes.add(event.keyCode)
-                        metaStates.add(event.metaState)
-                    }
-                }
-                if (index < chunks.lastIndex) addKey(android.view.KeyEvent.KEYCODE_ENTER)
-            }
-            if (actions.isEmpty()) return@execute
-            val accepted = virtualDisplayController?.injectKeyEvents(
-                actions.toIntArray(), keyCodes.toIntArray(), metaStates.toIntArray()
-            ) ?: false
-            if (!accepted) runOnUiThread {
-                appendRuntimeLog("Gboard bridge gagal mengirim ke virtual display: ${shizukuBridge.getLastError()}")
-                status.text = "Gagal meneruskan ketikan Gboard. Periksa Log."
-            }
-        }
-    }
-
     private fun cyberKey(label: String, utility: Boolean, repeatable: Boolean = false, action: () -> Unit): Button =
         Button(this).apply {
             text = label
