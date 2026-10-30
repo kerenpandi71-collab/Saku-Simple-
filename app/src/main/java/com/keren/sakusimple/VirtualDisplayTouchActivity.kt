@@ -731,13 +731,16 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             setTextColor(Color.TRANSPARENT)
             setHintTextColor(Color.TRANSPARENT)
             background = null
-            isFocusable = true
-            isFocusableInTouchMode = true
+            isFocusable = false
+            isFocusableInTouchMode = false
             setShowSoftInputOnFocus(true)
             importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
             contentDescription = "Jembatan input Gboard ke virtual display"
 
         }
+        // Input Gboard tidak lagi ditangkap oleh EditText dummy di display 0.
+        // Fokus harus tetap dimiliki editor aplikasi yang berjalan pada virtual display.
+        imeBridgeEditText.visibility = View.GONE
         root.addView(imeBridgeEditText, FrameLayout.LayoutParams(dp(1), dp(1), Gravity.TOP or Gravity.START))
         setContentView(root)
     }
@@ -894,25 +897,20 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
     private fun showSystemKeyboardBridge() {
         if ((virtualDisplayController?.displayId ?: -1) < 0) {
-            status.text = "Mulai virtual display dahulu, lalu buka Gboard."
+            status.text = "Mulai virtual display dahulu."
             return
         }
         keyboardPanelVisible = false
         if (::keyboardPanel.isInitialized) keyboardPanel.visibility = View.GONE
         val root = preview?.parent as? View
         if (root != null) updateDesktopLayout(root.width, root.height)
-        window.decorView.postDelayed({
-            if (isFinishing || isDestroyed) return@postDelayed
-            imeBridgeEditText.requestFocus()
-            imeBridgeEditText.post {
-                if (isFinishing || isDestroyed) return@post
-                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                imm.restartInput(imeBridgeEditText)
-                systemKeyboardRequested = true
-                imm.showSoftInput(imeBridgeEditText, InputMethodManager.SHOW_IMPLICIT)
-                status.text = "Keyboard Android aktif • teks diteruskan ke virtual display."
-            }
-        }, 250L)
+
+        // Jangan fokuskan EditText milik Activity utama: itu akan menjadikan display 0
+        // sebagai target input, bukan aplikasi yang sedang aktif di virtual display.
+        // Dengan FALLBACK_DISPLAY, pengguna cukup fokuskan kolom teks di aplikasi virtual;
+        // Android akan menampilkan Gboard di layar utama untuk editor tersebut.
+        systemKeyboardRequested = true
+        status.text = "Mode Gboard langsung aktif • ketuk kolom teks di aplikasi virtual display. Keyboard akan muncul di layar utama."
     }
 
     private fun shellQuote(value: String): String =
