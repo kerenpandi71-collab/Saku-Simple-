@@ -653,22 +653,58 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
                 val base = super.onCreateInputConnection(outAttrs) ?: return null
                 return object : InputConnectionWrapper(base, false) {
+                    // Keep Gboard's composing buffer in sync with the target app. Gboard
+                    // commonly sends setComposingText first and commitText only later.
+                    private var composingText = ""
+
+                    override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                        val next = text?.toString().orEmpty()
+                        if (composingText.isNotEmpty()) sendImeBridgeDelete(composingText.codePointCount(0, composingText.length))
+                        if (next.isNotEmpty()) sendImeBridgeText(next)
+                        composingText = next
+                        return super.setComposingText(text, newCursorPosition)
+                    }
+
                     override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
                         val committed = text?.toString().orEmpty()
-                        val result = super.commitText(text, newCursorPosition)
+                        if (composingText.isNotEmpty()) {
+                            sendImeBridgeDelete(composingText.codePointCount(0, composingText.length))
+                            composingText = ""
+                        }
                         if (committed.isNotEmpty()) sendImeBridgeText(committed)
-                        return result
+                        return super.commitText(text, newCursorPosition)
                     }
+
+                    override fun finishComposingText(): Boolean {
+                        composingText = ""
+                        return super.finishComposingText()
+                    }
+
                     override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
                         if (beforeLength > 0) sendImeBridgeDelete(beforeLength)
+                        if (afterLength > 0) sendImeBridgeDelete(afterLength)
+                        composingText = ""
                         return super.deleteSurroundingText(beforeLength, afterLength)
                     }
+
+                    override fun deleteSurroundingTextInCodePoints(beforeLength: Int, afterLength: Int): Boolean {
+                        if (beforeLength > 0) sendImeBridgeDelete(beforeLength)
+                        if (afterLength > 0) sendImeBridgeDelete(afterLength)
+                        composingText = ""
+                        return super.deleteSurroundingTextInCodePoints(beforeLength, afterLength)
+                    }
+
                     override fun sendKeyEvent(event: KeyEvent): Boolean {
                         if (event.action == KeyEvent.ACTION_DOWN) {
                             when (event.keyCode) {
-                                KeyEvent.KEYCODE_DEL -> sendImeBridgeDelete(1)
+                                KeyEvent.KEYCODE_DEL -> {
+                                    sendImeBridgeDelete(1)
+                                    if (composingText.isNotEmpty()) composingText = composingText.dropLast(1)
+                                }
                                 KeyEvent.KEYCODE_ENTER -> sendImeBridgeText("\n")
-                                else -> event.unicodeChar.takeIf { it > 0 }?.let { sendImeBridgeText(String(Character.toChars(it))) }
+                                else -> event.unicodeChar.takeIf { it > 0 }?.let {
+                                    sendImeBridgeText(String(Character.toChars(it)))
+                                }
                             }
                         }
                         return true
