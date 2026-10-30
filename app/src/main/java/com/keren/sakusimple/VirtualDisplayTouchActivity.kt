@@ -658,6 +658,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             background = null
             isFocusable = true
             isFocusableInTouchMode = true
+            setShowSoftInputOnFocus(true)
             importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
             contentDescription = "Jembatan input Gboard ke virtual display"
             addTextChangedListener(object : TextWatcher {
@@ -821,16 +822,30 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             status.text = "Mulai virtual display dahulu, lalu buka Gboard."
             return
         }
-        imeBridgeEditText.requestFocus()
-        imeBridgeEditText.post {
-            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-            val shown = imm.showSoftInput(imeBridgeEditText, InputMethodManager.SHOW_IMPLICIT)
-            status.text = if (shown) {
-                "Gboard aktif di layar HP • ketikan dikirim ke preview."
-            } else {
-                "Meminta Gboard di layar HP… jika belum muncul, ketuk tombol Gboard sekali lagi."
+
+        // Jangan biarkan keyboard buatan aplikasi menutupi IME Android.
+        keyboardPanelVisible = false
+        if (::keyboardPanel.isInitialized) keyboardPanel.visibility = View.GONE
+        val root = preview?.parent as? View
+        if (root != null) updateDesktopLayout(root.width, root.height)
+
+        // Menu asisten memegang window focus saat callback menu dipanggil. Meminta IME
+        // sebelum PopupMenu benar-benar ditutup membuat Gboard muncul sebentar lalu hilang.
+        window.decorView.postDelayed({
+            if (isFinishing || isDestroyed) return@postDelayed
+            imeBridgeEditText.requestFocus()
+            imeBridgeEditText.post {
+                if (isFinishing || isDestroyed) return@post
+                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                imm.restartInput(imeBridgeEditText)
+                val requested = imm.showSoftInput(imeBridgeEditText, InputMethodManager.SHOW_IMPLICIT)
+                status.text = if (requested) {
+                    "Gboard aktif di layar HP • ketikan diteruskan ke aplikasi di virtual display."
+                } else {
+                    "Meminta Gboard di layar HP… tunggu sebentar lalu ketuk kolom input lagi."
+                }
             }
-        }
+        }, 250L)
     }
 
     private fun sendImeBridgeDelta(deletedCharacters: Int, insertedText: String) {
