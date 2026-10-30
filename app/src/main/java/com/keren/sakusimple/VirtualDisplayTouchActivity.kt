@@ -656,9 +656,11 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                     // Keep Gboard's composing buffer in sync with the target app. Gboard
                     // commonly sends setComposingText first and commitText only later.
                     private var composingText = ""
+                    private var justFinishedComposingText = ""
 
                     override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
                         val next = text?.toString().orEmpty()
+                        justFinishedComposingText = ""
                         if (composingText.isNotEmpty()) sendImeBridgeDelete(composingText.codePointCount(0, composingText.length))
                         if (next.isNotEmpty()) sendImeBridgeText(next)
                         composingText = next
@@ -667,30 +669,38 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
                     override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
                         val committed = text?.toString().orEmpty()
-                        if (composingText.isNotEmpty()) {
+                        val alreadyInjected = committed.isNotEmpty() &&
+                            (committed == composingText || committed == justFinishedComposingText)
+                        if (composingText.isNotEmpty() && !alreadyInjected) {
                             sendImeBridgeDelete(composingText.codePointCount(0, composingText.length))
-                            composingText = ""
                         }
-                        if (committed.isNotEmpty()) sendImeBridgeText(committed)
+                        composingText = ""
+                        justFinishedComposingText = ""
+                        if (committed.isNotEmpty() && !alreadyInjected) sendImeBridgeText(committed)
                         return super.commitText(text, newCursorPosition)
                     }
 
                     override fun finishComposingText(): Boolean {
+                        // Composing characters were already mirrored to the target display.
+                        // Finalize locally without deleting/re-inserting them.
+                        justFinishedComposingText = composingText
                         composingText = ""
                         return super.finishComposingText()
                     }
 
                     override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
                         if (beforeLength > 0) sendImeBridgeDelete(beforeLength)
-                        if (afterLength > 0) sendImeBridgeDelete(afterLength)
+                        if (afterLength > 0) sendImeBridgeForwardDelete(afterLength)
                         composingText = ""
+                        justFinishedComposingText = ""
                         return super.deleteSurroundingText(beforeLength, afterLength)
                     }
 
                     override fun deleteSurroundingTextInCodePoints(beforeLength: Int, afterLength: Int): Boolean {
                         if (beforeLength > 0) sendImeBridgeDelete(beforeLength)
-                        if (afterLength > 0) sendImeBridgeDelete(afterLength)
+                        if (afterLength > 0) sendImeBridgeForwardDelete(afterLength)
                         composingText = ""
+                        justFinishedComposingText = ""
                         return super.deleteSurroundingTextInCodePoints(beforeLength, afterLength)
                     }
 
@@ -953,6 +963,22 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             }
             if (allAccepted) runOnUiThread {
                 status.text = "Teks dikirim melalui Shizuku ke display $displayId."
+            }
+        }
+    }
+
+    private fun sendImeBridgeForwardDelete(count: Int) {
+        val displayId = virtualDisplayController?.displayId ?: -1
+        if (displayId < 0 || count <= 0) return
+        keyboardInputExecutor.execute {
+            repeat(count.coerceAtMost(64)) {
+                if (!shizukuBridge.runShellCommand("input -d $displayId keyevent 112")) {
+                    runOnUiThread {
+                        appendRuntimeLog("Forward-delete gagal: ${shizukuBridge.getLastError()}")
+                        status.text = "Penghapusan karakter setelah kursor gagal."
+                    }
+                    return@execute
+                }
             }
         }
     }
