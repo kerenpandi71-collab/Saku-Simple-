@@ -53,7 +53,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var shizukuBridge: ShizukuBridge
     private var virtualDisplayController: VirtualDisplayController? = null
     private var gamepadOverlayController: GamepadOverlayController? = null
-    private var battleRoyaleGamepadController: BattleRoyaleGamepadController? = null
     private var preview: SurfaceView? = null
     private var cursorOverlay: View? = null
     private val mouseInputExecutor = Executors.newSingleThreadExecutor { runnable ->
@@ -192,13 +191,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 appendRuntimeLog(message)
             }
         }
-
-        battleRoyaleGamepadController = BattleRoyaleGamepadController(
-            this,
-            root,
-            { Pair(targetWidth, targetHeight) },
-            { action, ids, xs, ys -> virtualDisplayController?.injectTouchPoints(action, ids, xs, ys) ?: false }
-        )
 
         fun actionButton(label: String, action: () -> Unit): Button = Button(this).apply {
             text = label
@@ -407,8 +399,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         menu.menu.add(0, 4, 3, if (keyboardPanelVisible) "Sembunyikan keyboard Cyberdeck" else "Tampilkan keyboard Cyberdeck")
                         menu.menu.add(0, 5, 4, "Tampilkan/Sembunyikan Gamepad MOBA")
                         menu.menu.add(0, 6, 5, "Pengaturan Gamepad MOBA")
-                        menu.menu.add(0, 7, 6, "Gamepad Battle Royale")
-                        menu.menu.add(0, 8, 7, "Pengaturan Gamepad Battle Royale")
                         menu.setOnMenuItemClickListener { item ->
                             when (item.itemId) {
                                 1 -> topBar.visibility = View.VISIBLE
@@ -421,8 +411,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                                 }
                                 5 -> gamepadOverlayController?.toggleVisible()
                                 6 -> gamepadOverlayController?.showSettings()
-                                7 -> battleRoyaleGamepadController?.toggle()
-                                8 -> battleRoyaleGamepadController?.showSettings()
                             }
                             true
                         }
@@ -1082,8 +1070,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     override fun onDestroy() {
         gamepadOverlayController?.close()
         gamepadOverlayController = null
-        battleRoyaleGamepadController?.close()
-        battleRoyaleGamepadController = null
         longPressTask?.let(gestureHandler::removeCallbacks)
         if (dragActive) virtualDisplayController?.injectMouseButton(MotionEvent.ACTION_UP, cursorX, cursorY)
         mouseInputExecutor.shutdownNow()
