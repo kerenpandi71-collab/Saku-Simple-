@@ -65,7 +65,15 @@ class GamepadOverlayController(
     private val activeTouchPoints = linkedMapOf<Int, Point>()
     private val controlPointerIds = mutableMapOf<String, Int>()
     private val physicalControls = mutableMapOf<Int, String>()
-    // Directional MLBB controls follow the finger while held.
+    private data class AimGesture(
+        val control: String,
+        val downX: Float,
+        val downY: Float,
+        val mappedOrigin: Point,
+    )
+    // Keep the saved mapping as the virtual finger's origin; drag direction
+    // is derived from the physical finger's displacement on the gamepad.
+    private val aimGestures = mutableMapOf<Int, AimGesture>()
     private val aimDragControls = setOf("SKILL_1", "SKILL_2", "ULTIMATE", "FLICKER")
     private val pendingTouchMove = AtomicReference<TouchFrame?>(null)
     private val touchMoveScheduled = AtomicBoolean(false)
@@ -221,6 +229,11 @@ class GamepadOverlayController(
                 } else {
                     physicalControls[physicalId] = hit
                     pressMappedControl(hit)
+                    if (hit in aimDragControls) {
+                        targets[hit]?.let { origin ->
+                            aimGestures[physicalId] = AimGesture(hit, x, y, origin)
+                        }
+                    }
                 }
                 return true
             }
@@ -230,8 +243,8 @@ class GamepadOverlayController(
                     val x = event.getX(index)
                     val y = event.getY(index)
                     if (id == analogPointerId && analogPointer) updateAnalogFromFinger(x, y)
-                    val heldControl = physicalControls[id]
-                    if (heldControl != null && heldControl in aimDragControls && heldControl in controlPointerIds) updateMappedAimFromFinger(heldControl, event, index)
+                    val aim = aimGestures[id]
+                    if (aim != null && aim.control in controlPointerIds) updateMappedAimFromFinger(aim, x, y)
                     if (id == dragPointerId) {
                         if (draggingTargetKey != null) moveTargetMarker(event, index)
                         else if (draggingPanel) movePanel(event, index)
@@ -257,6 +270,7 @@ class GamepadOverlayController(
                     view.invalidate()
                     return true
                 }
+                aimGestures.remove(physicalId)
                 val control = physicalControls.remove(physicalId)
                 if (control != null) releaseMappedControl(control)
                 if (mappingKey != null && !panelRect.contains(x, y)) placeMapping(event, actionIndex)
@@ -264,6 +278,7 @@ class GamepadOverlayController(
             }
             MotionEvent.ACTION_CANCEL -> {
                 physicalControls.clear()
+                aimGestures.clear()
                 analogPointer = false
                 analogPointerId = -1
                 analogKnobDx = 0f
@@ -339,17 +354,22 @@ class GamepadOverlayController(
     }
 
 
-    /** Keep the mapped virtual finger down and move it with the user's aim gesture. */
-    private fun updateMappedAimFromFinger(key: String, event: MotionEvent, index: Int) {
-        val preview = findPreview(root) ?: return
-        if (preview.width <= 0 || preview.height <= 0) return
-        val loc = IntArray(2)
-        preview.getLocationOnScreen(loc)
-        val rawX = event.rawX + event.getX(index) - event.getX(0)
-        val rawY = event.rawY + event.getY(index) - event.getY(0)
-        val nx = ((rawX - loc[0]) / preview.width).coerceIn(0f, 1f)
-        val ny = ((rawY - loc[1]) / preview.height).coerceIn(0f, 1f)
-        updateActiveTouchPoint(key, Point(nx, ny))
+    /** Move the already-pressed virtual pointer around its saved mapping point. */
+    private fun updateMappedAimFromFinger(gesture: AimGesture, x: Float, y: Float) {
+        val rect = hitRects[gesture.control] ?: return
+        val halfW = max(1f, rect.width() * 0.5f)
+        val halfH = max(1f, rect.height() * 0.5f)
+        // One full button radius reaches the full aiming radius. The target
+        // remains anchored to the user's saved mapping, not the overlay's
+        // screen coordinates, so moving the panel never shifts MLBB mapping.
+        val aimRange = if (gesture.control == "FLICKER") 0.14f else 0.20f
+        var dx = ((x - gesture.downX) / halfW).coerceIn(-1f, 1f)
+        var dy = ((y - gesture.downY) / halfH).coerceIn(-1f, 1f)
+        val magnitude = kotlin.math.sqrt(dx * dx + dy * dy)
+        if (magnitude > 1f) { dx /= magnitude; dy /= magnitude }
+        val nx = (gesture.mappedOrigin.x + dx * aimRange).coerceIn(0f, 1f)
+        val ny = (gesture.mappedOrigin.y + dy * aimRange).coerceIn(0f, 1f)
+        updateActiveTouchPoint(gesture.control, Point(nx, ny))
     }
 
     private fun pointerIdFor(key: String): Int = when (key) {
