@@ -76,9 +76,9 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
 
             created.setSurface(surface)
 
-            // Hide the IME only on this virtual display. Do not disable Pixelboard globally:
-            // it remains available on display 0. Keep TRUSTED and touch flags unchanged so
-            // Android continues accepting direct touch and multi-pointer input.
+            // Route the IME to the default display while keeping the focused editor on this
+            // virtual display. This lets Gboard stay visible on the phone while typing directly
+            // into the app window that owns focus on the virtual display.
             virtualDisplay = created
             applyVirtualDisplayImePolicy(created.display.displayId)
             val display = created.display
@@ -103,8 +103,8 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
     }
 
     private fun applyVirtualDisplayImePolicy(displayId: Int) {
-        // DISPLAY_IME_POLICY_HIDE = 2 (LOCAL=0, FALLBACK_DISPLAY=1, HIDE=2).
-        // This is per-display and must not disable the user's IME on display 0.
+        // FALLBACK_DISPLAY=1: editor tetap berada di virtual display, sedangkan Gboard
+        // ditampilkan pada display utama. Jangan gunakan HIDE karena itu memblokir IME.
         runCatching {
             enableHiddenApiAccess()
             val windowManagerGlobal = Class.forName("android.view.WindowManagerGlobal")
@@ -112,9 +112,9 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                 ?: throw IllegalStateException("WindowManagerService tidak tersedia")
             val policy = runCatching {
                 Class.forName("android.view.WindowManager")
-                    .getField("DISPLAY_IME_POLICY_HIDE")
+                    .getField("DISPLAY_IME_POLICY_FALLBACK_DISPLAY")
                     .getInt(null)
-            }.getOrDefault(DISPLAY_IME_POLICY_HIDE)
+            }.getOrDefault(DISPLAY_IME_POLICY_FALLBACK_DISPLAY)
             val iWindowManager = Class.forName("android.view.IWindowManager")
             val setPolicy = iWindowManager.getMethod(
                 "setDisplayImePolicy",
@@ -131,9 +131,9 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             if (readBack != null && readBack != policy) {
                 throw IllegalStateException("Policy IME tidak cocok: diminta=$policy terbaca=$readBack")
             }
-            Log.i(TAG, "IME disembunyikan pada virtual display • display=$displayId • policy=$policy • readBack=${readBack ?: "unsupported"} • Pixelboard tetap aktif di display 0.")
+            Log.i(TAG, "IME fallback ke display utama • display=$displayId • policy=$policy • readBack=${readBack ?: "unsupported"}.")
         }.onFailure { error ->
-            Log.w(TAG, "Gagal menyembunyikan IME pada virtual display $displayId: ${error.message}", error)
+            Log.w(TAG, "Gagal mengatur IME fallback pada virtual display $displayId: ${error.message}", error)
         }
     }
 
@@ -667,6 +667,6 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         private const val TRUSTED_FLAG = 1 shl 10
         private const val INJECT_ASYNC = 0
         private const val INJECT_WAIT_FOR_RESULT = 1
-        private const val DISPLAY_IME_POLICY_HIDE = 2
+        private const val DISPLAY_IME_POLICY_FALLBACK_DISPLAY = 1
     }
 }
