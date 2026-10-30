@@ -66,6 +66,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var keyboardPanel: LinearLayout
     private lateinit var imeBridgeEditText: EditText
     private var keyboardPanelVisible = false
+    @Volatile private var systemKeyboardRequested = false
     private var keyboardWidthPercent = 100
     private var keyboardHeightDp = 240
     private var keyboardHasCustomPosition = false
@@ -381,13 +382,13 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                     if (!ballDragged) {
                         val menu = android.widget.PopupMenu(this, view)
                         menu.menu.add(0, 1, 0, "Pengaturan Saku Desktop")
-                        menu.menu.add(0, 2, 1, "Keyboard Android")
+                        menu.menu.add(0, 2, 1, if (systemKeyboardRequested) "Sembunyikan Keyboard Android" else "Keyboard Android")
                         menu.menu.add(0, 3, 2, "Keyboard Cyberdeck")
                         menu.menu.add(0, 4, 3, if (keyboardPanelVisible) "Sembunyikan keyboard Cyberdeck" else "Tampilkan keyboard Cyberdeck")
                         menu.setOnMenuItemClickListener { item ->
                             when (item.itemId) {
                                 1 -> topBar.visibility = View.VISIBLE
-                                2 -> showSystemKeyboardBridge()
+                                2 -> toggleSystemKeyboardBridge()
                                 3 -> showVirtualKeyboard()
                                 4 -> {
                                     keyboardPanelVisible = !keyboardPanelVisible
@@ -817,20 +818,26 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         status.text = "Keyboard Cyberdeck aktif • terpisah dari preview dan trackpad."
     }
 
+    private fun toggleSystemKeyboardBridge() {
+        if (systemKeyboardRequested) {
+            systemKeyboardRequested = false
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.hideSoftInputFromWindow(imeBridgeEditText.windowToken, 0)
+            status.text = "Keyboard Android disembunyikan."
+        } else {
+            showSystemKeyboardBridge()
+        }
+    }
+
     private fun showSystemKeyboardBridge() {
         if ((virtualDisplayController?.displayId ?: -1) < 0) {
             status.text = "Mulai virtual display dahulu, lalu buka Gboard."
             return
         }
-
-        // Jangan biarkan keyboard buatan aplikasi menutupi IME Android.
         keyboardPanelVisible = false
         if (::keyboardPanel.isInitialized) keyboardPanel.visibility = View.GONE
         val root = preview?.parent as? View
         if (root != null) updateDesktopLayout(root.width, root.height)
-
-        // Menu asisten memegang window focus saat callback menu dipanggil. Meminta IME
-        // sebelum PopupMenu benar-benar ditutup membuat Gboard muncul sebentar lalu hilang.
         window.decorView.postDelayed({
             if (isFinishing || isDestroyed) return@postDelayed
             imeBridgeEditText.requestFocus()
@@ -838,12 +845,9 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 if (isFinishing || isDestroyed) return@post
                 val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
                 imm.restartInput(imeBridgeEditText)
-                val requested = imm.showSoftInput(imeBridgeEditText, InputMethodManager.SHOW_IMPLICIT)
-                status.text = if (requested) {
-                    "Gboard aktif di layar HP • ketikan diteruskan ke aplikasi di virtual display."
-                } else {
-                    "Meminta Gboard di layar HP… tunggu sebentar lalu ketuk kolom input lagi."
-                }
+                systemKeyboardRequested = true
+                imm.showSoftInput(imeBridgeEditText, InputMethodManager.SHOW_IMPLICIT)
+                status.text = "Keyboard Android aktif • teks diteruskan ke virtual display."
             }
         }, 250L)
     }
