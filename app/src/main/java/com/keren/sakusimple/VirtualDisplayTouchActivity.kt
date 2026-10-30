@@ -52,7 +52,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private lateinit var touchpadSizeSeekBar: SeekBar
     private lateinit var shizukuBridge: ShizukuBridge
     private var virtualDisplayController: VirtualDisplayController? = null
-    private var gamepadOverlayController: GamepadOverlayController? = null
     private var preview: SurfaceView? = null
     private var cursorOverlay: View? = null
     private val mouseInputExecutor = Executors.newSingleThreadExecutor { runnable ->
@@ -174,18 +173,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         root.addView(cursorOverlay, FrameLayout.LayoutParams(-1, -1))
 
         shizukuBridge = ShizukuBridge(this) { message ->
-            runOnUiThread {
-                if (::status.isInitialized) status.text = message
-                appendRuntimeLog(message)
-            }
-        }
-
-        gamepadOverlayController = GamepadOverlayController(
-            this,
-            root,
-            { Pair(targetWidth, targetHeight) },
-            { action, ids, xs, ys -> virtualDisplayController?.injectTouchPoints(action, ids, xs, ys) ?: false }
-        ) { message ->
             runOnUiThread {
                 if (::status.isInitialized) status.text = message
                 appendRuntimeLog(message)
@@ -397,8 +384,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         menu.menu.add(0, 2, 1, "Keyboard Android")
                         menu.menu.add(0, 3, 2, "Keyboard Cyberdeck")
                         menu.menu.add(0, 4, 3, if (keyboardPanelVisible) "Sembunyikan keyboard Cyberdeck" else "Tampilkan keyboard Cyberdeck")
-                        menu.menu.add(0, 5, 4, "Tampilkan/Sembunyikan Gamepad MOBA")
-                        menu.menu.add(0, 6, 5, "Pengaturan Gamepad MOBA")
                         menu.setOnMenuItemClickListener { item ->
                             when (item.itemId) {
                                 1 -> topBar.visibility = View.VISIBLE
@@ -409,8 +394,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                                     keyboardPanel.visibility = if (keyboardPanelVisible) View.VISIBLE else View.GONE
                                     updateDesktopLayout(root.width, root.height)
                                 }
-                                5 -> gamepadOverlayController?.toggleVisible()
-                                6 -> gamepadOverlayController?.showSettings()
                             }
                             true
                         }
@@ -1068,8 +1051,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        gamepadOverlayController?.close()
-        gamepadOverlayController = null
         longPressTask?.let(gestureHandler::removeCallbacks)
         if (dragActive) virtualDisplayController?.injectMouseButton(MotionEvent.ACTION_UP, cursorX, cursorY)
         mouseInputExecutor.shutdownNow()
