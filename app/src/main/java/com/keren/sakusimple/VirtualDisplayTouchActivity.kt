@@ -889,7 +889,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 }
             }
             if (actions.isEmpty()) return@execute
-            val accepted = virtualDisplayController?.injectKeyEvents(id, actions.toIntArray(), codes.toIntArray(), metas.toIntArray()) ?: false
+            val accepted = virtualDisplayController?.injectKeyEvents(actions.toIntArray(), codes.toIntArray(), metas.toIntArray()) ?: false
             if (!accepted) runOnUiThread {
                 appendRuntimeLog("IME commit gagal ke display $id: ${shizukuBridge.getLastError()}")
                 status.text = "Input ditolak. Periksa koneksi/izin Shizuku dan fokus aplikasi virtual display."
@@ -906,7 +906,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             }
             val codes = IntArray(actions.size) { KeyEvent.KEYCODE_DEL }
             val metas = IntArray(actions.size)
-            val accepted = virtualDisplayController?.injectKeyEvents(id, actions, codes, metas) ?: false
+            val accepted = virtualDisplayController?.injectKeyEvents(actions, codes, metas) ?: false
             if (!accepted) runOnUiThread {
                 appendRuntimeLog("IME delete gagal: ${shizukuBridge.getLastError()}")
             }
