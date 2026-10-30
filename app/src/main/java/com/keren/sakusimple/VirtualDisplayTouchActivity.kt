@@ -919,11 +919,17 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                 if (part.isNotEmpty()) {
                     // Android's input tool uses %s as its space escape. Shell quoting
                     // protects quotes, semicolons, $, backticks and other metacharacters.
-                    val encoded = part.replace("%", "%25").replace(" ", "%s")
-                    val command = "input -d $displayId text ${shellQuote(encoded)}"
-                    var accepted = shizukuBridge.runShellCommand(command)
+                    // The input tool is reliable for ordinary ASCII; non-ASCII and
+                    // literal "%s" go straight to clipboard because input text cannot
+                    // represent them faithfully on every Android build.
+                    val needsClipboard = part.any { it.code > 127 } || part.contains("%s")
+                    var accepted = false
+                    if (!needsClipboard) {
+                        val encoded = part.replace(" ", "%s")
+                        val command = "input -d $displayId text ${shellQuote(encoded)}"
+                        accepted = shizukuBridge.runShellCommand(command)
+                    }
                     if (!accepted) {
-                        // Fallback for Unicode/symbols unsupported by the input tool.
                         runCatching {
                             clipboard.setPrimaryClip(ClipData.newPlainText("Saku keyboard", part))
                         }.onFailure {
