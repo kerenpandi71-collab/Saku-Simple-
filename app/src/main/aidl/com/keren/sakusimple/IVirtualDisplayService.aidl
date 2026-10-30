@@ -17,4 +17,5 @@ interface IVirtualDisplayService {
     boolean injectMouseScroll(int displayId, float x, float y, float horizontal, float vertical) = 10;
     boolean setVirtualDisplaySurface(in Surface surface) = 11;
     String getDisplayDiagnostics(int displayId) = 8;
+    boolean runShellCommand(String command) = 17;
 }
