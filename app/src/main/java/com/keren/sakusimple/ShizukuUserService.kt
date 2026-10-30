@@ -529,7 +529,13 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
     override fun runShellCommand(command: String): Boolean {
         // Only expose Android's input command to this bridge; never accept arbitrary shell code.
         val safeCommand = command.trim()
-        val allowed = Regex("""^input -d [0-9]{1,5} (?:text '[^'\n]*(?:'\\''[^'\n]*)*'|keyevent (?:67|66|279))$""")
+        val displayPrefix = Regex("""^input -d ([0-9]{1,5}) """).find(safeCommand)
+        val tail = displayPrefix?.let { safeCommand.substring(it.range.last + 1) }.orEmpty()
+        val isKeyEvent = tail == "keyevent 67" || tail == "keyevent 66" || tail == "keyevent 279"
+        val isText = tail.startsWith("text '") && tail.endsWith("'") &&
+            !tail.contains('\n') && !tail.contains(';') && !tail.contains('`') &&
+            tail.removePrefix("text '").removeSuffix("'").replace("'\\''", "").none { it == '\'' }
+        val allowed = displayPrefix != null && (isKeyEvent || isText)
         if (!allowed.matches(safeCommand)) {
             lastError = "Perintah shell ditolak: hanya input text/backspace/enter/paste yang diizinkan."
             return false
