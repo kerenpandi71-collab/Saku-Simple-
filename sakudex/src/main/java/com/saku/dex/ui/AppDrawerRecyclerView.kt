@@ -1,6 +1,7 @@
 package com.saku.dex.ui
 
 import android.graphics.drawable.GradientDrawable
+import android.content.res.Configuration
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.ImageView
@@ -73,7 +74,9 @@ private fun createLayoutManager(context: android.content.Context, listMode: Bool
     if (listMode) return LinearLayoutManager(context)
     val density = context.resources.displayMetrics.density
     val widthDp = context.resources.displayMetrics.widthPixels / density
-    return GridLayoutManager(context, (widthDp / 88f).toInt().coerceIn(2, 7))
+    val isLandscape = context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val columns = (widthDp / 112f).toInt().coerceIn(2, 7)
+    return GridLayoutManager(context, if (isLandscape) 4 else columns)
 }
 
 private fun RecyclerView.restorePosition(position: Int, offset: Int) {
