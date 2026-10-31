@@ -46,7 +46,7 @@ class InstalledAppsRepository(context: Context) {
         }
             // A package can expose multiple launcher activities and the same app can exist in multiple profiles.
             .distinctBy { it.uniqueId }
-            .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name }.thenBy { it.userHandle.hashCode() })
+            .sortedWith(compareBy<LauncherApp, String>(String.CASE_INSENSITIVE_ORDER) { it.name }.thenBy { it.userHandle.hashCode() })
     }
 
     private fun Drawable.toLauncherBitmap(): Bitmap =
