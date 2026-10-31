@@ -57,8 +57,8 @@ fun Taskbar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        TaskbarButton("▦", onStartClick)
-        TaskbarButton("⌂", onDesktopClick)
+        TaskbarButton("▦", onClick = onStartClick)
+        TaskbarButton("⌂", onClick = onDesktopClick)
         TaskbarButton("⚙") {
             runCatching {
                 context.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
