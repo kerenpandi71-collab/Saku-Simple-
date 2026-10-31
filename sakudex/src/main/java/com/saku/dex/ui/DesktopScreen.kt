@@ -63,6 +63,7 @@ fun DesktopScreen() {
     var apps by remember { mutableStateOf<List<LauncherApp>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var drawerOpen by remember { mutableStateOf(false) }
+    var windowLaunchMode by remember { mutableStateOf(false) }
     var listMode by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var drawerScrollPosition by remember { mutableIntStateOf(0) }
@@ -122,7 +123,8 @@ fun DesktopScreen() {
             Taskbar(
                 modifier = Modifier.align(Alignment.CenterHorizontally),
                 onStartClick = { drawerOpen = !drawerOpen },
-                onDesktopClick = { drawerOpen = false }
+                onDesktopClick = { drawerOpen = false; windowLaunchMode = false },
+                onWindowClick = { windowLaunchMode = true; drawerOpen = true }
             )
         }
 
@@ -175,6 +177,22 @@ fun DesktopScreen() {
                                     DrawerModeButton("✕", selected = false) { drawerOpen = false }
                                 }
                             }
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    if (windowLaunchMode) "Mode buka: JENDELA" else "Mode buka: NORMAL",
+                                    color = if (windowLaunchMode) Color(0xFF9BC8F2) else Color(0xFFB5C3D1),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                DrawerModeButton(
+                                    if (windowLaunchMode) "Normal" else "Mode jendela",
+                                    selected = windowLaunchMode
+                                ) { windowLaunchMode = !windowLaunchMode }
+                            }
                             OutlinedTextField(
                                 value = searchQuery,
                                 onValueChange = { searchQuery = it },
@@ -215,7 +233,8 @@ fun DesktopScreen() {
                                     modifier = Modifier.fillMaxWidth().weight(1f).clipToBounds(),
                                     onAppClick = {
                                         drawerOpen = false
-                                        AppLauncher.launch(context, it)
+                                        if (windowLaunchMode) AppLauncher.launchInWindow(context, it)
+                                        else AppLauncher.launch(context, it)
                                     },
                                     onAppLongClick = {
                                         drawerOpen = false

@@ -37,7 +37,8 @@ import java.util.Locale
 fun Taskbar(
     modifier: Modifier = Modifier,
     onStartClick: () -> Unit,
-    onDesktopClick: () -> Unit
+    onDesktopClick: () -> Unit,
+    onWindowClick: () -> Unit
 ) {
     val context = LocalContext.current
     var clock by remember { mutableStateOf(currentClock()) }
@@ -60,6 +61,7 @@ fun Taskbar(
         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             TaskbarButton("▦", onClick = onStartClick)
             TaskbarButton("⌂", onClick = onDesktopClick)
+            TaskbarButton("▣", onClick = onWindowClick)
             TaskbarButton("⚙") {
                 runCatching {
                     context.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
