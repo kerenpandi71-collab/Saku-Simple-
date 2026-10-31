@@ -33,6 +33,9 @@ internal fun AppDrawerRecyclerView(
                 layoutManager = createLayoutManager(context, listMode)
                 this.adapter = adapter
                 setHasFixedSize(true)
+                clipChildren = true
+                clipToPadding = true
+                setPadding(0, (4 * context.resources.displayMetrics.density).toInt(), 0, 0)
                 itemAnimator = null
                 setItemViewCacheSize(18)
                 overScrollMode = RecyclerView.OVER_SCROLL_IF_CONTENT_SCROLLS

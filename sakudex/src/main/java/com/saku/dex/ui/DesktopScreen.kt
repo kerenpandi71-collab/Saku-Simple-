@@ -33,6 +33,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -118,11 +120,12 @@ fun DesktopScreen() {
                 onDismissRequest = { drawerOpen = false },
                 properties = DialogProperties(usePlatformDefaultWidth = false)
             ) {
-                Box(Modifier.fillMaxSize()) {
+                Box(Modifier.fillMaxSize().background(Color(0x66000000))) {
                     Surface(
                         modifier = Modifier.align(Alignment.BottomCenter)
                             .fillMaxWidth().fillMaxHeight(0.76f)
-                            .padding(bottom = 58.dp, start = 10.dp, end = 10.dp),
+                            .padding(bottom = 66.dp, start = 10.dp, end = 10.dp)
+                            .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)),
                         shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
                         color = Color(0xFF1B2734),
                         shadowElevation = 18.dp
@@ -145,6 +148,7 @@ fun DesktopScreen() {
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     DrawerModeButton("Grid", selected = !listMode) { listMode = false }
                                     DrawerModeButton("List", selected = listMode) { listMode = true }
+                                    DrawerModeButton("Tutup", selected = false) { drawerOpen = false }
                                 }
                             }
                             if (apps.isEmpty()) {
@@ -159,7 +163,7 @@ fun DesktopScreen() {
                                         drawerScrollPosition = position
                                         drawerScrollOffset = offset
                                     },
-                                    modifier = Modifier.fillMaxWidth().weight(1f),
+                                    modifier = Modifier.fillMaxWidth().weight(1f).clipToBounds(),
                                     onAppClick = {
                                         drawerOpen = false
                                         AppLauncher.launch(context, it)
@@ -168,6 +172,16 @@ fun DesktopScreen() {
                             }
                         }
                     }
+                }
+                Box(
+                    modifier = Modifier.align(Alignment.BottomStart)
+                        .padding(start = 10.dp, bottom = 10.dp)
+                        .size(42.dp)
+                        .background(Color(0xFF303D4B), RoundedCornerShape(10.dp))
+                        .clickable { drawerOpen = false },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("▦", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
