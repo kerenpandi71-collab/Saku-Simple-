@@ -127,34 +127,52 @@ fun DesktopScreen() {
                 Box(Modifier.fillMaxSize().background(Color(0x66000000))) {
                     Surface(
                         modifier = Modifier.align(Alignment.BottomCenter)
-                            .fillMaxWidth().fillMaxHeight(0.76f)
-                            .padding(bottom = 66.dp, start = 10.dp, end = 10.dp)
-                            .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)),
-                        shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
-                        color = Color(0xFF1B2734),
-                        shadowElevation = 18.dp
+                            .fillMaxWidth(0.96f).fillMaxHeight(0.72f)
+                            .padding(bottom = 72.dp)
+                            .clip(RoundedCornerShape(26.dp)),
+                        shape = RoundedCornerShape(26.dp),
+                        color = Color(0xFF182431),
+                        shadowElevation = 24.dp
                     ) {
                         Column(
-                            Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp)
+                            Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 12.dp)
                         ) {
+                            Box(
+                                Modifier.align(Alignment.CenterHorizontally)
+                                    .padding(bottom = 14.dp)
+                                    .size(width = 38.dp, height = 4.dp)
+                                    .background(Color(0xFF647586), RoundedCornerShape(50))
+                            )
                             Row(
-                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text(
-                                    "Aplikasi",
-                                    color = Color.White,
-                                    fontSize = 19.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.padding(start = 4.dp)
-                                )
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Column {
+                                    Text(
+                                        "Semua aplikasi",
+                                        color = Color.White,
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        "${apps.size} aplikasi terpasang",
+                                        color = Color(0xFF9EADBC),
+                                        fontSize = 12.sp,
+                                        modifier = Modifier.padding(top = 3.dp)
+                                    )
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                                     DrawerModeButton("Grid", selected = !listMode) { listMode = false }
                                     DrawerModeButton("List", selected = listMode) { listMode = true }
-                                    DrawerModeButton("Tutup", selected = false) { drawerOpen = false }
+                                    DrawerModeButton("✕", selected = false) { drawerOpen = false }
                                 }
                             }
+                            Box(
+                                Modifier.fillMaxWidth().padding(bottom = 10.dp)
+                                    .size(width = 1.dp, height = 1.dp)
+                                    .background(Color(0x334B6073))
+                            )
                             if (apps.isEmpty()) {
                                 Text("Tidak ada aplikasi.", color = Color.White)
                             } else {
@@ -180,16 +198,6 @@ fun DesktopScreen() {
                             }
                         }
                     }
-                }
-                Box(
-                    modifier = Modifier.align(Alignment.BottomCenter)
-                        .padding(bottom = 10.dp)
-                        .size(42.dp)
-                        .background(Color(0xFF303D4B), RoundedCornerShape(10.dp))
-                        .clickable { drawerOpen = false },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("▦", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }

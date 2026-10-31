@@ -74,7 +74,7 @@ private fun createLayoutManager(context: android.content.Context, listMode: Bool
     if (listMode) return LinearLayoutManager(context)
     val density = context.resources.displayMetrics.density
     val widthDp = context.resources.displayMetrics.widthPixels / density
-    return GridLayoutManager(context, (widthDp / 76f).toInt().coerceIn(2, 8))
+    return GridLayoutManager(context, (widthDp / 88f).toInt().coerceIn(2, 7))
 }
 
 private fun RecyclerView.restorePosition(position: Int, offset: Int) {
@@ -115,14 +115,14 @@ private class LauncherAppAdapter(
         val root = LinearLayout(context).apply {
             orientation = if (isList) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
             gravity = if (isList) Gravity.CENTER_VERTICAL else Gravity.CENTER
-            setPadding(dp(if (isList) 12 else 2), dp(5), dp(8), dp(5))
-            layoutParams = RecyclerView.LayoutParams(-1, dp(if (isList) 60 else 94))
+            setPadding(dp(if (isList) 12 else 5), dp(if (isList) 6 else 8), dp(8), dp(if (isList) 6 else 8))
+            layoutParams = RecyclerView.LayoutParams(-1, dp(if (isList) 62 else 104))
             isClickable = true
             isFocusable = true
         }
         val icon = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
-            layoutParams = LinearLayout.LayoutParams(dp(if (isList) 40 else 48), dp(if (isList) 48 else 52))
+            layoutParams = LinearLayout.LayoutParams(dp(if (isList) 42 else 48), dp(if (isList) 42 else 48))
             background = GradientDrawable().apply {
                 setColor(android.graphics.Color.TRANSPARENT)
                 cornerRadius = dp(20).toFloat()
@@ -132,7 +132,7 @@ private class LauncherAppAdapter(
         }
         val label = TextView(context).apply {
             gravity = if (isList) Gravity.CENTER_VERTICAL else Gravity.CENTER
-            textSize = 13f
+            textSize = 12.5f
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
             includeFontPadding = false
