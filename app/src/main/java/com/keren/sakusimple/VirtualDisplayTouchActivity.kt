@@ -44,6 +44,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var targetWidth = 960
     private var targetHeight = 820
     private var targetDpi = 160
+    private var stretchPreview = false
     private var cursorSensitivity = 0.45f
     private var touchpadHeightPercent = 36
     private lateinit var resolutionWidthInput: EditText
@@ -135,6 +136,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        stretchPreview = getSharedPreferences("saku_desktop_display", Context.MODE_PRIVATE).getBoolean("stretch_preview", false)
         val keyboardPrefs = getSharedPreferences("saku_desktop_keyboard", Context.MODE_PRIVATE)
         keyboardWidthPercent = keyboardPrefs.getInt("width_percent", 100).coerceIn(55, 100)
         keyboardHeightDp = keyboardPrefs.getInt("height_dp", 240).coerceIn(170, 360)
@@ -387,6 +389,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         menu.menu.add(0, 2, 1, if (systemKeyboardRequested) "Sembunyikan Keyboard Android" else "Keyboard Android")
                         menu.menu.add(0, 3, 2, "Keyboard Cyberdeck")
                         menu.menu.add(0, 4, 3, if (keyboardPanelVisible) "Sembunyikan keyboard Cyberdeck" else "Tampilkan keyboard Cyberdeck")
+                        menu.menu.add(0, 5, 4, if (stretchPreview) "Matikan tampilan layar melar" else "Tampilan layar melar")
                         menu.setOnMenuItemClickListener { item ->
                             when (item.itemId) {
                                 1 -> topBar.visibility = View.VISIBLE
@@ -396,6 +399,13 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                                     keyboardPanelVisible = !keyboardPanelVisible
                                     keyboardPanel.visibility = if (keyboardPanelVisible) View.VISIBLE else View.GONE
                                     updateDesktopLayout(root.width, root.height)
+                                }
+                                5 -> {
+                                    stretchPreview = !stretchPreview
+                                    getSharedPreferences("saku_desktop_display", Context.MODE_PRIVATE).edit()
+                                        .putBoolean("stretch_preview", stretchPreview).apply()
+                                    updateDesktopLayout(root.width, root.height)
+                                    status.text = if (stretchPreview) "Tampilan melar aktif • preview memenuhi area" else "Rasio asli aktif • tampilan tidak diregangkan"
                                 }
                             }
                             true
@@ -1496,10 +1506,16 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         val maxPreviewHeight = (rootHeight * 40 / 100).coerceAtLeast(dp(100))
         val aspect = targetWidth.toFloat() / targetHeight.toFloat()
         var desktopWidth = maxPreviewWidth
-        var desktopHeight = (desktopWidth / aspect).toInt()
-        if (desktopHeight > maxPreviewHeight) {
+        var desktopHeight: Int
+        if (stretchPreview) {
+            // SurfaceView diskalakan compositor; koordinat input tetap memakai resolusi virtual.
             desktopHeight = maxPreviewHeight
-            desktopWidth = (desktopHeight * aspect).toInt()
+        } else {
+            desktopHeight = (desktopWidth / aspect).toInt()
+            if (desktopHeight > maxPreviewHeight) {
+                desktopHeight = maxPreviewHeight
+                desktopWidth = (desktopHeight * aspect).toInt()
+            }
         }
         val previewParams = preview?.layoutParams as? FrameLayout.LayoutParams
         if (previewParams != null &&
