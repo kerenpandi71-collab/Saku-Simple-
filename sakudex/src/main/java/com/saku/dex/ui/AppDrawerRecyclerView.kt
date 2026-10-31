@@ -25,12 +25,13 @@ internal fun AppDrawerRecyclerView(
     scrollOffset: Int,
     onScrollChanged: (Int, Int) -> Unit,
     modifier: Modifier = Modifier,
-    onAppClick: (LauncherApp) -> Unit
+    onAppClick: (LauncherApp) -> Unit,
+    onAppLongClick: (LauncherApp) -> Unit
 ) {
     AndroidView(
         modifier = modifier,
         factory = { context ->
-            val adapter = LauncherAppAdapter(onAppClick)
+            val adapter = LauncherAppAdapter(onAppClick, onAppLongClick)
             RecyclerView(context).apply {
                 layoutManager = createLayoutManager(context, listMode)
                 this.adapter = adapter
@@ -87,7 +88,8 @@ private fun RecyclerView.restorePosition(listMode: Boolean, position: Int, offse
 }
 
 private class LauncherAppAdapter(
-    private val onAppClick: (LauncherApp) -> Unit
+    private val onAppClick: (LauncherApp) -> Unit,
+    private val onAppLongClick: (LauncherApp) -> Unit
 ) : ListAdapter<LauncherApp, LauncherAppAdapter.AppViewHolder>(DIFF) {
 
     var listMode: Boolean = false
@@ -151,7 +153,7 @@ private class LauncherAppAdapter(
         }
         container.addView(icon)
         container.addView(label)
-        return AppViewHolder(container, icon, label, onAppClick)
+        return AppViewHolder(container, icon, label, onAppClick, onAppLongClick)
     }
 
     override fun onBindViewHolder(holder: AppViewHolder, position: Int) {
@@ -162,10 +164,17 @@ private class LauncherAppAdapter(
         itemView: LinearLayout,
         private val icon: ImageView,
         private val label: TextView,
-        private val onAppClick: (LauncherApp) -> Unit
+        private val onAppClick: (LauncherApp) -> Unit,
+        private val onAppLongClick: (LauncherApp) -> Unit
     ) : RecyclerView.ViewHolder(itemView) {
         private var boundApp: LauncherApp? = null
-        init { itemView.setOnClickListener { boundApp?.let(onAppClick) } }
+        init {
+            itemView.setOnClickListener { boundApp?.let(onAppClick) }
+            itemView.setOnLongClickListener {
+                boundApp?.let(onAppLongClick)
+                boundApp != null
+            }
+        }
         fun bind(app: LauncherApp) {
             boundApp = app
             icon.setImageBitmap(app.icon)

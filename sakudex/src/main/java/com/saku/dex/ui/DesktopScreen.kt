@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -103,7 +104,8 @@ fun DesktopScreen() {
                         apps = apps,
                         minCellSize = 88,
                         modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
-                        onAppClick = { AppLauncher.launch(context, it) }
+                        onAppClick = { AppLauncher.launch(context, it) },
+                        onAppLongClick = { AppLauncher.launchInWindow(context, it) }
                     )
                 } else {
                     Box(Modifier.weight(1f).fillMaxWidth())
@@ -168,6 +170,10 @@ fun DesktopScreen() {
                                     onAppClick = {
                                         drawerOpen = false
                                         AppLauncher.launch(context, it)
+                                    },
+                                    onAppLongClick = {
+                                        drawerOpen = false
+                                        AppLauncher.launchInWindow(context, it)
                                     }
                                 )
                             }
@@ -195,7 +201,8 @@ private fun AppGrid(
     apps: List<LauncherApp>,
     minCellSize: Int,
     modifier: Modifier = Modifier,
-    onAppClick: (LauncherApp) -> Unit
+    onAppClick: (LauncherApp) -> Unit,
+    onAppLongClick: (LauncherApp) -> Unit
 ) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = minCellSize.dp),
@@ -206,7 +213,10 @@ private fun AppGrid(
     ) {
         items(apps, key = { it.componentName }) { app ->
             Column(
-                modifier = Modifier.fillMaxWidth().clickable { onAppClick(app) }
+                modifier = Modifier.fillMaxWidth().combinedClickable(
+                        onClick = { onAppClick(app) },
+                        onLongClick = { onAppLongClick(app) }
+                    )
                     .padding(vertical = 4.dp, horizontal = 2.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
