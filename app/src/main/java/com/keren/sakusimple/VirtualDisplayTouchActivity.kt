@@ -47,6 +47,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private var stretchPreview = false
     private var cursorSensitivity = 0.45f
     private var touchpadHeightPercent = 36
+    private var touchpadWidthPercent = 100
+    private var touchpadHorizontalPercent = 0
     private lateinit var resolutionWidthInput: EditText
     private lateinit var resolutionHeightInput: EditText
     private lateinit var resolutionDpiInput: EditText
@@ -136,7 +138,12 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        stretchPreview = getSharedPreferences("saku_desktop_display", Context.MODE_PRIVATE).getBoolean("stretch_preview", false)
+        val displayPrefs = getSharedPreferences("saku_desktop_display", Context.MODE_PRIVATE)
+        stretchPreview = displayPrefs.getBoolean("stretch_preview", false)
+        touchpadHeightPercent = displayPrefs.getInt("touchpad_height_percent", 36).coerceIn(20, 70)
+        touchpadWidthPercent = displayPrefs.getInt("touchpad_width_percent", 100).coerceIn(50, 100)
+        touchpadHorizontalPercent = displayPrefs.getInt("touchpad_horizontal_percent", 0).coerceIn(0, 100)
+        panelPositionPercent = displayPrefs.getInt("touchpad_vertical_percent", 70).coerceIn(0, 100)
         val keyboardPrefs = getSharedPreferences("saku_desktop_keyboard", Context.MODE_PRIVATE)
         keyboardWidthPercent = keyboardPrefs.getInt("width_percent", 100).coerceIn(55, 100)
         keyboardHeightDp = keyboardPrefs.getInt("height_dp", 240).coerceIn(170, 360)
@@ -257,12 +264,14 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         panelPositionRow.addView(panelPositionValue, LinearLayout.LayoutParams(dp(84), dp(26)))
         panelPositionSeekBar = SeekBar(this).apply {
             max = 100
-            progress = 0
-            contentDescription = "Posisi panel touchpad"
+            progress = panelPositionPercent
+            panelPositionValue.text = "Vertikal ${panelPositionPercent}%"
+            contentDescription = "Posisi vertikal touchpad"
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                     panelPositionPercent = progress
-                    panelPositionValue.text = "Panel ${panelPositionPercent}%"
+                    panelPositionValue.text = "Vertikal ${panelPositionPercent}%"
+                    getSharedPreferences("saku_desktop_display", Context.MODE_PRIVATE).edit().putInt("touchpad_vertical_percent", panelPositionPercent).apply()
                     updateDesktopLayout(root.width, root.height)
                 }
                 override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
@@ -290,15 +299,16 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
             LinearLayout.LayoutParams(0, dp(32), 1f))
         topBar.addView(resolutionRow)
         val controlRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        touchpadSizeValue = TextView(this).apply { text = "Area 36%"; textSize = 9f; setTextColor(Color.WHITE) }
+        touchpadSizeValue = TextView(this).apply { text = "Tinggi ${touchpadHeightPercent}%"; textSize = 9f; setTextColor(Color.WHITE) }
         controlRow.addView(touchpadSizeValue, LinearLayout.LayoutParams(dp(66), dp(25)))
         touchpadSizeSeekBar = SeekBar(this).apply {
-            max = 30; progress = 16
+            max = 50; progress = touchpadHeightPercent - 20
             contentDescription = "Ukuran area touchpad"
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                     touchpadHeightPercent = 20 + progress
-                    touchpadSizeValue.text = "Area ${touchpadHeightPercent}%"
+                    touchpadSizeValue.text = "Tinggi ${touchpadHeightPercent}%"
+                    getSharedPreferences("saku_desktop_display", Context.MODE_PRIVATE).edit().putInt("touchpad_height_percent", touchpadHeightPercent).apply()
                     updateDesktopLayout(root.width, root.height)
                 }
                 override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
@@ -322,6 +332,44 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         controlRow.addView(sensitivitySeekBar, LinearLayout.LayoutParams(0, dp(25), 1f))
         topBar.addView(controlRow)
+        val touchpadWidthRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val touchpadWidthValue = TextView(this).apply { text = "Lebar ${touchpadWidthPercent}%"; textSize = 9f; setTextColor(Color.WHITE) }
+        touchpadWidthRow.addView(touchpadWidthValue, LinearLayout.LayoutParams(dp(66), dp(25)))
+        val touchpadWidthSeek = SeekBar(this).apply {
+            max = 50; progress = touchpadWidthPercent - 50
+            contentDescription = "Lebar touchpad"
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    touchpadWidthPercent = 50 + progress
+                    touchpadWidthValue.text = "Lebar ${touchpadWidthPercent}%"
+                    getSharedPreferences("saku_desktop_display", Context.MODE_PRIVATE).edit().putInt("touchpad_width_percent", touchpadWidthPercent).apply()
+                    updateDesktopLayout(root.width, root.height)
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+                override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+            })
+        }
+        touchpadWidthRow.addView(touchpadWidthSeek, LinearLayout.LayoutParams(0, dp(25), 1f))
+        topBar.addView(touchpadWidthRow)
+        val touchpadHorizontalRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val touchpadHorizontalValue = TextView(this).apply { text = "Geser kiri/kanan ${touchpadHorizontalPercent}%"; textSize = 9f; setTextColor(Color.WHITE) }
+        touchpadHorizontalRow.addView(touchpadHorizontalValue, LinearLayout.LayoutParams(dp(116), dp(25)))
+        val touchpadHorizontalSeek = SeekBar(this).apply {
+            max = 100; progress = touchpadHorizontalPercent
+            contentDescription = "Posisi horizontal touchpad"
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    touchpadHorizontalPercent = progress
+                    touchpadHorizontalValue.text = "Geser kiri/kanan ${touchpadHorizontalPercent}%"
+                    getSharedPreferences("saku_desktop_display", Context.MODE_PRIVATE).edit().putInt("touchpad_horizontal_percent", touchpadHorizontalPercent).apply()
+                    updateDesktopLayout(root.width, root.height)
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+                override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+            })
+        }
+        touchpadHorizontalRow.addView(touchpadHorizontalSeek, LinearLayout.LayoutParams(0, dp(25), 1f))
+        topBar.addView(touchpadHorizontalRow)
         status = TextView(this).apply {
             text = "Hubungkan Shizuku, lalu tekan Mulai."
             textSize = 9f
@@ -1478,46 +1526,6 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private fun touchCentroid(event: MotionEvent): Pair<Float, Float> =
         ((event.getX(0) + event.getX(1)) / 2f) to ((event.getY(0) + event.getY(1)) / 2f)
 
-    private fun confirmPixelboardState(disable: Boolean) {
-        val packageName = "com.akshaykadam.pixelboard"
-        val action = if (disable) "dinonaktifkan" else "diaktifkan kembali"
-        val command = if (disable) {
-            "pm disable-user --user 0 $packageName"
-        } else {
-            "pm enable --user 0 $packageName"
-        }
-        val title = if (disable) "Nonaktifkan Pixelboard di seluruh perangkat?" else "Aktifkan kembali Pixelboard?"
-        val message = if (disable) {
-            "Android tidak menyediakan pemblokiran paket ini hanya pada Virtual Display melalui API standar. Pilihan ini akan menonaktifkan $packageName untuk semua layar, termasuk Display 0. Kamu bisa mengaktifkannya lagi dari menu ini."
-        } else {
-            "Perintah ini akan mengaktifkan kembali $packageName untuk seluruh perangkat. Aplikasi dapat dibuka lagi di Display 0 maupun Virtual Display."
-        }
-
-        android.app.AlertDialog.Builder(this)
-            .setTitle(title)
-            .setMessage(message)
-            .setNegativeButton("Batal", null)
-            .setPositiveButton(if (disable) "Nonaktifkan" else "Aktifkan") { _, _ ->
-                val bridge = shizukuBridge
-                bridge.connect { connected ->
-                    if (!connected) {
-                        runOnUiThread { status.text = "Hubungkan Shizuku terlebih dahulu." }
-                    } else {
-                        val changed = bridge.runShellCommand(command)
-                        runOnUiThread {
-                            status.text = if (changed) {
-                                "Perintah $action Pixelboard dikirim. Periksa Runtime Log untuk hasilnya."
-                            } else {
-                                "Gagal mengubah status Pixelboard: ${bridge.getLastError()}"
-                            }
-                            appendRuntimeLog("Pixelboard • action=${if (disable) "disable" else "enable"} • success=$changed • ${bridge.getLastError()}")
-                        }
-                    }
-                }
-            }
-            .show()
-    }
-
     private fun applyDisplaySettings() {
         val width = resolutionWidthInput.text.toString().toIntOrNull()
         val height = resolutionHeightInput.text.toString().toIntOrNull()
@@ -1573,14 +1581,22 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
         val panelParams = bottomPanel.layoutParams as? FrameLayout.LayoutParams
         if (panelParams != null) {
-            val panelHeight = (rootHeight * 30 / 100).coerceAtLeast(dp(120))
-            val desiredTop = (rootHeight * 70 / 100).coerceAtMost(rootHeight - panelHeight)
-            if (panelParams.topMargin != desiredTop || panelParams.height != panelHeight ||
-                panelParams.gravity != Gravity.TOP
+            val panelHeight = (rootHeight * touchpadHeightPercent / 100).coerceIn(dp(120), rootHeight)
+            val panelWidth = (rootWidth * touchpadWidthPercent / 100).coerceIn(dp(180).coerceAtMost(rootWidth), rootWidth)
+            val maxLeft = (rootWidth - panelWidth).coerceAtLeast(0)
+            val desiredLeft = (maxLeft * touchpadHorizontalPercent / 100).coerceIn(0, maxLeft)
+            val maxTop = (rootHeight - panelHeight).coerceAtLeast(0)
+            val desiredTop = (maxTop * panelPositionPercent / 100).coerceIn(0, maxTop)
+            if (panelParams.leftMargin != desiredLeft || panelParams.topMargin != desiredTop ||
+                panelParams.width != panelWidth || panelParams.height != panelHeight ||
+                panelParams.gravity != (Gravity.TOP or Gravity.START)
             ) {
-                panelParams.gravity = Gravity.TOP
+                panelParams.gravity = Gravity.TOP or Gravity.START
+                panelParams.leftMargin = desiredLeft
+                panelParams.rightMargin = 0
                 panelParams.topMargin = desiredTop
                 panelParams.bottomMargin = 0
+                panelParams.width = panelWidth
                 panelParams.height = panelHeight
                 bottomPanel.layoutParams = panelParams
             }
