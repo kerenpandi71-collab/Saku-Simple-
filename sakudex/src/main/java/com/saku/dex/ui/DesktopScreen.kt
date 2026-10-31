@@ -1,5 +1,6 @@
 package com.saku.dex.ui
 
+import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -110,6 +111,7 @@ fun DesktopScreen() {
                 }
                 else -> if (!drawerOpen) {
                     AppGrid(
+                        context = context,
                         apps = apps,
                         minCellSize = 88,
                         modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
@@ -230,6 +232,7 @@ fun DesktopScreen() {
 
 @Composable
 private fun AppGrid(
+    context: Context,
     apps: List<LauncherApp>,
     minCellSize: Int,
     modifier: Modifier = Modifier,
@@ -273,11 +276,11 @@ private fun AppGrid(
                     })
                     DropdownMenuItem(text = { Text("Info aplikasi") }, onClick = {
                         menuExpanded = false
-                        openAppInfoAction(LocalContext.current, app.packageName)
+                        openAppInfoAction(context, app.packageName)
                     })
                     DropdownMenuItem(text = { Text("Uninstall") }, onClick = {
                         menuExpanded = false
-                        requestAppUninstall(LocalContext.current, app.packageName)
+                        requestAppUninstall(context, app.packageName)
                     })
                 }
             }
