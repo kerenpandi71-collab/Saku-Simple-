@@ -390,7 +390,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         menu.menu.add(0, 3, 2, "Keyboard Cyberdeck")
                         menu.menu.add(0, 4, 3, if (keyboardPanelVisible) "Sembunyikan keyboard Cyberdeck" else "Tampilkan keyboard Cyberdeck")
                         menu.menu.add(0, 5, 4, if (stretchPreview) "Matikan tampilan layar melar" else "Tampilan layar melar")
-                        menu.menu.add(0, 6, 5, "Nonaktifkan Pixelboard (semua layar)")
+                        menu.menu.add(0, 6, 5, "Nonaktifkan Pixelboard (seluruh perangkat)")
+                        menu.menu.add(0, 7, 6, "Aktifkan kembali Pixelboard")
                         menu.setOnMenuItemClickListener { item ->
                             when (item.itemId) {
                                 1 -> topBar.visibility = View.VISIBLE
@@ -408,7 +409,8 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                                     updateDesktopLayout(root.width, root.height)
                                     status.text = if (stretchPreview) "Tampilan melar aktif • preview memenuhi area" else "Rasio asli aktif • tampilan tidak diregangkan"
                                 }
-                                6 -> confirmDisablePixelboard()
+                                6 -> confirmPixelboardState(disable = true)
+                                7 -> confirmPixelboardState(disable = false)
                             }
                             true
                         }
@@ -1476,25 +1478,39 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
     private fun touchCentroid(event: MotionEvent): Pair<Float, Float> =
         ((event.getX(0) + event.getX(1)) / 2f) to ((event.getY(0) + event.getY(1)) / 2f)
 
-    private fun confirmDisablePixelboard() {
+    private fun confirmPixelboardState(disable: Boolean) {
+        val packageName = "com.akshaykadam.pixelboard"
+        val action = if (disable) "dinonaktifkan" else "diaktifkan kembali"
+        val command = if (disable) {
+            "pm disable-user --user 0 $packageName"
+        } else {
+            "pm enable --user 0 $packageName"
+        }
+        val title = if (disable) "Nonaktifkan Pixelboard di seluruh perangkat?" else "Aktifkan kembali Pixelboard?"
+        val message = if (disable) {
+            "Android tidak menyediakan pemblokiran paket ini hanya pada Virtual Display melalui API standar. Pilihan ini akan menonaktifkan $packageName untuk semua layar, termasuk Display 0. Kamu bisa mengaktifkannya lagi dari menu ini."
+        } else {
+            "Perintah ini akan mengaktifkan kembali $packageName untuk seluruh perangkat. Aplikasi dapat dibuka lagi di Display 0 maupun Virtual Display."
+        }
+
         android.app.AlertDialog.Builder(this)
-            .setTitle("Nonaktifkan Pixelboard?")
-            .setMessage("Pixelboard (com.akshaykadam.pixelboard) akan dinonaktifkan untuk seluruh perangkat, termasuk display 0. Aplikasi tidak akan tampil di virtual display maupun layar utama sampai diaktifkan kembali dari Pengaturan Android.")
+            .setTitle(title)
+            .setMessage(message)
             .setNegativeButton("Batal", null)
-            .setPositiveButton("Nonaktifkan") { _, _ ->
+            .setPositiveButton(if (disable) "Nonaktifkan" else "Aktifkan") { _, _ ->
                 val bridge = shizukuBridge
                 bridge.connect { connected ->
                     if (!connected) {
-                        runOnUiThread { status.text = "Hubungkan Shizuku terlebih dahulu untuk menonaktifkan Pixelboard." }
+                        runOnUiThread { status.text = "Hubungkan Shizuku terlebih dahulu." }
                     } else {
-                        val disabled = bridge.runShellCommand("pm disable-user --user 0 com.akshaykadam.pixelboard")
+                        val changed = bridge.runShellCommand(command)
                         runOnUiThread {
-                            status.text = if (disabled) {
-                                "Perintah penonaktifan Pixelboard dikirim. Periksa hasil di Runtime Log."
+                            status.text = if (changed) {
+                                "Perintah $action Pixelboard dikirim. Periksa Runtime Log untuk hasilnya."
                             } else {
-                                "Gagal menonaktifkan Pixelboard: ${bridge.getLastError()}"
+                                "Gagal mengubah status Pixelboard: ${bridge.getLastError()}"
                             }
-                            appendRuntimeLog("Permintaan nonaktifkan Pixelboard • success=$disabled • ${bridge.getLastError()}")
+                            appendRuntimeLog("Pixelboard • action=${if (disable) "disable" else "enable"} • success=$changed • ${bridge.getLastError()}")
                         }
                     }
                 }
