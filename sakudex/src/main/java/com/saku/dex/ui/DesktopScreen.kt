@@ -8,14 +8,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
@@ -51,6 +49,7 @@ fun DesktopScreen() {
     var apps by remember { mutableStateOf<List<LauncherApp>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var drawerOpen by remember { mutableStateOf(false) }
+    var listMode by remember { mutableStateOf(false) }
     var drawerScrollPosition by remember { mutableIntStateOf(0) }
     var drawerScrollOffset by remember { mutableIntStateOf(0) }
 
@@ -114,28 +113,37 @@ fun DesktopScreen() {
             )
             Surface(
                 modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                    .padding(bottom = 58.dp, start = 10.dp, end = 10.dp)
-                    .heightIn(min = 300.dp, max = 520.dp),
+                    .fillMaxHeight(0.76f).padding(bottom = 58.dp, start = 10.dp, end = 10.dp),
                 shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
                 color = Color(0xF01B2734),
                 shadowElevation = 16.dp
             ) {
                 Column(
-                    Modifier.fillMaxWidth().heightIn(min = 276.dp, max = 496.dp)
-                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                    Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
-                    Text(
-                        "Aplikasi",
-                        color = Color.White,
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(start = 4.dp, bottom = 10.dp)
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "Aplikasi",
+                            color = Color.White,
+                            fontSize = 19.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(start = 4.dp)
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            DrawerModeButton("Grid", selected = !listMode) { listMode = false }
+                            DrawerModeButton("List", selected = listMode) { listMode = true }
+                        }
+                    }
                     if (apps.isEmpty()) {
                         Text("Tidak ada aplikasi.", color = Color.White)
                     } else {
                         AppDrawerRecyclerView(
                             apps = apps,
+                            listMode = listMode,
                             scrollPosition = drawerScrollPosition,
                             scrollOffset = drawerScrollOffset,
                             onScrollChanged = { position, offset ->
@@ -156,20 +164,41 @@ fun DesktopScreen() {
 }
 
 @Composable
+private fun DrawerModeButton(label: String, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .background(
+                if (selected) Color(0xFF526D88) else Color(0xFF293746),
+                RoundedCornerShape(9.dp)
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 13.dp, vertical = 7.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            color = Color.White,
+            fontSize = 12.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+        )
+    }
+}
+
+@Composable
 private fun AppGrid(
     apps: List<LauncherApp>,
     minCellSize: Int,
     modifier: Modifier = Modifier,
     onAppClick: (LauncherApp) -> Unit
 ) {
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = minCellSize.dp),
+    androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+        columns = androidx.compose.foundation.lazy.grid.GridCells.Adaptive(minSize = minCellSize.dp),
         modifier = modifier,
         contentPadding = PaddingValues(top = 10.dp, bottom = 14.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        items(
+        androidx.compose.foundation.lazy.grid.items(
             items = apps,
             key = { it.componentName },
             contentType = { "launcher-app" }
