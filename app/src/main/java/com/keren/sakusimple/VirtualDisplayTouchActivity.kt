@@ -390,6 +390,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                         menu.menu.add(0, 3, 2, "Keyboard Cyberdeck")
                         menu.menu.add(0, 4, 3, if (keyboardPanelVisible) "Sembunyikan keyboard Cyberdeck" else "Tampilkan keyboard Cyberdeck")
                         menu.menu.add(0, 5, 4, if (stretchPreview) "Matikan tampilan layar melar" else "Tampilan layar melar")
+                        menu.menu.add(0, 6, 5, "Nonaktifkan Pixelboard (semua layar)")
                         menu.setOnMenuItemClickListener { item ->
                             when (item.itemId) {
                                 1 -> topBar.visibility = View.VISIBLE
@@ -407,6 +408,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
                                     updateDesktopLayout(root.width, root.height)
                                     status.text = if (stretchPreview) "Tampilan melar aktif • preview memenuhi area" else "Rasio asli aktif • tampilan tidak diregangkan"
                                 }
+                                6 -> confirmDisablePixelboard()
                             }
                             true
                         }
@@ -1473,6 +1475,32 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
 
     private fun touchCentroid(event: MotionEvent): Pair<Float, Float> =
         ((event.getX(0) + event.getX(1)) / 2f) to ((event.getY(0) + event.getY(1)) / 2f)
+
+    private fun confirmDisablePixelboard() {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Nonaktifkan Pixelboard?")
+            .setMessage("Pixelboard (com.akshaykadam.pixelboard) akan dinonaktifkan untuk seluruh perangkat, termasuk display 0. Aplikasi tidak akan tampil di virtual display maupun layar utama sampai diaktifkan kembali dari Pengaturan Android.")
+            .setNegativeButton("Batal", null)
+            .setPositiveButton("Nonaktifkan") { _, _ ->
+                val bridge = shizukuBridge
+                bridge.connect { connected ->
+                    if (!connected) {
+                        runOnUiThread { status.text = "Hubungkan Shizuku terlebih dahulu untuk menonaktifkan Pixelboard." }
+                    } else {
+                        val disabled = bridge.runShellCommand("pm disable-user --user 0 com.akshaykadam.pixelboard")
+                        runOnUiThread {
+                            status.text = if (disabled) {
+                                "Perintah penonaktifan Pixelboard dikirim. Periksa hasil di Runtime Log."
+                            } else {
+                                "Gagal menonaktifkan Pixelboard: ${bridge.getLastError()}"
+                            }
+                            appendRuntimeLog("Permintaan nonaktifkan Pixelboard • success=$disabled • ${bridge.getLastError()}")
+                        }
+                    }
+                }
+            }
+            .show()
+    }
 
     private fun applyDisplaySettings() {
         val width = resolutionWidthInput.text.toString().toIntOrNull()
