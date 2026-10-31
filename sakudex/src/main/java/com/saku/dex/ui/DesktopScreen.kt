@@ -14,9 +14,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -25,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -48,12 +47,12 @@ import kotlinx.coroutines.withContext
 @Composable
 fun DesktopScreen() {
     val context = LocalContext.current
-    val repository = remember(context) { InstalledAppsRepository(context.packageManager) }
+    val repository = remember(context) { InstalledAppsRepository(context) }
     var apps by remember { mutableStateOf<List<LauncherApp>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var drawerOpen by remember { mutableStateOf(false) }
-    val desktopGridState = rememberLazyGridState()
-    val drawerGridState = rememberLazyGridState()
+    var drawerScrollPosition by remember { mutableIntStateOf(0) }
+    var drawerScrollOffset by remember { mutableIntStateOf(0) }
 
     BackHandler(enabled = drawerOpen) { drawerOpen = false }
 
@@ -94,12 +93,10 @@ fun DesktopScreen() {
                     AppGrid(
                         apps = apps,
                         minCellSize = 88,
-                        state = desktopGridState,
                         modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
-                        onAppClick = { AppLauncher.launch(context, it.packageName) }
+                        onAppClick = { AppLauncher.launch(context, it) }
                     )
                 } else {
-                    // Do not keep a second lazy grid active underneath the open drawer.
                     Box(Modifier.weight(1f).fillMaxWidth())
                 }
             }
@@ -123,7 +120,10 @@ fun DesktopScreen() {
                 color = Color(0xF01B2734),
                 shadowElevation = 16.dp
             ) {
-                Column(Modifier.fillMaxWidth().heightIn(min = 276.dp, max = 496.dp).padding(horizontal = 14.dp, vertical = 12.dp)) {
+                Column(
+                    Modifier.fillMaxWidth().heightIn(min = 276.dp, max = 496.dp)
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                ) {
                     Text(
                         "Aplikasi",
                         color = Color.White,
@@ -134,14 +134,18 @@ fun DesktopScreen() {
                     if (apps.isEmpty()) {
                         Text("Tidak ada aplikasi.", color = Color.White)
                     } else {
-                        AppGrid(
+                        AppDrawerRecyclerView(
                             apps = apps,
-                            minCellSize = 76,
-                            state = drawerGridState,
+                            scrollPosition = drawerScrollPosition,
+                            scrollOffset = drawerScrollOffset,
+                            onScrollChanged = { position, offset ->
+                                drawerScrollPosition = position
+                                drawerScrollOffset = offset
+                            },
                             modifier = Modifier.fillMaxWidth().weight(1f),
                             onAppClick = {
                                 drawerOpen = false
-                                AppLauncher.launch(context, it.packageName)
+                                AppLauncher.launch(context, it)
                             }
                         )
                     }
@@ -155,12 +159,10 @@ fun DesktopScreen() {
 private fun AppGrid(
     apps: List<LauncherApp>,
     minCellSize: Int,
-    state: LazyGridState,
     modifier: Modifier = Modifier,
     onAppClick: (LauncherApp) -> Unit
 ) {
     LazyVerticalGrid(
-        state = state,
         columns = GridCells.Adaptive(minSize = minCellSize.dp),
         modifier = modifier,
         contentPadding = PaddingValues(top = 10.dp, bottom = 14.dp),
@@ -169,7 +171,7 @@ private fun AppGrid(
     ) {
         items(
             items = apps,
-            key = { it.packageName },
+            key = { it.componentName },
             contentType = { "launcher-app" }
         ) { app ->
             AppGridItem(app) { onAppClick(app) }
@@ -179,7 +181,7 @@ private fun AppGrid(
 
 @Composable
 private fun AppGridItem(app: LauncherApp, onClick: () -> Unit) {
-    val iconImage = remember(app.packageName, app.icon) { app.icon.asImageBitmap() }
+    val iconImage = remember(app.componentName, app.icon) { app.icon.asImageBitmap() }
     Column(
         modifier = Modifier.fillMaxWidth()
             .clickable(onClick = onClick)

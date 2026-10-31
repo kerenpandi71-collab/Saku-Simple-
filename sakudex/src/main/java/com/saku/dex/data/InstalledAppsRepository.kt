@@ -1,42 +1,38 @@
 package com.saku.dex.data
 
-import android.content.Intent
-import android.content.pm.PackageManager
+import android.content.Context
+import android.content.pm.LauncherApps
 import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
+import android.os.Process
 import androidx.core.graphics.drawable.toBitmap
 import com.saku.dex.model.LauncherApp
 
 /**
- * Memuat label dan ikon launcher. Panggil dari Dispatchers.IO.
- * Ikon diperkecil sebelum disimpan agar penggunaan memori lebih terkendali.
+ * Mengambil semua launcher activity untuk profil Android saat ini.
+ * Pemanggil wajib menjalankannya di dispatcher background.
  */
-class InstalledAppsRepository(
-    private val packageManager: PackageManager
-) {
-    @Suppress("DEPRECATION")
+class InstalledAppsRepository(context: Context) {
+    private val launcherApps =
+        context.applicationContext.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
+
     fun getLaunchableApps(): List<LauncherApp> {
-        val launcherIntent = Intent(Intent.ACTION_MAIN).apply {
-            addCategory(Intent.CATEGORY_LAUNCHER)
-        }
-
-        return packageManager.queryIntentActivities(launcherIntent, 0)
-            .mapNotNull { resolveInfo ->
-                val activityInfo = resolveInfo.activityInfo ?: return@mapNotNull null
-                val packageName = activityInfo.packageName
-
+        return launcherApps.getActivityList(null, Process.myUserHandle())
+            .mapNotNull { activity ->
                 runCatching {
-                    val drawable = resolveInfo.loadIcon(packageManager)
+                    val component = activity.componentName
+                    val packageName = component.packageName
                     LauncherApp(
-                        name = resolveInfo.loadLabel(packageManager)
-                            ?.toString()?.takeIf { it.isNotBlank() } ?: packageName,
+                        name = activity.label?.toString()?.takeIf { it.isNotBlank() } ?: packageName,
                         packageName = packageName,
-                        icon = drawable.toLauncherBitmap()
+                        componentName = component.flattenToString(),
+                        icon = activity.getIcon(0).toLauncherBitmap()
                     )
                 }.getOrNull()
             }
-            .distinctBy { it.packageName }
-            .sortedBy { it.name.lowercase() }
+            // Jangan deduplikasi berdasarkan package: satu paket dapat memiliki beberapa launcher activity.
+            .distinctBy { it.componentName }
+            .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
     }
 
     private fun Drawable.toLauncherBitmap(): Bitmap =

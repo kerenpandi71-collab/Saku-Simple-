@@ -1,34 +1,27 @@
 package com.saku.dex.data
 
-import android.content.ActivityNotFoundException
-import android.content.ComponentName
 import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
+import android.content.pm.LauncherApps
+import android.content.ComponentName
 import android.widget.Toast
+import com.saku.dex.model.LauncherApp
 
 object AppLauncher {
-    fun launch(context: Context, packageName: String) {
+    fun launch(context: Context, app: LauncherApp) {
         try {
-            val intent = Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_LAUNCHER)
-                setPackage(packageName)
-            }
-            val activity = context.packageManager
-                .queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
-                .firstOrNull()?.activityInfo
-
-            if (activity == null) {
-                Toast.makeText(context, "Aplikasi tidak menyediakan launcher activity", Toast.LENGTH_SHORT).show()
+            val component = ComponentName.unflattenFromString(app.componentName)
+            if (component == null) {
+                Toast.makeText(context, "Tujuan aplikasi tidak valid", Toast.LENGTH_SHORT).show()
                 return
             }
-            intent.component = ComponentName(activity.packageName, activity.name)
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(intent)
-        } catch (_: ActivityNotFoundException) {
-            Toast.makeText(context, "Aplikasi tidak dapat dibuka", Toast.LENGTH_SHORT).show()
+            val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
+            launcherApps.startMainActivity(component, android.os.Process.myUserHandle(), null, null)
         } catch (_: SecurityException) {
             Toast.makeText(context, "Sistem menolak peluncuran aplikasi", Toast.LENGTH_SHORT).show()
+        } catch (_: IllegalStateException) {
+            Toast.makeText(context, "Aplikasi tidak dapat dibuka saat ini", Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) {
+            Toast.makeText(context, "Aplikasi tidak dapat dibuka", Toast.LENGTH_SHORT).show()
         }
     }
 }

@@ -2,12 +2,10 @@ package com.saku.dex.model
 
 import android.graphics.Bitmap
 
-/**
- * Data siap-render untuk satu launcher activity.
- * Bitmap ikon sudah dibuat di background saat repository memuat aplikasi.
- */
+/** Data siap-render untuk satu launcher activity, bukan hanya satu paket aplikasi. */
 data class LauncherApp(
     val name: String,
     val packageName: String,
+    val componentName: String,
     val icon: Bitmap
 )
