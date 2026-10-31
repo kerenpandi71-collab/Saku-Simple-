@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "SakuSimple"
-include(":app")
+include(":app", ":sakudex")
