@@ -113,7 +113,7 @@ fun DesktopScreen() {
                         minCellSize = 88,
                         modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
                         onAppClick = { AppLauncher.launch(context, it) },
-                        onAppLongClick = { AppLauncher.launch(context, it) }
+                        onAppLongClick = { AppLauncher.launchInWindow(context, it) }
                     )
                 } else {
                     Box(Modifier.weight(1f).fillMaxWidth())
@@ -219,7 +219,7 @@ fun DesktopScreen() {
                                     },
                                     onAppLongClick = {
                                         drawerOpen = false
-                                        AppLauncher.launch(context, it)
+                                        AppLauncher.launchInWindow(context, it)
                                     }
                                 )
                             }
