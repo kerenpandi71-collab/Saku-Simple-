@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -50,6 +52,8 @@ fun DesktopScreen() {
     var apps by remember { mutableStateOf<List<LauncherApp>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var drawerOpen by remember { mutableStateOf(false) }
+    val desktopGridState = rememberLazyGridState()
+    val drawerGridState = rememberLazyGridState()
 
     BackHandler(enabled = drawerOpen) { drawerOpen = false }
 
@@ -86,12 +90,18 @@ fun DesktopScreen() {
                         textAlign = TextAlign.Center
                     )
                 }
-                else -> AppGrid(
-                    apps = apps,
-                    minCellSize = 88,
-                    modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
-                    onAppClick = { AppLauncher.launch(context, it.packageName) }
-                )
+                else -> if (!drawerOpen) {
+                    AppGrid(
+                        apps = apps,
+                        minCellSize = 88,
+                        state = desktopGridState,
+                        modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
+                        onAppClick = { AppLauncher.launch(context, it.packageName) }
+                    )
+                } else {
+                    // Do not keep a second lazy grid active underneath the open drawer.
+                    Box(Modifier.weight(1f).fillMaxWidth())
+                }
             }
             Taskbar(
                 modifier = Modifier.align(Alignment.CenterHorizontally),
@@ -108,12 +118,12 @@ fun DesktopScreen() {
             Surface(
                 modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                     .padding(bottom = 58.dp, start = 10.dp, end = 10.dp)
-                    .heightIn(max = 520.dp),
+                    .heightIn(min = 300.dp, max = 520.dp),
                 shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
                 color = Color(0xF01B2734),
                 shadowElevation = 16.dp
             ) {
-                Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                Column(Modifier.fillMaxWidth().heightIn(min = 276.dp, max = 496.dp).padding(horizontal = 14.dp, vertical = 12.dp)) {
                     Text(
                         "Aplikasi",
                         color = Color.White,
@@ -127,7 +137,8 @@ fun DesktopScreen() {
                         AppGrid(
                             apps = apps,
                             minCellSize = 76,
-                            modifier = Modifier.fillMaxWidth().heightIn(max = 450.dp),
+                            state = drawerGridState,
+                            modifier = Modifier.fillMaxWidth().weight(1f),
                             onAppClick = {
                                 drawerOpen = false
                                 AppLauncher.launch(context, it.packageName)
@@ -144,10 +155,12 @@ fun DesktopScreen() {
 private fun AppGrid(
     apps: List<LauncherApp>,
     minCellSize: Int,
+    state: LazyGridState,
     modifier: Modifier = Modifier,
     onAppClick: (LauncherApp) -> Unit
 ) {
     LazyVerticalGrid(
+        state = state,
         columns = GridCells.Adaptive(minSize = minCellSize.dp),
         modifier = modifier,
         contentPadding = PaddingValues(top = 10.dp, bottom = 14.dp),
