@@ -1477,7 +1477,7 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         ((event.getX(0) + event.getX(1)) / 2f) to ((event.getY(0) + event.getY(1)) / 2f)
 
     private fun confirmDisablePixelboard() {
-        androidx.appcompat.app.AlertDialog.Builder(this)
+        android.app.AlertDialog.Builder(this)
             .setTitle("Nonaktifkan Pixelboard?")
             .setMessage("Pixelboard (com.akshaykadam.pixelboard) akan dinonaktifkan untuk seluruh perangkat, termasuk display 0. Aplikasi tidak akan tampil di virtual display maupun layar utama sampai diaktifkan kembali dari Pengaturan Android.")
             .setNegativeButton("Batal", null)
