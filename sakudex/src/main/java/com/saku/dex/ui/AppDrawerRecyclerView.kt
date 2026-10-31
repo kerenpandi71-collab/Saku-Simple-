@@ -24,15 +24,14 @@ internal fun AppDrawerRecyclerView(
     scrollOffset: Int,
     onScrollChanged: (Int, Int) -> Unit,
     modifier: Modifier = Modifier,
-    onAppClick: (LauncherApp) -> Unit,
-    onAppLongClick: (LauncherApp) -> Unit
+    onAppClick: (LauncherApp) -> Unit
 ) {
     AndroidView(
         modifier = modifier,
         factory = { context ->
             RecyclerView(context).apply {
                 layoutManager = createLayoutManager(context, listMode)
-                adapter = LauncherAppAdapter(onAppClick, onAppLongClick)
+                adapter = LauncherAppAdapter(onAppClick)
                 setHasFixedSize(true)
                 clipChildren = true
                 clipToPadding = true
@@ -59,7 +58,7 @@ internal fun AppDrawerRecyclerView(
         },
         update = { recyclerView ->
             val adapter = recyclerView.adapter as? LauncherAppAdapter ?: return@AndroidView
-            adapter.updateCallbacks(onAppClick, onAppLongClick)
+            adapter.updateCallback(onAppClick)
             if (adapter.listMode != listMode) {
                 recyclerView.layoutManager = createLayoutManager(recyclerView.context, listMode)
                 adapter.setListMode(listMode)
@@ -85,17 +84,15 @@ private fun RecyclerView.restorePosition(position: Int, offset: Int) {
 }
 
 private class LauncherAppAdapter(
-    private var onAppClick: (LauncherApp) -> Unit,
-    private var onAppLongClick: (LauncherApp) -> Unit
+    private var onAppClick: (LauncherApp) -> Unit
 ) : ListAdapter<LauncherApp, LauncherAppAdapter.Holder>(DIFF) {
     var listMode = false
         private set
 
     init { setHasStableIds(true) }
 
-    fun updateCallbacks(click: (LauncherApp) -> Unit, longClick: (LauncherApp) -> Unit) {
+    fun updateCallback(click: (LauncherApp) -> Unit) {
         onAppClick = click
-        onAppLongClick = longClick
     }
 
     fun setListMode(value: Boolean) {
@@ -147,22 +144,18 @@ private class LauncherAppAdapter(
     }
 
     override fun onBindViewHolder(holder: Holder, position: Int) {
-        holder.bind(getItem(position), onAppClick, onAppLongClick)
+        holder.bind(getItem(position), onAppClick)
     }
 
     class Holder(root: LinearLayout, private val icon: ImageView, private val label: TextView) :
         RecyclerView.ViewHolder(root) {
         private var current: LauncherApp? = null
-        fun bind(app: LauncherApp, click: (LauncherApp) -> Unit, longClick: (LauncherApp) -> Unit) {
+        fun bind(app: LauncherApp, click: (LauncherApp) -> Unit) {
             current = app
             icon.setImageBitmap(app.icon)
             label.text = app.name
             itemView.contentDescription = app.name
             itemView.setOnClickListener { current?.let(click) }
-            itemView.setOnLongClickListener {
-                current?.let(longClick)
-                true
-            }
         }
     }
 
