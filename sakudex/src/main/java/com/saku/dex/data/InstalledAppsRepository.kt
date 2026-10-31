@@ -2,11 +2,14 @@ package com.saku.dex.data
 
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.drawable.Drawable
+import androidx.core.graphics.drawable.toBitmap
 import com.saku.dex.model.LauncherApp
 
 /**
- * Mengambil aplikasi yang menyediakan launcher activity (MAIN + LAUNCHER).
- * Hasil diurutkan berdasarkan nama dan satu entri ditampilkan per package.
+ * Memuat label dan ikon launcher. Panggil dari Dispatchers.IO.
+ * Ikon diperkecil sebelum disimpan agar penggunaan memori lebih terkendali.
  */
 class InstalledAppsRepository(
     private val packageManager: PackageManager
@@ -17,24 +20,29 @@ class InstalledAppsRepository(
             addCategory(Intent.CATEGORY_LAUNCHER)
         }
 
-        return packageManager
-            .queryIntentActivities(launcherIntent, 0)
+        return packageManager.queryIntentActivities(launcherIntent, 0)
             .mapNotNull { resolveInfo ->
                 val activityInfo = resolveInfo.activityInfo ?: return@mapNotNull null
                 val packageName = activityInfo.packageName
 
                 runCatching {
+                    val drawable = resolveInfo.loadIcon(packageManager)
                     LauncherApp(
                         name = resolveInfo.loadLabel(packageManager)
-                            ?.toString()
-                            ?.takeIf { it.isNotBlank() }
-                            ?: packageName,
+                            ?.toString()?.takeIf { it.isNotBlank() } ?: packageName,
                         packageName = packageName,
-                        icon = resolveInfo.loadIcon(packageManager)
+                        icon = drawable.toLauncherBitmap()
                     )
                 }.getOrNull()
             }
             .distinctBy { it.packageName }
             .sortedBy { it.name.lowercase() }
+    }
+
+    private fun Drawable.toLauncherBitmap(): Bitmap =
+        toBitmap(width = ICON_SIZE_PX, height = ICON_SIZE_PX, config = Bitmap.Config.ARGB_8888)
+
+    private companion object {
+        const val ICON_SIZE_PX = 96
     }
 }

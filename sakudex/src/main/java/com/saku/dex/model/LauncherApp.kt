@@ -1,13 +1,13 @@
 package com.saku.dex.model
 
-import android.graphics.drawable.Drawable
+import android.graphics.Bitmap
 
 /**
- * Informasi satu aplikasi yang mempunyai activity launcher.
- * Drawable dipakai langsung oleh UI untuk menampilkan ikon aplikasi.
+ * Data siap-render untuk satu launcher activity.
+ * Bitmap ikon sudah dibuat di background saat repository memuat aplikasi.
  */
 data class LauncherApp(
     val name: String,
     val packageName: String,
-    val icon: Drawable
+    val icon: Bitmap
 )

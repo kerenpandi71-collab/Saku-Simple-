@@ -37,7 +37,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.graphics.drawable.toBitmap
 import com.saku.dex.data.AppLauncher
 import com.saku.dex.data.InstalledAppsRepository
 import com.saku.dex.model.LauncherApp
@@ -81,19 +80,18 @@ fun DesktopScreen() {
                     Modifier.weight(1f).fillMaxWidth().padding(24.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("Belum ada aplikasi yang bisa ditampilkan.", color = Color.White.copy(alpha = 0.8f), textAlign = TextAlign.Center)
+                    Text(
+                        "Belum ada aplikasi yang bisa ditampilkan.",
+                        color = Color.White.copy(alpha = 0.8f),
+                        textAlign = TextAlign.Center
+                    )
                 }
-                else -> LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 88.dp),
+                else -> AppGrid(
+                    apps = apps,
+                    minCellSize = 88,
                     modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
-                    contentPadding = PaddingValues(top = 10.dp, bottom = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(apps, key = { it.packageName }) { app ->
-                        AppGridItem(app) { AppLauncher.launch(context, app.packageName) }
-                    }
-                }
+                    onAppClick = { AppLauncher.launch(context, it.packageName) }
+                )
             }
             Taskbar(
                 modifier = Modifier.align(Alignment.CenterHorizontally),
@@ -126,19 +124,15 @@ fun DesktopScreen() {
                     if (apps.isEmpty()) {
                         Text("Tidak ada aplikasi.", color = Color.White)
                     } else {
-                        LazyVerticalGrid(
-                            columns = GridCells.Adaptive(minSize = 76.dp),
-                            contentPadding = PaddingValues(bottom = 12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            items(apps, key = { "drawer_${it.packageName}" }) { app ->
-                                AppGridItem(app) {
-                                    drawerOpen = false
-                                    AppLauncher.launch(context, app.packageName)
-                                }
+                        AppGrid(
+                            apps = apps,
+                            minCellSize = 76,
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 450.dp),
+                            onAppClick = {
+                                drawerOpen = false
+                                AppLauncher.launch(context, it.packageName)
                             }
-                        }
+                        )
                     }
                 }
             }
@@ -147,13 +141,43 @@ fun DesktopScreen() {
 }
 
 @Composable
+private fun AppGrid(
+    apps: List<LauncherApp>,
+    minCellSize: Int,
+    modifier: Modifier = Modifier,
+    onAppClick: (LauncherApp) -> Unit
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = minCellSize.dp),
+        modifier = modifier,
+        contentPadding = PaddingValues(top = 10.dp, bottom = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        items(
+            items = apps,
+            key = { it.packageName },
+            contentType = { "launcher-app" }
+        ) { app ->
+            AppGridItem(app) { onAppClick(app) }
+        }
+    }
+}
+
+@Composable
 private fun AppGridItem(app: LauncherApp, onClick: () -> Unit) {
-    val iconBitmap = remember(app.icon) { app.icon.toBitmap(width = 144, height = 144).asImageBitmap() }
+    val iconImage = remember(app.packageName, app.icon) { app.icon.asImageBitmap() }
     Column(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 4.dp, horizontal = 2.dp),
+        modifier = Modifier.fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp, horizontal = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Image(bitmap = iconBitmap, contentDescription = app.name, modifier = Modifier.size(48.dp))
+        Image(
+            bitmap = iconImage,
+            contentDescription = app.name,
+            modifier = Modifier.size(48.dp)
+        )
         Text(
             text = app.name,
             color = Color.White,

@@ -8,10 +8,13 @@ import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.graphics.Color
+import com.saku.dex.display.ExternalDisplayController
 import com.saku.dex.ui.DesktopScreen
 import rikka.shizuku.Shizuku
 
 class MainActivity : ComponentActivity() {
+    private lateinit var externalDisplayController: ExternalDisplayController
+
     private val permissionListener =
         Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
             if (requestCode == SHIZUKU_PERMISSION_REQUEST) {
@@ -26,6 +29,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        externalDisplayController = ExternalDisplayController(this)
         Shizuku.addRequestPermissionResultListener(permissionListener)
         setContent {
             MaterialTheme(
@@ -37,6 +41,16 @@ class MainActivity : ComponentActivity() {
                 Surface { DesktopScreen() }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        externalDisplayController.start()
+    }
+
+    override fun onStop() {
+        externalDisplayController.stop()
+        super.onStop()
     }
 
     override fun onDestroy() {
