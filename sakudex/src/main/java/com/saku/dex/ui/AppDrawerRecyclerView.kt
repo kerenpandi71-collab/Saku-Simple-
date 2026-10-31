@@ -1,11 +1,11 @@
 package com.saku.dex.ui
 
+import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.graphics.drawable.GradientDrawable
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
@@ -30,14 +30,13 @@ internal fun AppDrawerRecyclerView(
     AndroidView(
         modifier = modifier,
         factory = { context ->
-            val adapter = LauncherAppAdapter(onAppClick, onAppLongClick)
             RecyclerView(context).apply {
                 layoutManager = createLayoutManager(context, listMode)
-                this.adapter = adapter
+                adapter = LauncherAppAdapter(onAppClick, onAppLongClick)
                 setHasFixedSize(true)
                 clipChildren = true
                 clipToPadding = true
-                setPadding(0, (4 * context.resources.displayMetrics.density).toInt(), 0, 0)
+                setPadding(0, (4 * resources.displayMetrics.density).toInt(), 0, 0)
                 itemAnimator = null
                 setItemViewCacheSize(18)
                 overScrollMode = RecyclerView.OVER_SCROLL_IF_CONTENT_SCROLLS
@@ -50,12 +49,11 @@ internal fun AppDrawerRecyclerView(
                             is LinearLayoutManager -> manager.findFirstVisibleItemPosition()
                             else -> RecyclerView.NO_POSITION
                         }
-                        val firstView = manager.findViewByPosition(first)
-                        onScrollChanged(first.coerceAtLeast(0), firstView?.top ?: 0)
+                        onScrollChanged(first.coerceAtLeast(0), manager.findViewByPosition(first)?.top ?: 0)
                     }
                 })
-                adapter.submitList(apps) {
-                    post { restorePosition(listMode, scrollPosition, scrollOffset) }
+                (adapter as LauncherAppAdapter).submitList(apps) {
+                    post { restorePosition(scrollPosition, scrollOffset) }
                 }
             }
         },
@@ -65,7 +63,7 @@ internal fun AppDrawerRecyclerView(
             if (adapter.listMode != listMode) {
                 recyclerView.layoutManager = createLayoutManager(recyclerView.context, listMode)
                 adapter.setListMode(listMode)
-                recyclerView.post { recyclerView.restorePosition(listMode, scrollPosition, scrollOffset) }
+                recyclerView.post { recyclerView.restorePosition(scrollPosition, scrollOffset) }
             }
             adapter.submitList(apps)
         }
@@ -76,11 +74,10 @@ private fun createLayoutManager(context: android.content.Context, listMode: Bool
     if (listMode) return LinearLayoutManager(context)
     val density = context.resources.displayMetrics.density
     val widthDp = context.resources.displayMetrics.widthPixels / density
-    val columns = (widthDp / 76f).toInt().coerceIn(2, 8)
-    return GridLayoutManager(context, columns)
+    return GridLayoutManager(context, (widthDp / 76f).toInt().coerceIn(2, 8))
 }
 
-private fun RecyclerView.restorePosition(listMode: Boolean, position: Int, offset: Int) {
+private fun RecyclerView.restorePosition(position: Int, offset: Int) {
     when (val manager = layoutManager) {
         is GridLayoutManager -> manager.scrollToPositionWithOffset(position, offset)
         is LinearLayoutManager -> manager.scrollToPositionWithOffset(position, offset)
@@ -90,48 +87,38 @@ private fun RecyclerView.restorePosition(listMode: Boolean, position: Int, offse
 private class LauncherAppAdapter(
     private var onAppClick: (LauncherApp) -> Unit,
     private var onAppLongClick: (LauncherApp) -> Unit
-) : ListAdapter<LauncherApp, LauncherAppAdapter.AppViewHolder>(DIFF) {
-
-    var listMode: Boolean = false
+) : ListAdapter<LauncherApp, LauncherAppAdapter.Holder>(DIFF) {
+    var listMode = false
         private set
 
     init { setHasStableIds(true) }
 
-    fun updateCallbacks(
-        click: (LauncherApp) -> Unit,
-        longClick: (LauncherApp) -> Unit
-    ) {
+    fun updateCallbacks(click: (LauncherApp) -> Unit, longClick: (LauncherApp) -> Unit) {
         onAppClick = click
         onAppLongClick = longClick
     }
 
-    fun setListMode(enabled: Boolean) {
-        if (listMode == enabled) return
-        listMode = enabled
+    fun setListMode(value: Boolean) {
+        if (listMode == value) return
+        listMode = value
         notifyDataSetChanged()
     }
 
-    override fun getItemId(position: Int): Long =
-        getItem(position).componentName.hashCode().toLong()
+    override fun getItemId(position: Int) = getItem(position).componentName.hashCode().toLong()
+    override fun getItemViewType(position: Int) = if (listMode) 1 else 0
 
-    override fun getItemViewType(position: Int): Int = if (listMode) 1 else 0
-
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): AppViewHolder {
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
         val context = parent.context
         val density = context.resources.displayMetrics.density
-        fun dp(value: Int) = (value * density).toInt()
+        fun dp(v: Int) = (v * density).toInt()
         val isList = viewType == 1
-
-        val container = LinearLayout(context).apply {
+        val root = LinearLayout(context).apply {
             orientation = if (isList) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
             gravity = if (isList) Gravity.CENTER_VERTICAL else Gravity.CENTER
             setPadding(dp(if (isList) 12 else 2), dp(5), dp(8), dp(5))
-            layoutParams = RecyclerView.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(if (isList) 60 else 94)
-            )
-            isFocusable = true
+            layoutParams = RecyclerView.LayoutParams(-1, dp(if (isList) 60 else 94))
             isClickable = true
+            isFocusable = true
         }
         val icon = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
@@ -142,7 +129,6 @@ private class LauncherAppAdapter(
             }
             clipToOutline = true
             elevation = dp(3).toFloat()
-            contentDescription = null
         }
         val label = TextView(context).apply {
             gravity = if (isList) Gravity.CENTER_VERTICAL else Gravity.CENTER
@@ -151,42 +137,30 @@ private class LauncherAppAdapter(
             ellipsize = android.text.TextUtils.TruncateAt.END
             includeFontPadding = false
             setTextColor(android.graphics.Color.WHITE)
-            layoutParams = if (isList) {
-                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
-                    .apply { marginStart = dp(14) }
-            } else {
-                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(22))
-                    .apply { topMargin = dp(5) }
-            }
+            layoutParams = if (isList) LinearLayout.LayoutParams(0, -1, 1f).apply {
+                marginStart = dp(14)
+            } else LinearLayout.LayoutParams(-1, dp(22)).apply { topMargin = dp(5) }
         }
-        container.addView(icon)
-        container.addView(label)
-        return AppViewHolder(container, icon, label)
+        root.addView(icon)
+        root.addView(label)
+        return Holder(root, icon, label)
     }
 
-    override fun onBindViewHolder(holder: AppViewHolder, position: Int) {
+    override fun onBindViewHolder(holder: Holder, position: Int) {
         holder.bind(getItem(position), onAppClick, onAppLongClick)
     }
 
-    class AppViewHolder(
-        itemView: LinearLayout,
-        private val icon: ImageView,
-        private val label: TextView
-    ) : RecyclerView.ViewHolder(itemView) {
-        private var boundApp: LauncherApp? = null
-
-        fun bind(
-            app: LauncherApp,
-            onAppClick: (LauncherApp) -> Unit,
-            onAppLongClick: (LauncherApp) -> Unit
-        ) {
-            boundApp = app
+    class Holder(root: LinearLayout, private val icon: ImageView, private val label: TextView) :
+        RecyclerView.ViewHolder(root) {
+        private var current: LauncherApp? = null
+        fun bind(app: LauncherApp, click: (LauncherApp) -> Unit, longClick: (LauncherApp) -> Unit) {
+            current = app
             icon.setImageBitmap(app.icon)
             label.text = app.name
             itemView.contentDescription = app.name
-            itemView.setOnClickListener { boundApp?.let(onAppClick) }
+            itemView.setOnClickListener { current?.let(click) }
             itemView.setOnLongClickListener {
-                boundApp?.let(onAppLongClick)
+                current?.let(longClick)
                 true
             }
         }
@@ -194,11 +168,10 @@ private class LauncherAppAdapter(
 
     private companion object {
         val DIFF = object : DiffUtil.ItemCallback<LauncherApp>() {
-            override fun areItemsTheSame(oldItem: LauncherApp, newItem: LauncherApp) =
-                oldItem.componentName == newItem.componentName
-            override fun areContentsTheSame(oldItem: LauncherApp, newItem: LauncherApp) =
-                oldItem.name == newItem.name && oldItem.packageName == newItem.packageName &&
-                    oldItem.icon === newItem.icon
+            override fun areItemsTheSame(old: LauncherApp, new: LauncherApp) =
+                old.componentName == new.componentName
+            override fun areContentsTheSame(old: LauncherApp, new: LauncherApp) =
+                old.name == new.name && old.packageName == new.packageName && old.icon === new.icon
         }
     }
 }

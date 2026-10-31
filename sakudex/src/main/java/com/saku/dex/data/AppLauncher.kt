@@ -17,18 +17,16 @@ object AppLauncher {
 
     private fun launchInternal(context: Context, app: LauncherApp, requestWindow: Boolean) {
         try {
-            val component = ComponentName.unflattenFromString(app.componentName)
-            if (component == null) {
+            val component = ComponentName.unflattenFromString(app.componentName) ?: run {
                 Toast.makeText(context, "Tujuan aplikasi tidak valid", Toast.LENGTH_SHORT).show()
                 return
             }
-
             val options = if (requestWindow) {
                 val metrics = DisplayMetrics()
                 @Suppress("DEPRECATION")
-                val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
                 @Suppress("DEPRECATION")
-                windowManager.defaultDisplay.getRealMetrics(metrics)
+                wm.defaultDisplay.getRealMetrics(metrics)
                 val width = (metrics.widthPixels * 0.84f).toInt().coerceAtLeast(1)
                 val height = (metrics.heightPixels * 0.76f).toInt().coerceAtLeast(1)
                 val left = (metrics.widthPixels - width) / 2
@@ -40,22 +38,15 @@ object AppLauncher {
 
             val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
             launcherApps.startMainActivity(
-                component,
-                android.os.Process.myUserHandle(),
-                null,
-                options
+                component, android.os.Process.myUserHandle(), null, options
             )
-            if (requestWindow) {
-                Toast.makeText(
-                    context,
-                    "Ukuran jendela mengikuti dukungan freeform perangkat",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
+            if (requestWindow) Toast.makeText(
+                context,
+                "Ukuran jendela mengikuti dukungan freeform perangkat",
+                Toast.LENGTH_SHORT
+            ).show()
         } catch (_: SecurityException) {
             Toast.makeText(context, "Sistem menolak peluncuran aplikasi", Toast.LENGTH_SHORT).show()
-        } catch (_: IllegalStateException) {
-            Toast.makeText(context, "Aplikasi tidak dapat dibuka saat ini", Toast.LENGTH_SHORT).show()
         } catch (_: Exception) {
             Toast.makeText(context, "Aplikasi tidak dapat dibuka", Toast.LENGTH_SHORT).show()
         }
