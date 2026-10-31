@@ -132,7 +132,7 @@ private class DesktopPresentation(context: Context, display: Display) : Presenta
             setHintTextColor(Color.rgb(168, 185, 202))
             setTextColor(Color.WHITE)
             textSize = 14f
-            singleLine = true
+            setSingleLine(true)
             setPadding(dp(16), 0, dp(16), 0)
             background = rounded(Color.rgb(31, 46, 62), dp(14), Color.rgb(66, 87, 108))
         }
@@ -147,7 +147,7 @@ private class DesktopPresentation(context: Context, display: Display) : Presenta
             useDefaultMargins = false
             alignmentMode = GridLayout.ALIGN_BOUNDS
         }
-        scroll.addView(appGrid, ScrollView.LayoutParams(
+        scroll.addView(appGrid, android.widget.FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ))
         root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
