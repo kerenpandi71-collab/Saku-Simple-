@@ -10,8 +10,8 @@ android {
         applicationId = "com.saku.dex"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.2.0"
+        versionCode = 4
+        versionName = "1.3.0"
     }
     buildFeatures { compose = true }
     compileOptions {
@@ -34,5 +34,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
+
+    // Reuse Taskbar's Android secondary-home desktop implementation on external displays.
+    implementation("com.github.farmerbb:libtaskbar:2.2.0")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
