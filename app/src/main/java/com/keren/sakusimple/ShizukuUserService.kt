@@ -110,11 +110,15 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             val windowManagerGlobal = Class.forName("android.view.WindowManagerGlobal")
             val windowManager = windowManagerGlobal.getMethod("getWindowManagerService").invoke(null)
                 ?: throw IllegalStateException("WindowManagerService tidak tersedia")
+            // Android's documented policy values are LOCAL=0, FALLBACK_DISPLAY=1,
+            // HIDE=2. Prefer the framework constant, but keep FALLBACK_DISPLAY as the
+            // compatibility value when an OEM hides the field from reflection. Falling
+            // back to HIDE would suppress the keyboard instead of routing it to display 0.
             val policy = runCatching {
                 Class.forName("android.view.WindowManager")
                     .getField("DISPLAY_IME_POLICY_FALLBACK_DISPLAY")
                     .getInt(null)
-            }.getOrDefault(DISPLAY_IME_POLICY_HIDE)
+            }.getOrDefault(DISPLAY_IME_POLICY_FALLBACK_DISPLAY)
             val iWindowManager = Class.forName("android.view.IWindowManager")
             val setPolicy = iWindowManager.getMethod(
                 "setDisplayImePolicy",
