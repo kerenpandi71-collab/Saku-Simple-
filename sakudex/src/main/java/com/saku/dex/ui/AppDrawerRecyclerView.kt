@@ -101,7 +101,7 @@ private class LauncherAppAdapter(
         notifyDataSetChanged()
     }
 
-    override fun getItemId(position: Int) = getItem(position).componentName.hashCode().toLong()
+    override fun getItemId(position: Int) = getItem(position).uniqueId.hashCode().toLong()
     override fun getItemViewType(position: Int) = if (listMode) 1 else 0
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
@@ -153,8 +153,8 @@ private class LauncherAppAdapter(
         fun bind(app: LauncherApp, click: (LauncherApp) -> Unit) {
             current = app
             icon.setImageBitmap(app.icon)
-            label.text = app.name
-            itemView.contentDescription = app.name
+            label.text = if (app.isClone) "${app.name} · Klon" else app.name
+            itemView.contentDescription = if (app.isClone) "${app.name}, aplikasi klon" else app.name
             itemView.setOnClickListener { current?.let(click) }
         }
     }
@@ -162,9 +162,9 @@ private class LauncherAppAdapter(
     private companion object {
         val DIFF = object : DiffUtil.ItemCallback<LauncherApp>() {
             override fun areItemsTheSame(old: LauncherApp, new: LauncherApp) =
-                old.componentName == new.componentName
+                old.uniqueId == new.uniqueId
             override fun areContentsTheSame(old: LauncherApp, new: LauncherApp) =
-                old.name == new.name && old.packageName == new.packageName && old.icon === new.icon
+                old.name == new.name && old.packageName == new.packageName && old.isClone == new.isClone && old.icon === new.icon
         }
     }
 }
