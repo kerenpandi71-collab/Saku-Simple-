@@ -15,6 +15,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.items
+
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
@@ -167,5 +171,66 @@ fun DesktopScreen() {
                 }
             }
         }
+    }
+}
+
+
+@Composable
+private fun AppGrid(
+    apps: List<LauncherApp>,
+    minCellSize: Int,
+    modifier: Modifier = Modifier,
+    onAppClick: (LauncherApp) -> Unit
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = minCellSize.dp),
+        modifier = modifier,
+        contentPadding = PaddingValues(top = 10.dp, bottom = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        items(apps, key = { it.componentName }) { app ->
+            Column(
+                modifier = Modifier.fillMaxWidth().clickable { onAppClick(app) }
+                    .padding(vertical = 4.dp, horizontal = 2.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Image(
+                    bitmap = remember(app.componentName, app.icon) { app.icon.asImageBitmap() },
+                    contentDescription = app.name,
+                    modifier = Modifier.size(48.dp)
+                )
+                Text(
+                    text = app.name,
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(top = 5.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DrawerModeButton(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(9.dp),
+        color = if (selected) Color(0xFF426A91) else Color(0xFF293746),
+        contentColor = Color.White
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 13.dp, vertical = 7.dp),
+            fontSize = 12.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+        )
     }
 }
