@@ -239,21 +239,21 @@ private fun AppGrid(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        items(apps, key = { it.componentName }) { app ->
+        items(apps, key = { it.uniqueId }) { app ->
             Column(
                 modifier = Modifier.fillMaxWidth().clickable { onAppClick(app) }
                     .padding(vertical = 4.dp, horizontal = 2.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Image(
-                    bitmap = remember(app.componentName, app.icon) { app.icon.asImageBitmap() },
+                    bitmap = remember(app.uniqueId, app.icon) { app.icon.asImageBitmap() },
                     contentDescription = app.name,
                     modifier = Modifier.size(48.dp)
                         .shadow(3.dp, RoundedCornerShape(20.dp))
                         .clip(RoundedCornerShape(20.dp))
                 )
                 Text(
-                    text = app.name,
+                    text = if (app.isClone) "${app.name} · Klon" else app.name,
                     color = Color.White,
                     fontSize = 12.sp,
                     maxLines = 1,
