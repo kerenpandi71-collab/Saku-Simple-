@@ -6,7 +6,7 @@ import android.content.pm.LauncherApps
 import android.widget.Toast
 import com.saku.dex.model.LauncherApp
 
-/** Standard Android app launcher. Legacy launch-bounds window mode was removed. */
+/** Launches the selected app in the exact Android profile it belongs to. */
 object AppLauncher {
     fun launch(context: Context, app: LauncherApp) {
         try {
@@ -15,14 +15,13 @@ object AppLauncher {
                 return
             }
             val launcherApps = context.getSystemService(Context.LAUNCHER_APPS_SERVICE) as LauncherApps
-            launcherApps.startMainActivity(
-                component,
-                android.os.Process.myUserHandle(),
-                null,
-                null
-            )
+            launcherApps.startMainActivity(component, app.userHandle, null, null)
         } catch (_: SecurityException) {
-            Toast.makeText(context, "Sistem menolak peluncuran aplikasi", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                context,
+                if (app.isClone) "Android menolak akses ke profil aplikasi klon" else "Sistem menolak peluncuran aplikasi",
+                Toast.LENGTH_SHORT
+            ).show()
         } catch (_: Exception) {
             Toast.makeText(context, "Aplikasi tidak dapat dibuka", Toast.LENGTH_SHORT).show()
         }
