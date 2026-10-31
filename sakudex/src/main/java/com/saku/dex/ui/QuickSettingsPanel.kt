@@ -26,9 +26,9 @@ internal fun QuickSettingsPanel(expanded: Boolean, onDismiss: () -> Unit, contex
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
         }
         PanelItem("Internet / Wi-Fi", Settings.Panel.ACTION_INTERNET_CONNECTIVITY, context, onDismiss)
-        PanelItem("Bluetooth", Settings.Panel.ACTION_BLUETOOTH, context, onDismiss)
+        PanelItem("Bluetooth", Settings.ACTION_BLUETOOTH_SETTINGS, context, onDismiss)
         PanelItem("Volume", Settings.Panel.ACTION_VOLUME, context, onDismiss)
-        PanelItem("Kecerahan layar", Settings.Panel.ACTION_BRIGHTNESS, context, onDismiss)
+        PanelItem("Kecerahan layar", Settings.ACTION_DISPLAY_SETTINGS, context, onDismiss)
         DropdownMenuItem(text = { Text("Pengaturan perangkat") }, onClick = {
             onDismiss(); openPanel(context, Settings.ACTION_SETTINGS)
         })
