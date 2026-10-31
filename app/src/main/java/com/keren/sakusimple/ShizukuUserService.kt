@@ -663,6 +663,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
     companion object {
         private const val TAG = "SakuShizukuService"
         private const val SUPPORTS_TOUCH_FLAG = 1 shl 6
+        private const val OWN_CONTENT_ONLY_FLAG = 1 shl 8
         // Hidden Android flag; not exposed by the compile-time SDK.
         private const val TRUSTED_FLAG = 1 shl 10
         private const val INJECT_ASYNC = 0
