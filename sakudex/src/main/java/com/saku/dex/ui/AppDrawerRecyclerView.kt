@@ -5,6 +5,8 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.graphics.drawable.GradientDrawable
+import android.view.View
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
@@ -123,7 +125,13 @@ private class LauncherAppAdapter(
         }
         val icon = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
-            layoutParams = LinearLayout.LayoutParams(dp(if (isList) 40 else 48), dp(if (isList) 40 else 48))
+            layoutParams = LinearLayout.LayoutParams(dp(if (isList) 40 else 48), dp(if (isList) 48 else 52))
+            background = GradientDrawable().apply {
+                setColor(android.graphics.Color.TRANSPARENT)
+                cornerRadius = dp(20).toFloat()
+            }
+            clipToOutline = true
+            elevation = dp(3).toFloat()
             contentDescription = null
         }
         val label = TextView(context).apply {

@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -174,8 +175,8 @@ fun DesktopScreen() {
                     }
                 }
                 Box(
-                    modifier = Modifier.align(Alignment.BottomStart)
-                        .padding(start = 10.dp, bottom = 10.dp)
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                        .padding(bottom = 10.dp)
                         .size(42.dp)
                         .background(Color(0xFF303D4B), RoundedCornerShape(10.dp))
                         .clickable { drawerOpen = false },
@@ -213,6 +214,8 @@ private fun AppGrid(
                     bitmap = remember(app.componentName, app.icon) { app.icon.asImageBitmap() },
                     contentDescription = app.name,
                     modifier = Modifier.size(48.dp)
+                        .shadow(3.dp, RoundedCornerShape(20.dp))
+                        .clip(RoundedCornerShape(20.dp))
                 )
                 Text(
                     text = app.name,

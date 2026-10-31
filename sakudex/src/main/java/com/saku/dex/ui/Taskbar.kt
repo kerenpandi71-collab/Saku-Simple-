@@ -53,41 +53,52 @@ fun Taskbar(
 
     Row(
         modifier = modifier.fillMaxWidth().height(58.dp)
-            .background(Color(0xF018212B)).padding(horizontal = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+            .background(Color(0x1AFFFFFF))
+            .padding(horizontal = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        TaskbarButton("▦", onClick = onStartClick)
-        TaskbarButton("⌂", onClick = onDesktopClick)
-        TaskbarButton("⚙") {
-            runCatching {
-                context.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            }.onFailure {
-                Toast.makeText(context, "Pengaturan tidak dapat dibuka", Toast.LENGTH_SHORT).show()
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            TaskbarButton("⌂", onClick = onDesktopClick)
+            TaskbarButton("⚙") {
+                runCatching {
+                    context.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                }.onFailure {
+                    Toast.makeText(context, "Pengaturan tidak dapat dibuka", Toast.LENGTH_SHORT).show()
+                }
             }
         }
-        Box(Modifier.weight(1f))
-        TaskbarButton("S", compact = true) {
-            when (shizukuState) {
-                ShizukuAccess.State.NOT_RUNNING ->
-                    Toast.makeText(context, "Jalankan aplikasi Shizuku terlebih dahulu", Toast.LENGTH_LONG).show()
-                ShizukuAccess.State.UNSUPPORTED_API ->
-                    Toast.makeText(context, "Versi API Shizuku tidak didukung", Toast.LENGTH_SHORT).show()
-                ShizukuAccess.State.PERMISSION_REQUIRED ->
-                    runCatching { ShizukuAccess.requestPermission() }.onFailure {
-                        Toast.makeText(context, "Tidak dapat meminta izin Shizuku", Toast.LENGTH_SHORT).show()
-                    }
-                ShizukuAccess.State.GRANTED ->
-                    Toast.makeText(context, ShizukuAccess.privilegeLabel(), Toast.LENGTH_SHORT).show()
-            }
+        Box(
+            modifier = Modifier.weight(1f).height(58.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            TaskbarButton("▦", onClick = onStartClick)
         }
-        Text(
-            text = clock,
-            color = Color.White,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(start = 2.dp, end = 3.dp)
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            TaskbarButton("S", compact = true) {
+                when (shizukuState) {
+                    ShizukuAccess.State.NOT_RUNNING ->
+                        Toast.makeText(context, "Jalankan aplikasi Shizuku terlebih dahulu", Toast.LENGTH_LONG).show()
+                    ShizukuAccess.State.UNSUPPORTED_API ->
+                        Toast.makeText(context, "Versi API Shizuku tidak didukung", Toast.LENGTH_SHORT).show()
+                    ShizukuAccess.State.PERMISSION_REQUIRED ->
+                        runCatching { ShizukuAccess.requestPermission() }.onFailure {
+                            Toast.makeText(context, "Tidak dapat meminta izin Shizuku", Toast.LENGTH_SHORT).show()
+                        }
+                    ShizukuAccess.State.GRANTED ->
+                        Toast.makeText(context, ShizukuAccess.privilegeLabel(), Toast.LENGTH_SHORT).show()
+                }
+            }
+            Text(
+                text = clock,
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(start = 2.dp, end = 3.dp)
+            )
+        }
     }
 }
 
