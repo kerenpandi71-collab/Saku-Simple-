@@ -672,6 +672,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         private const val TRUSTED_FLAG = 1 shl 10
         private const val INJECT_ASYNC = 0
         private const val INJECT_WAIT_FOR_RESULT = 1
+        private const val DISPLAY_IME_POLICY_FALLBACK_DISPLAY = 1
         private const val DISPLAY_IME_POLICY_HIDE = 2
     }
 }
