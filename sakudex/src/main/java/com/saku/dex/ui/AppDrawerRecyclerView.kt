@@ -6,7 +6,6 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.graphics.drawable.GradientDrawable
-import android.view.View
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
@@ -25,12 +24,13 @@ internal fun AppDrawerRecyclerView(
     scrollOffset: Int,
     onScrollChanged: (Int, Int) -> Unit,
     modifier: Modifier = Modifier,
-    onAppClick: (LauncherApp) -> Unit
+    onAppClick: (LauncherApp) -> Unit,
+    onAppLongClick: (LauncherApp) -> Unit
 ) {
     AndroidView(
         modifier = modifier,
         factory = { context ->
-            val adapter = LauncherAppAdapter(onAppClick)
+            val adapter = LauncherAppAdapter(onAppClick, onAppLongClick)
             RecyclerView(context).apply {
                 layoutManager = createLayoutManager(context, listMode)
                 this.adapter = adapter
@@ -61,6 +61,7 @@ internal fun AppDrawerRecyclerView(
         },
         update = { recyclerView ->
             val adapter = recyclerView.adapter as? LauncherAppAdapter ?: return@AndroidView
+            adapter.updateCallbacks(onAppClick, onAppLongClick)
             if (adapter.listMode != listMode) {
                 recyclerView.layoutManager = createLayoutManager(recyclerView.context, listMode)
                 adapter.setListMode(listMode)
@@ -87,13 +88,22 @@ private fun RecyclerView.restorePosition(listMode: Boolean, position: Int, offse
 }
 
 private class LauncherAppAdapter(
-    private val onAppClick: (LauncherApp) -> Unit
+    private var onAppClick: (LauncherApp) -> Unit,
+    private var onAppLongClick: (LauncherApp) -> Unit
 ) : ListAdapter<LauncherApp, LauncherAppAdapter.AppViewHolder>(DIFF) {
 
     var listMode: Boolean = false
         private set
 
     init { setHasStableIds(true) }
+
+    fun updateCallbacks(
+        click: (LauncherApp) -> Unit,
+        longClick: (LauncherApp) -> Unit
+    ) {
+        onAppClick = click
+        onAppLongClick = longClick
+    }
 
     fun setListMode(enabled: Boolean) {
         if (listMode == enabled) return
@@ -151,26 +161,34 @@ private class LauncherAppAdapter(
         }
         container.addView(icon)
         container.addView(label)
-        return AppViewHolder(container, icon, label, onAppClick)
+        return AppViewHolder(container, icon, label)
     }
 
     override fun onBindViewHolder(holder: AppViewHolder, position: Int) {
-        holder.bind(getItem(position))
+        holder.bind(getItem(position), onAppClick, onAppLongClick)
     }
 
     class AppViewHolder(
         itemView: LinearLayout,
         private val icon: ImageView,
-        private val label: TextView,
-        private val onAppClick: (LauncherApp) -> Unit
+        private val label: TextView
     ) : RecyclerView.ViewHolder(itemView) {
         private var boundApp: LauncherApp? = null
-        init { itemView.setOnClickListener { boundApp?.let(onAppClick) } }
-        fun bind(app: LauncherApp) {
+
+        fun bind(
+            app: LauncherApp,
+            onAppClick: (LauncherApp) -> Unit,
+            onAppLongClick: (LauncherApp) -> Unit
+        ) {
             boundApp = app
             icon.setImageBitmap(app.icon)
             label.text = app.name
             itemView.contentDescription = app.name
+            itemView.setOnClickListener { boundApp?.let(onAppClick) }
+            itemView.setOnLongClickListener {
+                boundApp?.let(onAppLongClick)
+                true
+            }
         }
     }
 
