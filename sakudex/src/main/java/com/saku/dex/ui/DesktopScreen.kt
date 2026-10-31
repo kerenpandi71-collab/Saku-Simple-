@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,8 @@ import androidx.compose.foundation.lazy.grid.items
 
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -239,9 +242,11 @@ private fun AppGrid(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        items(apps, key = { it.uniqueId }) { app ->
+        items(apps, key = { it.uniqueId }, contentType = { "desktop-app" }) { app ->
+            var menuExpanded by remember(app.uniqueId) { mutableStateOf(false) }
             Column(
-                modifier = Modifier.fillMaxWidth().clickable { onAppClick(app) }
+                modifier = Modifier.fillMaxWidth()
+                    .combinedClickable(onClick = { onAppClick(app) }, onLongClick = { menuExpanded = true })
                     .padding(vertical = 4.dp, horizontal = 2.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -261,6 +266,20 @@ private fun AppGrid(
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth().padding(top = 5.dp)
                 )
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenuItem(text = { Text("Buka aplikasi") }, onClick = {
+                        menuExpanded = false
+                        onAppClick(app)
+                    })
+                    DropdownMenuItem(text = { Text("Info aplikasi") }, onClick = {
+                        menuExpanded = false
+                        openAppInfoAction(LocalContext.current, app.packageName)
+                    })
+                    DropdownMenuItem(text = { Text("Uninstall") }, onClick = {
+                        menuExpanded = false
+                        requestAppUninstall(LocalContext.current, app.packageName)
+                    })
+                }
             }
         }
     }

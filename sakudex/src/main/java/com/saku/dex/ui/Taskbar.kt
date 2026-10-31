@@ -42,6 +42,7 @@ fun Taskbar(
     val context = LocalContext.current
     var clock by remember { mutableStateOf(currentClock()) }
     var shizukuState by remember { mutableStateOf(ShizukuAccess.state()) }
+    var quickSettingsExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -78,6 +79,10 @@ fun Taskbar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(7.dp)
         ) {
+            Box {
+                TaskbarButton("⌄", compact = true) { quickSettingsExpanded = true }
+                QuickSettingsPanel(quickSettingsExpanded, { quickSettingsExpanded = false }, context)
+            }
             TaskbarButton("S", compact = true) {
                 when (shizukuState) {
                     ShizukuAccess.State.NOT_RUNNING ->

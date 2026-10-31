@@ -156,6 +156,10 @@ private class LauncherAppAdapter(
             label.text = if (app.isClone) "${app.name} · Klon" else app.name
             itemView.contentDescription = if (app.isClone) "${app.name}, aplikasi klon" else app.name
             itemView.setOnClickListener { current?.let(click) }
+            itemView.setOnLongClickListener {
+                current?.let { showAppActions(itemView, it) }
+                true
+            }
         }
     }
 
