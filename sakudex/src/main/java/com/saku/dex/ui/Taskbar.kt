@@ -52,12 +52,13 @@ fun Taskbar(
     }
 
     Row(
-        modifier = modifier.fillMaxWidth().height(58.dp)
-            .background(Color(0x1AFFFFFF))
-            .padding(horizontal = 10.dp),
+        modifier = modifier.fillMaxWidth().height(64.dp)
+            .background(Color(0xD914202C), RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+            .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            TaskbarButton("▦", onClick = onStartClick)
             TaskbarButton("⌂", onClick = onDesktopClick)
             TaskbarButton("⚙") {
                 runCatching {
@@ -69,9 +70,9 @@ fun Taskbar(
         }
         Box(
             modifier = Modifier.weight(1f).height(58.dp),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.CenterStart
         ) {
-            TaskbarButton("▦", onClick = onStartClick)
+            Text("Saku DeX", color = Color(0xFFB7C6D5), fontSize = 12.sp, fontWeight = FontWeight.Medium)
         }
         Row(
             verticalAlignment = Alignment.CenterVertically,

@@ -24,6 +24,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -62,6 +64,7 @@ fun DesktopScreen() {
     var isLoading by remember { mutableStateOf(true) }
     var drawerOpen by remember { mutableStateOf(false) }
     var listMode by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
     var drawerScrollPosition by remember { mutableIntStateOf(0) }
     var drawerScrollOffset by remember { mutableIntStateOf(0) }
 
@@ -79,13 +82,17 @@ fun DesktopScreen() {
         )
     ) {
         Column(Modifier.fillMaxSize()) {
-            Text(
-                "Saku DeX",
-                color = Color.White,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 8.dp)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, top = 18.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text("Saku DeX", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Desktop workspace", color = Color(0xFFB5C3D1), fontSize = 12.sp)
+                }
+                Text("DESKTOP", color = Color(0xFFB5C3D1), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
             when {
                 isLoading -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = Color.White)
@@ -106,7 +113,7 @@ fun DesktopScreen() {
                         minCellSize = 88,
                         modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp),
                         onAppClick = { AppLauncher.launch(context, it) },
-                        onAppLongClick = { AppLauncher.launchInWindow(context, it) }
+                        onAppLongClick = { AppLauncher.launch(context, it) }
                     )
                 } else {
                     Box(Modifier.weight(1f).fillMaxWidth())
@@ -168,16 +175,36 @@ fun DesktopScreen() {
                                     DrawerModeButton("✕", selected = false) { drawerOpen = false }
                                 }
                             }
-                            Box(
-                                Modifier.fillMaxWidth().padding(bottom = 10.dp)
-                                    .size(width = 1.dp, height = 1.dp)
-                                    .background(Color(0x334B6073))
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                                singleLine = true,
+                                placeholder = { Text("Cari aplikasi...", color = Color(0xFF9EADBC), fontSize = 14.sp) },
+                                shape = RoundedCornerShape(14.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White,
+                                    focusedBorderColor = Color(0xFF6D9CC7),
+                                    unfocusedBorderColor = Color(0xFF3A4B5D),
+                                    cursorColor = Color.White,
+                                    focusedContainerColor = Color(0xFF202F3E),
+                                    unfocusedContainerColor = Color(0xFF202F3E)
+                                )
                             )
-                            if (apps.isEmpty()) {
-                                Text("Tidak ada aplikasi.", color = Color.White)
+                            val visibleApps = apps.filter {
+                                it.name.contains(searchQuery, ignoreCase = true) ||
+                                    it.packageName.contains(searchQuery, ignoreCase = true)
+                            }
+                            if (visibleApps.isEmpty()) {
+                                Text(
+                                    if (apps.isEmpty()) "Tidak ada aplikasi yang tersedia." else "Aplikasi tidak ditemukan.",
+                                    color = Color(0xFFB5C3D1),
+                                    modifier = Modifier.padding(top = 18.dp)
+                                )
                             } else {
                                 AppDrawerRecyclerView(
-                                    apps = apps,
+                                    apps = visibleApps,
                                     listMode = listMode,
                                     scrollPosition = drawerScrollPosition,
                                     scrollOffset = drawerScrollOffset,
@@ -192,7 +219,7 @@ fun DesktopScreen() {
                                     },
                                     onAppLongClick = {
                                         drawerOpen = false
-                                        AppLauncher.launchInWindow(context, it)
+                                        AppLauncher.launch(context, it)
                                     }
                                 )
                             }
