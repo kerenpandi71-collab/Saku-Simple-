@@ -20,6 +20,8 @@ import android.view.SurfaceView
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.BaseAdapter
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -29,7 +31,7 @@ import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-private data class StandaloneGameEntry(val label: String, val packageName: String, val activityName: String)
+private data class StandaloneGameEntry(val label: String, val packageName: String, val activityName: String, val icon: android.graphics.drawable.Drawable)
 
 /** Independent launcher and screen for the Saku Gamepad standalone APK flavor. */
 class StandaloneGamepadActivity : ComponentActivity() {
@@ -237,26 +239,28 @@ class StandaloneGamepadActivity : ComponentActivity() {
 
     @Suppress("DEPRECATION")
     private fun discoverGames(): List<StandaloneGameEntry> {
-        // QUERY_ALL_PACKAGES in the standalone manifest removes Android 11+ package
-        // visibility filtering, so enumerate installed packages rather than only
-        // apps that appear in the launcher query.
+        // Hanya aplikasi pengguna; aplikasi sistem dan system app yang diperbarui dikecualikan.
+        // Paket clone tetap ditampilkan jika Android mengeksposnya sebagai paket non-sistem.
         return packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
             .asSequence()
             .filter { it.packageName != packageName }
-            .map { app ->
+            .filter {
+                (it.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) == 0 &&
+                    (it.flags and android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) == 0
+            }
+            .mapNotNull { app ->
                 val launchIntent = packageManager.getLaunchIntentForPackage(app.packageName)
                 val activityName = launchIntent?.component?.className
                     ?: packageManager.queryIntentActivities(
-                        Intent(Intent.ACTION_MAIN)
-                            .addCategory(Intent.CATEGORY_LAUNCHER)
-                            .setPackage(app.packageName),
+                        Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(app.packageName),
                         PackageManager.MATCH_DEFAULT_ONLY
                     ).firstOrNull()?.activityInfo?.name
-                    ?: ""
-                val label = runCatching {
-                    packageManager.getApplicationLabel(app).toString()
-                }.getOrDefault(app.packageName).ifBlank { app.packageName }
-                StandaloneGameEntry(label, app.packageName, activityName)
+                    ?: return@mapNotNull null
+                val label = runCatching { packageManager.getApplicationLabel(app).toString() }
+                    .getOrDefault(app.packageName).ifBlank { app.packageName }
+                val icon = runCatching { packageManager.getApplicationIcon(app) }
+                    .getOrElse { getDrawable(android.R.drawable.sym_def_app_icon)!! }
+                StandaloneGameEntry(label, app.packageName, activityName, icon)
             }
             .distinctBy { it.packageName }
             .sortedBy { it.label.lowercase(Locale.getDefault()) }
@@ -265,22 +269,56 @@ class StandaloneGamepadActivity : ComponentActivity() {
 
     private fun showGamePicker() {
         if (games.isEmpty()) {
-            Toast.makeText(this, "Tidak ada aplikasi launcher yang terdeteksi.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Tidak ada aplikasi pengguna yang bisa dibuka.", Toast.LENGTH_LONG).show()
             return
         }
-        val options = games.map { "${it.label}  •  ${it.packageName}" }.toTypedArray()
         val selected = games.indexOfFirst { it.packageName == selectedGame?.packageName }
-        android.app.AlertDialog.Builder(this)
-            .setTitle("Pilih game / aplikasi")
-            .setSingleChoiceItems(options, selected) { dialog, which ->
-                selectedGame = games[which]
-                profile = GamepadProfile.load(this, selectedGame!!.packageName)
-                controlsView.setProfile(profile)
-                dialog.dismiss()
-                setStatus("Dipilih • ${selectedGame!!.label}")
+        val adapter = object : BaseAdapter() {
+            override fun getCount(): Int = games.size
+            override fun getItem(position: Int): StandaloneGameEntry = games[position]
+            override fun getItemId(position: Int): Long = position.toLong()
+            override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
+                val row = (convertView as? LinearLayout) ?: LinearLayout(this@StandaloneGamepadActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(16), dp(9), dp(16), dp(9))
+                    minimumHeight = dp(64)
+                    val iconView = ImageView(context).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
+                    addView(iconView, LinearLayout.LayoutParams(dp(42), dp(42)).apply { rightMargin = dp(14) })
+                    val nameView = TextView(context).apply {
+                        textSize = 15f
+                        setTextColor(Color.WHITE)
+                        maxLines = 2
+                        ellipsize = android.text.TextUtils.TruncateAt.END
+                    }
+                    addView(nameView, LinearLayout.LayoutParams(0, -2, 1f))
+                }
+                (row.getChildAt(0) as ImageView).setImageDrawable(getItem(position).icon)
+                (row.getChildAt(1) as TextView).text = getItem(position).label + "\n" + getItem(position).packageName
+                return row
             }
+        }
+        val list = android.widget.ListView(this).apply {
+            adapter = adapter
+            choiceMode = android.widget.ListView.CHOICE_MODE_SINGLE
+            if (selected >= 0) setItemChecked(selected, true)
+            divider = android.graphics.drawable.ColorDrawable(Color.argb(45, 255, 255, 255))
+            dividerHeight = dp(1)
+        }
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setTitle("Pilih game / aplikasi")
+            .setView(list)
             .setNegativeButton("Batal", null)
-            .show()
+            .create()
+        list.setOnItemClickListener { _, _, which, _ ->
+            selectedGame = games[which]
+            profile = GamepadProfile.load(this, selectedGame!!.packageName)
+            controlsView.setProfile(profile)
+            dialog.dismiss()
+            setStatus("Dipilih • " + selectedGame!!.label)
+        }
+        dialog.show()
+        dialog.window?.setLayout((resources.displayMetrics.widthPixels * 0.82f).toInt(), (resources.displayMetrics.heightPixels * 0.78f).toInt())
     }
 
     private fun showMappingPicker() {
