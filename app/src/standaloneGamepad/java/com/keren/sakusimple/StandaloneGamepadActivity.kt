@@ -333,6 +333,42 @@ class StandaloneGamepadActivity : ComponentActivity() {
         dialog.window?.setLayout((resources.displayMetrics.widthPixels * 0.82f).toInt(), (resources.displayMetrics.heightPixels * 0.78f).toInt())
     }
 
+    private fun showControlSizeSettings() {
+        val controls = listOf(GamepadControl.MOVE, GamepadControl.ATTACK, GamepadControl.SKILL_1,
+            GamepadControl.SKILL_2, GamepadControl.SKILL_3, GamepadControl.BATTLE_SPELL,
+            GamepadControl.REGEN, GamepadControl.RECALL)
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(8))
+        }
+        val scroll = ScrollView(this).apply { addView(panel) }
+        controls.forEach { control ->
+            panel.addView(TextView(this).apply {
+                text = if (control == GamepadControl.MOVE) "Analog kiri" else control.label
+                textSize = 14f
+                setTextColor(Color.WHITE)
+                setPadding(0, dp(10), 0, dp(2))
+            })
+            panel.addView(SeekBar(this).apply {
+                max = 100
+                progress = (((controlsView.controlScale(control) - 0.6f) / 1.0f) * 100f).roundToInt().coerceIn(0, 100)
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(bar: SeekBar?, value: Int, fromUser: Boolean) {
+                        controlsView.setControlScale(control, 0.6f + value / 100f)
+                    }
+                    override fun onStartTrackingTouch(bar: SeekBar?) = Unit
+                    override fun onStopTrackingTouch(bar: SeekBar?) = Unit
+                })
+            }, LinearLayout.LayoutParams(-1, dp(38)))
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Ukuran kontrol")
+            .setView(scroll)
+            .setPositiveButton("Selesai", null)
+            .setNeutralButton("Reset ukuran") { _, _ -> controls.forEach { controlsView.setControlScale(it, 1f) } }
+            .show()
+    }
+
     private fun toggleMappingMode() {
         if (selectedGame == null) {
             Toast.makeText(this, "Pilih game dahulu agar posisi kontrol disimpan ke profil yang benar.", Toast.LENGTH_LONG).show()
