@@ -629,9 +629,10 @@ private class StandaloneControlsView(
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val alpha = if (inputEnabled) 255 else 105
-        val stickX = width * 0.09f
-        val stickY = height * 0.53f
-        val radius = min(width * 0.075f, height * 0.12f)
+        val stickPoint = overlayPositions[GamepadControl.MOVE] ?: defaultOverlayPoint(GamepadControl.MOVE)
+        val stickX = width * stickPoint.x
+        val stickY = height * stickPoint.y
+        val radius = min(width * 0.075f, height * 0.12f) * controlScale(GamepadControl.MOVE)
         drawPad(canvas, stickX, stickY, radius, "", alpha)
         fill.shader = null
         fill.color = Color.argb(alpha, 4, 36, 105)
@@ -640,9 +641,27 @@ private class StandaloneControlsView(
         canvas.drawCircle(stickX + stickDx, stickY + stickDy, radius * 0.36f, outline)
 
         val buttonRadius = min(width * 0.032f, height * 0.060f)
-        mobaButtons.forEach { (control, center) ->
-            val radius = buttonRadius * if (control == GamepadControl.ATTACK) 1.22f else 0.88f
+        mobaButtons.forEach { (control, _) ->
+            val center = overlayPositions[control] ?: defaultOverlayPoint(control)
+            val radius = buttonRadius * (if (control == GamepadControl.ATTACK) 1.22f else 0.88f) * controlScale(control)
             drawMobaButton(canvas, control, width * center.x, height * center.y, radius, alpha)
+        }
+
+        if (isOverlayEditMode) {
+            fill.shader = null
+            fill.color = Color.argb(185, 2, 8, 24)
+            canvas.drawRoundRect(dp(12f), dp(76f), width - dp(12f), dp(108f), dp(10f), dp(10f), fill)
+            label.textSize = dp(12f)
+            canvas.drawText("MODE ATUR POSISI • SERET ANALOG / TOMBOL", width / 2f, dp(97f), label)
+            overlayPositions.forEach { (control, point) ->
+                val x = width * point.x
+                val y = height * point.y
+                outline.color = if (draggingOverlay == control) Color.WHITE else Color.argb(220, 118, 203, 255)
+                outline.strokeWidth = dp(2f)
+                val radius = if (control == GamepadControl.MOVE) min(width * 0.075f, height * 0.12f) * controlScale(control)
+                    else buttonRadius * (if (control == GamepadControl.ATTACK) 1.22f else 0.88f) * controlScale(control)
+                canvas.drawCircle(x, y, radius + dp(5f), outline)
+            }
         }
 
         if (isMappingMode) {
@@ -717,6 +736,36 @@ private class StandaloneControlsView(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (isOverlayEditMode) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    draggingOverlay = overlayControlAt(event.x, event.y)
+                    if (draggingOverlay == null) onStatus("Sentuh analog atau tombol, lalu seret")
+                    invalidate()
+                }
+                MotionEvent.ACTION_MOVE -> draggingOverlay?.let { control ->
+                    overlayPositions[control] = ControlPoint(
+                        (event.x / width.coerceAtLeast(1)).coerceIn(0.04f, 0.96f),
+                        (event.y / height.coerceAtLeast(1)).coerceIn(0.12f, 0.90f)
+                    )
+                    invalidate()
+                }
+                MotionEvent.ACTION_UP -> {
+                    draggingOverlay?.let { control ->
+                        saveOverlayLayout(control)
+                        onStatus("${control.label} • posisi tersimpan")
+                    }
+                    draggingOverlay = null
+                    invalidate()
+                    performClick()
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    draggingOverlay = null
+                    invalidate()
+                }
+            }
+            return true
+        }
         if (isMappingMode) {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -822,18 +871,33 @@ private class StandaloneControlsView(
         invalidate()
     }
 
+    private fun overlayControlAt(x: Float, y: Float): GamepadControl? {
+        val base = min(width * 0.042f, height * 0.073f)
+        return GamepadControl.entries.minByOrNull { control ->
+            val point = overlayPositions[control] ?: defaultOverlayPoint(control)
+            hypot(x - width * point.x, y - height * point.y)
+        }?.takeIf { control ->
+            val point = overlayPositions[control] ?: defaultOverlayPoint(control)
+            val radius = if (control == GamepadControl.MOVE) min(width * 0.09f, height * 0.15f) * controlScale(control)
+                else base * (if (control == GamepadControl.ATTACK) 1.22f else 0.88f) * controlScale(control)
+            hypot(x - width * point.x, y - height * point.y) <= radius + dp(18f)
+        }
+    }
+
     private fun isInStick(x: Float, y: Float): Boolean {
-        val cx = width * 0.09f
-        val cy = height * 0.53f
-        val radius = min(width * 0.09f, height * 0.15f)
+        val point = overlayPositions[GamepadControl.MOVE] ?: defaultOverlayPoint(GamepadControl.MOVE)
+        val cx = width * point.x
+        val cy = height * point.y
+        val radius = min(width * 0.09f, height * 0.15f) * controlScale(GamepadControl.MOVE)
         return hypot(x - cx, y - cy) <= radius
     }
 
     private fun buttonAt(x: Float, y: Float): GamepadControl? {
         val base = min(width * 0.042f, height * 0.073f)
-        return mobaButtons.firstOrNull { (control, center) ->
-            val radius = base * if (control == GamepadControl.ATTACK) 1.22f else 0.88f
-            hypot(x - width * center.x, y - height * center.y) <= radius
+        return mobaButtons.firstOrNull { (control, _) ->
+            val point = overlayPositions[control] ?: defaultOverlayPoint(control)
+            val radius = base * (if (control == GamepadControl.ATTACK) 1.22f else 0.88f) * controlScale(control)
+            hypot(x - width * point.x, y - height * point.y) <= radius
         }?.first
     }
 
@@ -876,9 +940,10 @@ private class StandaloneControlsView(
     }
 
     private fun updateStick(x: Float, y: Float) {
-        val cx = width * 0.09f
-        val cy = height * 0.53f
-        val max = min(width * 0.075f, height * 0.12f)
+        val point = overlayPositions[GamepadControl.MOVE] ?: defaultOverlayPoint(GamepadControl.MOVE)
+        val cx = width * point.x
+        val cy = height * point.y
+        val max = min(width * 0.075f, height * 0.12f) * controlScale(GamepadControl.MOVE)
         var dx = x - cx
         var dy = y - cy
         val length = hypot(dx, dy)
@@ -888,9 +953,10 @@ private class StandaloneControlsView(
     }
 
     private fun movementPoint(x: Float, y: Float): ControlPoint {
-        val cx = width * 0.09f
-        val cy = height * 0.53f
-        val max = min(width * 0.075f, height * 0.12f).coerceAtLeast(1f)
+        val point = overlayPositions[GamepadControl.MOVE] ?: defaultOverlayPoint(GamepadControl.MOVE)
+        val cx = width * point.x
+        val cy = height * point.y
+        val max = (min(width * 0.075f, height * 0.12f) * controlScale(GamepadControl.MOVE)).coerceAtLeast(1f)
         var dx = (x - cx) / max
         var dy = (y - cy) / max
         val length = hypot(dx, dy)
