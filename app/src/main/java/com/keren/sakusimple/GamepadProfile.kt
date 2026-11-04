@@ -24,7 +24,7 @@ data class GamepadProfile(
     val skill1: ControlPoint = ControlPoint(0.805f, 0.700f),
     val skill2: ControlPoint = ControlPoint(0.875f, 0.610f),
     val skill3: ControlPoint = ControlPoint(0.755f, 0.590f),
-    val recall: ControlPoint = ControlPoint(0.955f, 0.575f),
+    val recall: ControlPoint = ControlPoint(0.75f, 0.49f),
     val battleSpell: ControlPoint = ControlPoint(0.945f, 0.485f),
     val regen: ControlPoint = ControlPoint(0.865f, 0.465f)
 ) {
@@ -79,6 +79,13 @@ data class GamepadProfile(
                     prefs.getFloat(key(packageName, control, "y"), fallback.y)
                 ).bounded()
                 profile = profile.withPoint(control, point)
+            }
+            // The previous default placed Recall on top of the Ultimate marker in the editor.
+            val oldRecall = ControlPoint(0.955f, 0.575f)
+            if (kotlin.math.abs(profile.recall.x - oldRecall.x) < 0.001f &&
+                kotlin.math.abs(profile.recall.y - oldRecall.y) < 0.001f
+            ) {
+                profile = profile.copy(recall = GamepadProfile().recall)
             }
             return profile
         }

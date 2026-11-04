@@ -144,7 +144,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
             val width = right - left
             val height = bottom - top
             if (width <= 0 || height <= 0) return@addOnLayoutChangeListener
-            val previewHeight = min(height * 0.57f, width * 0.57f / ASPECT).roundToInt().coerceAtLeast(dp(180))
+            val previewHeight = min(height * 0.65f, width * 0.65f / ASPECT).roundToInt().coerceAtLeast(dp(180))
             val previewWidth = (previewHeight * ASPECT).roundToInt()
             val previewLeft = (width - previewWidth) / 2f
             val previewTop = (height * 0.46f - previewHeight / 2f).coerceAtLeast(dp(82).toFloat())
@@ -220,7 +220,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
             "Buat / tutup virtual display",
             "Pilih game",
             "Jalankan game pada display",
-            "Atur mapping kontrol",
+            if (controlsView.isMappingMode) "Selesai atur mapping" else "Atur mapping kontrol",
             "Tap Recall",
             if (inputPaused) "Lanjutkan input" else "Jeda input"
         )
@@ -232,7 +232,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
                     1 -> if (displayId >= 0) closeDisplay() else createDisplay()
                     2 -> showGamePicker()
                     3 -> launchSelectedGame()
-                    4 -> showMappingPicker()
+                    4 -> toggleMappingMode()
                     5 -> tapRecall()
                     6 -> togglePause()
                 }
@@ -325,22 +325,13 @@ class StandaloneGamepadActivity : ComponentActivity() {
         dialog.window?.setLayout((resources.displayMetrics.widthPixels * 0.82f).toInt(), (resources.displayMetrics.heightPixels * 0.78f).toInt())
     }
 
-    private fun showMappingPicker() {
+    private fun toggleMappingMode() {
         if (selectedGame == null) {
-            Toast.makeText(this, "Pilih game dahulu agar mapping tersimpan ke profil yang benar.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Pilih game dahulu agar posisi kontrol disimpan ke profil yang benar.", Toast.LENGTH_LONG).show()
             showGamePicker()
             return
         }
-        val controls = GamepadControl.entries.map { it.label }.toTypedArray()
-        android.app.AlertDialog.Builder(this)
-            .setTitle("Mapping sentuh • ${selectedGame!!.label}")
-            .setMessage("Pilih kontrol, lalu tap lokasi tombol target pada preview tengah. Analog dan tombol mengirim sentuhan Shizuku ke titik tersebut. Untuk Skill atau Battle Spell yang bisa diarahkan, tahan tombol di sisi kanan, geser untuk membidik, lalu lepaskan.")
-            .setItems(controls) { _, which ->
-                controlsView.beginCalibration(GamepadControl.entries[which])
-                setStatus("Kalibrasi ${GamepadControl.entries[which].label} • tap target di layar tengah")
-            }
-            .setNegativeButton("Batal", null)
-            .show()
+        controlsView.setMappingMode(!controlsView.isMappingMode)
     }
 
     private fun connectShizuku() {
@@ -483,7 +474,9 @@ private class StandaloneControlsView(
     private val preview = RectF(bounds)
     private val active = HashMap<Int, Binding>()
     private var profile = initialProfile
-    private var calibrationTarget: GamepadControl? = null
+    var isMappingMode = false
+        private set
+    private var draggingMapping: GamepadControl? = null
     private var stickDx = 0f
     private var stickDy = 0f
     var inputEnabled = true
@@ -525,10 +518,12 @@ private class StandaloneControlsView(
         invalidate()
     }
 
-    fun beginCalibration(control: GamepadControl) {
-        input.releaseAll()
+    fun setMappingMode(enabled: Boolean) {
+        isMappingMode = enabled
+        draggingMapping = null
         active.clear()
-        calibrationTarget = control
+        input.releaseAll()
+        onStatus(if (enabled) "Atur kontrol • seret angka/label ke tombol pada layar game" else "Mapping tersimpan")
         invalidate()
     }
 
@@ -536,7 +531,7 @@ private class StandaloneControlsView(
         super.onDraw(canvas)
         val alpha = if (inputEnabled) 255 else 105
         val stickX = width * 0.09f
-        val stickY = height * 0.49f
+        val stickY = height * 0.53f
         val radius = min(width * 0.075f, height * 0.12f)
         drawPad(canvas, stickX, stickY, radius, "", alpha)
         fill.shader = null
@@ -551,12 +546,27 @@ private class StandaloneControlsView(
             drawMobaButton(canvas, control, width * center.x, height * center.y, radius, alpha)
         }
 
-        calibrationTarget?.let { target ->
+        if (isMappingMode) {
             fill.shader = null
-            fill.color = Color.argb(230, 2, 8, 24)
-            canvas.drawRoundRect(preview.left + dp(12f), preview.top + dp(12f), preview.right - dp(12f), preview.top + dp(51f), dp(12f), dp(12f), fill)
-            label.textSize = dp(14f)
-            canvas.drawText("MAP ${target.label.uppercase(Locale.getDefault())} • TAP TARGET", preview.centerX(), preview.top + dp(37f), label)
+            fill.color = Color.argb(190, 2, 8, 24)
+            canvas.drawRoundRect(preview.left + dp(7f), preview.top + dp(7f), preview.right - dp(7f), preview.top + dp(35f), dp(9f), dp(9f), fill)
+            label.textSize = dp(11f)
+            canvas.drawText("SERET ANGKA KE SKILL • SERET LABEL KE TOMBOL", preview.centerX(), preview.top + dp(25f), label)
+            mappingControls().forEach { control ->
+                val point = profile.pointFor(control)
+                val x = preview.left + preview.width() * point.x
+                val y = preview.top + preview.height() * point.y
+                val selected = draggingMapping == control
+                val radius = dp(if (selected) 23f else 20f)
+                val baseColor = markerColor(control)
+                fill.color = Color.argb(242, Color.red(baseColor), Color.green(baseColor), Color.blue(baseColor))
+                canvas.drawCircle(x, y, radius, fill)
+                outline.color = if (selected) Color.WHITE else Color.argb(230, 216, 237, 255)
+                outline.strokeWidth = dp(if (selected) 2.5f else 1.5f)
+                canvas.drawCircle(x, y, radius, outline)
+                label.textSize = dp(if (control == GamepadControl.MOVE) 8f else 11f)
+                canvas.drawText(mappingLabel(control), x, y + dp(4f), label)
+            }
         }
     }
 
@@ -608,16 +618,26 @@ private class StandaloneControlsView(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (calibrationTarget != null) {
-            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-                if (preview.contains(event.x, event.y)) {
-                    val target = calibrationTarget ?: return true
-                    profile = profile.withPoint(target, normalizedInPreview(event.x, event.y))
-                    calibrationTarget = null
-                    onProfileChanged(profile)
+        if (isMappingMode) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    draggingMapping = mappingControlAt(event.x, event.y)
+                    if (draggingMapping == null) onStatus("Sentuh indikator angka/label di dalam layar, lalu seret")
+                    invalidate()
+                }
+                MotionEvent.ACTION_MOVE -> draggingMapping?.let { control ->
+                    profile = profile.withPoint(control, normalizedInPreview(event.x, event.y))
+                    invalidate()
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (draggingMapping != null) onProfileChanged(profile)
+                    draggingMapping = null
+                    invalidate()
                     performClick()
-                } else {
-                    onStatus("Tap titik target di area layar tengah")
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    draggingMapping = null
+                    invalidate()
                 }
             }
             return true
@@ -705,7 +725,7 @@ private class StandaloneControlsView(
 
     private fun isInStick(x: Float, y: Float): Boolean {
         val cx = width * 0.09f
-        val cy = height * 0.49f
+        val cy = height * 0.53f
         val radius = min(width * 0.09f, height * 0.15f)
         return hypot(x - cx, y - cy) <= radius
     }
@@ -718,9 +738,47 @@ private class StandaloneControlsView(
         }?.first
     }
 
+    private fun mappingControls(): List<GamepadControl> = listOf(
+        GamepadControl.SKILL_1, GamepadControl.SKILL_2, GamepadControl.SKILL_3,
+        GamepadControl.ATTACK, GamepadControl.RECALL, GamepadControl.BATTLE_SPELL,
+        GamepadControl.REGEN, GamepadControl.MOVE
+    )
+
+    private fun mappingLabel(control: GamepadControl): String = when (control) {
+        GamepadControl.SKILL_1 -> "1"
+        GamepadControl.SKILL_2 -> "2"
+        GamepadControl.SKILL_3 -> "3"
+        GamepadControl.ATTACK -> "ATK"
+        GamepadControl.RECALL -> "REC"
+        GamepadControl.BATTLE_SPELL -> "SP"
+        GamepadControl.REGEN -> "HP"
+        GamepadControl.MOVE -> "MOVE"
+    }
+
+    private fun markerColor(control: GamepadControl): Int = when (control) {
+        GamepadControl.ATTACK -> Color.rgb(230, 104, 48)
+        GamepadControl.RECALL -> Color.rgb(145, 94, 216)
+        GamepadControl.BATTLE_SPELL -> Color.rgb(23, 151, 210)
+        GamepadControl.REGEN -> Color.rgb(40, 166, 108)
+        GamepadControl.MOVE -> Color.rgb(28, 116, 210)
+        else -> Color.rgb(44, 112, 226)
+    }
+
+    private fun mappingControlAt(x: Float, y: Float): GamepadControl? {
+        if (!preview.contains(x, y)) return null
+        val hit = dp(28f)
+        return mappingControls().minByOrNull { control ->
+            val point = profile.pointFor(control)
+            hypot(x - (preview.left + preview.width() * point.x), y - (preview.top + preview.height() * point.y))
+        }?.takeIf { control ->
+            val point = profile.pointFor(control)
+            hypot(x - (preview.left + preview.width() * point.x), y - (preview.top + preview.height() * point.y)) <= hit
+        }
+    }
+
     private fun updateStick(x: Float, y: Float) {
         val cx = width * 0.09f
-        val cy = height * 0.49f
+        val cy = height * 0.53f
         val max = min(width * 0.075f, height * 0.12f)
         var dx = x - cx
         var dy = y - cy
@@ -732,7 +790,7 @@ private class StandaloneControlsView(
 
     private fun movementPoint(x: Float, y: Float): ControlPoint {
         val cx = width * 0.09f
-        val cy = height * 0.49f
+        val cy = height * 0.53f
         val max = min(width * 0.075f, height * 0.12f).coerceAtLeast(1f)
         var dx = (x - cx) / max
         var dy = (y - cy) / max
