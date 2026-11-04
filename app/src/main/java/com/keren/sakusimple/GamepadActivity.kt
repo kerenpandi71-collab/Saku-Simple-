@@ -23,6 +23,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import java.util.Locale
 import kotlin.math.hypot
+import kotlin.math.roundToInt
 
 private data class GameEntry(val label: String, val packageName: String, val activityName: String)
 
@@ -59,9 +60,7 @@ class GamepadActivity : ComponentActivity() {
             )
 
         installedGames = loadLaunchableGames()
-        selectedGame = installedGames.firstOrNull {
-            it.packageName.contains("mobile.legends", ignoreCase = true) || it.label.contains("Mobile Legends", ignoreCase = true)
-        } ?: installedGames.firstOrNull()
+        selectedGame = installedGames.firstOrNull(::isMobileLegends)
         profile = GamepadProfile.load(this, selectedGame?.packageName.orEmpty())
 
         shizukuBridge = ShizukuBridge(this) { message ->
@@ -86,7 +85,7 @@ class GamepadActivity : ComponentActivity() {
             setBackgroundColor(Color.rgb(5, 13, 25))
             keepScreenOn = true
         }
-        val previewFrame = FrameLayout(this).apply {
+        val previewFrame = AspectRatioFrameLayout(this, displayWidth.toFloat() / displayHeight).apply {
             background = rounded(Color.rgb(8, 20, 35), 18, Color.rgb(51, 93, 130))
             clipToOutline = true
         }
@@ -111,7 +110,7 @@ class GamepadActivity : ComponentActivity() {
         }
         overlay.setProfile(profile)
         previewFrame.addView(overlay, FrameLayout.LayoutParams(-1, -1))
-        root.addView(previewFrame, FrameLayout.LayoutParams(-1, -1).apply {
+        root.addView(previewFrame, FrameLayout.LayoutParams(-1, -1, Gravity.CENTER).apply {
             leftMargin = dp(10)
             rightMargin = dp(10)
             topMargin = dp(76)
@@ -160,7 +159,7 @@ class GamepadActivity : ComponentActivity() {
         }
         addWeighted(bottomPanel, makeButton("Atur kontrol") { showCalibrationPicker() }, 1.0f)
         val hint = TextView(this).apply {
-            text = "Geser analog • tekan tombol • tap layar = direct touch"
+            text = "Geser analog • tahan+geser skill untuk membidik • tap = direct touch"
             setTextColor(Color.rgb(174, 203, 228))
             textSize = 10f
             gravity = Gravity.CENTER
@@ -176,13 +175,18 @@ class GamepadActivity : ComponentActivity() {
 
         setContentView(root)
         updateGameButton()
-        if (installedGames.isEmpty()) setStatus("Tidak menemukan game yang bisa dijalankan di perangkat ini.")
-        else setStatus("Pilih game, hubungkan Shizuku, lalu buat virtual display.")
+        if (installedGames.isEmpty()) {
+            setStatus("Tidak menemukan aplikasi launcher. Pastikan game terpasang lalu buka ulang aplikasi.")
+        } else if (selectedGame == null) {
+            setStatus("Mobile Legends tidak terdeteksi. Pilih game manual; aplikasi acak tidak dipilih otomatis.")
+        } else {
+            setStatus("Mobile Legends terdeteksi • hubungkan Shizuku lalu buat virtual display.")
+        }
     }
 
     private fun loadLaunchableGames(): List<GameEntry> {
         val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        return packageManager.queryIntentActivities(launcher, PackageManager.MATCH_DEFAULT_ONLY)
+        val entries = packageManager.queryIntentActivities(launcher, PackageManager.MATCH_DEFAULT_ONLY)
             .mapNotNull { info ->
                 val activity = info.activityInfo ?: return@mapNotNull null
                 if (activity.packageName == packageName) return@mapNotNull null
@@ -192,9 +196,24 @@ class GamepadActivity : ComponentActivity() {
                     activity.name
                 )
             }
-            .distinctBy { "${it.packageName}/${it.activityName}" }
+            .toMutableList()
+
+        // Android 11+ package visibility can hide an installed app unless its package is queried explicitly.
+        MOBILE_LEGENDS_PACKAGES.forEach { targetPackage ->
+            runCatching {
+                val launchIntent = packageManager.getLaunchIntentForPackage(targetPackage) ?: return@runCatching
+                val activityName = launchIntent.component?.className ?: return@runCatching
+                val appInfo = packageManager.getApplicationInfo(targetPackage, 0)
+                val label = packageManager.getApplicationLabel(appInfo)?.toString()?.ifBlank { targetPackage } ?: targetPackage
+                entries += GameEntry(label, targetPackage, activityName)
+            }
+        }
+        return entries.distinctBy { "${it.packageName}/${it.activityName}" }
             .sortedBy { it.label.lowercase(Locale.getDefault()) }
     }
+
+    private fun isMobileLegends(game: GameEntry): Boolean =
+        game.packageName in MOBILE_LEGENDS_PACKAGES
 
     private fun showGamePicker() {
         if (installedGames.isEmpty()) {
@@ -271,7 +290,8 @@ class GamepadActivity : ComponentActivity() {
         inputController.releaseAll()
         val options = GamepadControl.entries.map { it.label }.toTypedArray()
         android.app.AlertDialog.Builder(this)
-            .setTitle("Pilih kontrol, lalu tap posisi target di layar game")
+            .setTitle("Pemetaan kontrol sentuh")
+            .setMessage("Pilih kontrol, lalu tap ikon target yang terlihat pada game di preview. Posisi disimpan untuk game terpilih. Saat bermain, tahan dan geser tombol skill untuk membidik; lepas untuk mengirim sentuhan UP. Game harus benar-benar terbuka di virtual display.")
             .setItems(options) { _, which ->
                 val control = GamepadControl.entries[which]
                 overlay.beginCalibration(control)
@@ -326,11 +346,32 @@ class GamepadActivity : ComponentActivity() {
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
 
+    private class AspectRatioFrameLayout(context: Context, private val aspectRatio: Float) : FrameLayout(context) {
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val maxWidth = MeasureSpec.getSize(widthMeasureSpec)
+            val maxHeight = MeasureSpec.getSize(heightMeasureSpec)
+            var fittedWidth = maxWidth
+            var fittedHeight = (fittedWidth / aspectRatio).roundToInt()
+            if (fittedHeight > maxHeight) {
+                fittedHeight = maxHeight
+                fittedWidth = (fittedHeight * aspectRatio).roundToInt()
+            }
+            super.onMeasure(
+                MeasureSpec.makeMeasureSpec(fittedWidth, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(fittedHeight, MeasureSpec.EXACTLY)
+            )
+        }
+    }
+
     override fun onDestroy() {
         if (::inputController.isInitialized) inputController.close()
         if (::displayController.isInitialized) displayController.close()
         if (::shizukuBridge.isInitialized) shizukuBridge.close()
         super.onDestroy()
+    }
+
+    companion object {
+        private val MOBILE_LEGENDS_PACKAGES = setOf("com.mobile.legends")
     }
 }
 
@@ -342,7 +383,12 @@ private class GamepadOverlayView(
 ) : View(context) {
     private sealed interface Binding {
         data object Stick : Binding
-        data class Button(val control: GamepadControl) : Binding
+        data class Button(
+            val control: GamepadControl,
+            val touchStartX: Float,
+            val touchStartY: Float,
+            val gameStart: ControlPoint
+        ) : Binding
         data class Direct(val pointerId: Int) : Binding
     }
 
@@ -498,8 +544,9 @@ private class GamepadOverlayView(
             }
             else -> {
                 if (activeBindings.values.any { it is Binding.Button && it.control == control }) return
-                activeBindings[androidId] = Binding.Button(control)
-                input.press(control.pointerId, profile.pointFor(control))
+                val gamePoint = profile.pointFor(control)
+                activeBindings[androidId] = Binding.Button(control, x, y, gamePoint)
+                input.press(control.pointerId, gamePoint)
             }
         }
         invalidate()
@@ -515,7 +562,13 @@ private class GamepadOverlayView(
                 input.move(GamepadControl.MOVE.pointerId, movementPointAt(x, y))
                 invalidate()
             }
-            is Binding.Button -> Unit
+            is Binding.Button -> if (binding.control.isSkill()) {
+                val target = ControlPoint(
+                    binding.gameStart.x + (event.getX(index) - binding.touchStartX) / width.coerceAtLeast(1),
+                    binding.gameStart.y + (event.getY(index) - binding.touchStartY) / height.coerceAtLeast(1)
+                ).bounded()
+                input.move(binding.control.pointerId, target)
+            }
             is Binding.Direct -> input.move(binding.pointerId, pointFromTouch(event.getX(index), event.getY(index)))
             null -> Unit
         }
@@ -587,6 +640,9 @@ private class GamepadOverlayView(
         (x / width.coerceAtLeast(1)).coerceIn(0.02f, 0.98f),
         (y / height.coerceAtLeast(1)).coerceIn(0.02f, 0.98f)
     )
+
+    private fun GamepadControl.isSkill(): Boolean =
+        this == GamepadControl.SKILL_1 || this == GamepadControl.SKILL_2 || this == GamepadControl.SKILL_3
 
     private fun dp(value: Float): Float = value * density
 }
