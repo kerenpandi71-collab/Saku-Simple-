@@ -1,19 +1,25 @@
-# Saku Gamepad
+# Saku Gamepad Standalone
 
-Mode gamepad virtual Android untuk proyek Saku Simple. Layar game dipreview di tengah, analog kiri dan tombol MOBA di kanan, dengan injeksi direct-touch melalui Shizuku.
+APK gamepad baru yang berdiri sendiri, dengan launcher dan package ID terpisah (`com.keren.sakugamepad`). Aplikasi lama Saku Simple dan Virtual Display Touch tetap menjadi varian terpisah.
+
+## Desain dan kontrol
+
+Antarmuka mengikuti referensi pengguna: dock berbentuk kapsul di bagian atas, latar navy dengan gelombang cahaya biru/ungu, preview 16:9 di tengah, analog virtual di kiri, serta tombol Y/X/B/A di kanan. Layar dan UI ini dibuat pada activity mandiri—tidak membuka `GamepadActivity` atau `VirtualDisplayTouchActivity` lama.
+
+Jalur izin Shizuku, virtual-display surface, multi-touch injection dan profil mapping memakai komponen Shizuku/input tingkat rendah yang sudah ada. Analog kiri mengirim touch tahan/gerak. Y, X, B, dan A dikaitkan ke Skill 1, Skill 2, Skill 3, dan Serang; **tahan lalu geser** tombol skill untuk membidik. Tombol Recall tersedia di dock. Pilih **Setelan → Atur mapping kontrol**, pilih kontrol, lalu tap posisi ikon target pada preview tengah. Mapping tersimpan per game. Tap/drag lain di dalam preview diteruskan sebagai direct touch.
 
 ## Cara pakai
 
-1. Instal Shizuku dan jalankan servicenya. Pada Android 11 ke atas, pengguna dapat mengaktifkannya melalui Wireless debugging; pada perangkat lain ikuti metode resmi Shizuku.
-2. Buka Saku Gamepad. Jika Mobile Legends terdeteksi, namanya tampil pada tombol kiri atas. Jika tertulis **Pilih game**, buka tombol itu dan pilih Mobile Legends dari daftar; aplikasi tidak lagi memilih YouTube atau aplikasi lain secara otomatis. Pastikan Mobile Legends terpasang dan aktif bila tidak muncul.
-3. Tekan **Display** untuk membuat virtual display 1280 × 720, kemudian **Mainkan** untuk mencoba membuka game di display tersebut.
-4. Jika posisi tombol tidak cocok dengan tata letak game, pilih **Atur kontrol**, pilih analog/serang/skill/recall, lalu tap ikon target yang sesuai pada preview game. Ini adalah pemetaan koordinat sentuh, bukan plugin atau integrasi resmi di dalam game. Posisi disimpan per aplikasi.
-5. Analog kiri mengirim sentuhan tahan dan gerak. Untuk skill arah, tahan lingkaran **S1/S2/S3**, geser untuk membidik, lalu lepaskan; titik skill yang dikalibrasi menjadi titik awal sentuhan. Tombol aksi mengirim sentuhan tekan/lepas. Tap pada area preview di luar kontrol gamepad diteruskan sebagai direct touch. **Jeda** melepas input yang sedang tertahan.
+1. Instal dan jalankan Shizuku, lalu buka **Saku Gamepad**.
+2. Pilih game melalui ikon grid; Mobile Legends global dicari melalui package ID `com.mobile.legends`.
+3. Ketuk ikon Shizuku dan berikan izin, lalu ketuk ikon monitor untuk membuat display virtual 1280 × 720.
+4. Ketuk ikon rumah untuk mencoba membuka game pada display. Jika game menolak secondary display, jalankan game yang kompatibel dan ikuti status yang muncul.
+5. Buka Setelan untuk mapping kontrol, Recall, jeda, dan pilihan display.
 
-Touchpad virtual-display lama tetap tersedia melalui activity yang sama. Varian launcher Saku Simple tidak diganti.
+## Build
 
-## Catatan kompatibilitas
+GitHub Actions membangun artifact **Standalone Gamepad APK** (`standalone-gamepad-debug-apk`) selain APK Saku Simple dan Virtual Display Touch. Flavor `standaloneGamepad` memiliki application ID tersendiri, sehingga dapat diinstal berdampingan.
 
-Fitur Shizuku memerlukan Shizuku aktif dan izin dari pengguna. Preview menjaga rasio 16:9 yang sama dengan virtual display agar gambar tidak melar dan mapping tetap sejajar. Tidak semua perangkat, ROM, versi Android, atau game mengizinkan game berjalan dan menerima input pada secondary display. Jika Mobile Legends terpasang tetapi tak ditemukan, pastikan versi resmi aktif, tutup paksa lalu buka ulang Saku Gamepad; beberapa distribusi/kloning dapat menggunakan package ID berbeda. Jika game gagal dibuka di virtual display atau preview hitam, jalur display tersebut kemungkinan tidak didukung oleh perangkat/game itu.
+## Batasan
 
-Output SurfaceView langsung dipakai untuk menghindari salinan frame tambahan. Hal ini mengurangi overhead aplikasi, tetapi tidak dapat menjamin bebas frame drop; hasilnya tetap bergantung pada GPU, compositor Android, suhu perangkat, dan beban game. Kontrol yang disertakan adalah overlay sentuh virtual; integrasi Steam Input atau pembacaan gamepad Bluetooth/USB fisik belum ditambahkan.
+Shizuku harus aktif dan disetujui pengguna. Tidak semua ROM/perangkat/game menerima aplikasi pada secondary display atau input sintetis. Kecepatan rendering dan frame drop bergantung pada GPU, compositor, suhu dan beban game; desain ini tidak menjamin bebas frame drop. Kontrol mengirim sentuhan virtual, bukan Steam Input dan bukan dukungan gamepad Bluetooth/USB fisik.

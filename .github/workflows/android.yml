@@ -25,8 +25,8 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
-      - name: Build both debug APKs
-        run: gradle --no-daemon assembleSakuSimpleDebug assembleVirtualDisplayTouchDebug
+      - name: Build debug APKs
+        run: gradle --no-daemon assembleSakuSimpleDebug assembleVirtualDisplayTouchDebug assembleStandaloneGamepadDebug
       - name: Upload Saku Simple APK
         uses: actions/upload-artifact@v4
         with:
@@ -38,4 +38,10 @@ jobs:
         with:
           name: virtual-display-touch-debug-apk
           path: app/build/outputs/apk/virtualDisplayTouch/debug/*.apk
+          if-no-files-found: error
+      - name: Upload Standalone Gamepad APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: standalone-gamepad-debug-apk
+          path: app/build/outputs/apk/standaloneGamepad/debug/*.apk
           if-no-files-found: error

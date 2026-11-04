@@ -49,9 +49,12 @@ class GamepadInputController(
     }
 
     /** Releases every held pointer, used when pausing, editing a profile, or leaving the screen. */
-    fun releaseAll() {
+    fun releaseAll(afterRelease: () -> Unit = {}) {
         synchronized(pendingLock) { pendingMoves.clear() }
-        submit { releaseAllOnWorker() }
+        submit {
+            releaseAllOnWorker()
+            runCatching(afterRelease)
+        }
     }
 
     private fun scheduleMoveDrain() {

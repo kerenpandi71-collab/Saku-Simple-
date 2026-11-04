@@ -27,6 +27,10 @@ android {
             dimension = "app"
             applicationId = "com.keren.sakusimple.virtualdisplaytouch"
         }
+        create("standaloneGamepad") {
+            dimension = "app"
+            applicationId = "com.keren.sakugamepad"
+        }
     }
 
     buildTypes {
