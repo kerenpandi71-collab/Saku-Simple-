@@ -273,7 +273,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
             return
         }
         val selected = games.indexOfFirst { it.packageName == selectedGame?.packageName }
-        val adapter = object : BaseAdapter() {
+        val appAdapter = object : BaseAdapter() {
             override fun getCount(): Int = games.size
             override fun getItem(position: Int): StandaloneGameEntry = games[position]
             override fun getItemId(position: Int): Long = position.toLong()
@@ -299,7 +299,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
             }
         }
         val list = android.widget.ListView(this).apply {
-            adapter = adapter
+            adapter = appAdapter
             choiceMode = android.widget.ListView.CHOICE_MODE_SINGLE
             if (selected >= 0) setItemChecked(selected, true)
             divider = android.graphics.drawable.ColorDrawable(Color.argb(45, 255, 255, 255))
