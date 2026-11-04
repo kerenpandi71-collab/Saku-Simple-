@@ -1,10 +1,10 @@
-name: Android Build
+name: Standalone Gamepad Build
 
 on:
   push:
-    branches: [main, feature/virtual-display-touch-control]
+    branches: [feature/standalone-gamepad-only]
   pull_request:
-    branches: [main]
+    branches: [feature/standalone-gamepad-only]
   workflow_dispatch:
 
 permissions:
@@ -25,20 +25,8 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
-      - name: Build debug APKs
-        run: gradle --no-daemon assembleSakuSimpleDebug assembleVirtualDisplayTouchDebug assembleStandaloneGamepadDebug
-      - name: Upload Saku Simple APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: saku-simple-debug-apk
-          path: app/build/outputs/apk/sakuSimple/debug/*.apk
-          if-no-files-found: error
-      - name: Upload Virtual Display Touch APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: virtual-display-touch-debug-apk
-          path: app/build/outputs/apk/virtualDisplayTouch/debug/*.apk
-          if-no-files-found: error
+      - name: Build Standalone Gamepad APK
+        run: gradle --no-daemon assembleStandaloneGamepadDebug
       - name: Upload Standalone Gamepad APK
         uses: actions/upload-artifact@v4
         with:
