@@ -169,38 +169,42 @@ class StandaloneGamepadActivity : ComponentActivity() {
             background = rounded(Color.argb(235, 5, 17, 43), dp(33), Color.argb(210, 58, 103, 225), dp(1))
             elevation = dp(8).toFloat()
         }
-        addDockIcon(dock, "⚙", "Setelan") { showQuickSettings() }
-        addDockSeparator(dock)
-        addDockIcon(dock, "◉", "Shizuku") { connectShizuku() }
-        addDockSeparator(dock)
-        addDockIcon(dock, "▣", "Buat virtual display", active = true) { createDisplay() }
-        addDockSeparator(dock)
-        addDockIcon(dock, "⌂", "Mainkan game") { launchSelectedGame() }
-        addDockSeparator(dock)
-        addDockIcon(dock, "▦", "Pilih game") { showGamePicker() }
-        addDockIcon(dock, "↻", "Recall") { tapRecall() }
-        val spacer = View(this)
-        dock.addView(spacer, LinearLayout.LayoutParams(0, 1, 1f))
-        addDockIcon(dock, "⌁", "Status Shizuku") { connectShizuku() }
-        addDockIcon(dock, "✈", "Lepas semua input") { releaseInputs() }
-        addDockIcon(dock, "Ⅱ", "Jeda input") { togglePause() }
+        addDockIcon(dock, "▦", "Game", "Pilih game") { showGamePicker() }
+        addDockIcon(dock, "◉", "Izin", "Hubungkan Shizuku") { connectShizuku() }
+        addDockIcon(dock, "▣", "Layar", "Buat atau tutup layar game") {
+            if (displayId >= 0) closeDisplay() else createDisplay()
+        }
+        addDockIcon(dock, "▶", "Mainkan", "Jalankan game di layar virtual") { launchSelectedGame() }
+        addDockIcon(dock, "⚙", "Menu", "Pengaturan dan kontrol lainnya") { showQuickSettings() }
         return dock
     }
 
-    private fun addDockIcon(parent: LinearLayout, glyph: String, description: String, active: Boolean = false, action: () -> Unit) {
-        val icon = TextView(this).apply {
-            text = glyph
-            contentDescription = description
-            textSize = 25f
+    private fun addDockIcon(parent: LinearLayout, glyph: String, shortLabel: String, description: String, action: () -> Unit) {
+        val item = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            typeface = Typeface.create("sans-serif", Typeface.NORMAL)
-            setTextColor(Color.rgb(237, 247, 255))
-            background = if (active) rounded(Color.argb(180, 12, 58, 155), dp(22), Color.TRANSPARENT, dp(0)) else null
+            contentDescription = description
+            background = rounded(Color.argb(145, 13, 39, 86), dp(17), Color.argb(95, 111, 164, 255), dp(1))
+            setPadding(dp(4), dp(1), dp(4), dp(1))
             setOnClickListener { action() }
             isClickable = true
             isFocusable = true
         }
-        parent.addView(icon, LinearLayout.LayoutParams(dp(54), -1).apply { leftMargin = dp(2); rightMargin = dp(2) })
+        item.addView(TextView(this).apply {
+            text = glyph
+            textSize = 21f
+            gravity = Gravity.CENTER
+            typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+            setTextColor(Color.rgb(237, 247, 255))
+        }, LinearLayout.LayoutParams(-1, 0, 1f))
+        item.addView(TextView(this).apply {
+            text = shortLabel
+            textSize = 9f
+            gravity = Gravity.CENTER
+            maxLines = 1
+            setTextColor(Color.rgb(194, 216, 255))
+        }, LinearLayout.LayoutParams(-1, dp(15)))
+        parent.addView(item, LinearLayout.LayoutParams(dp(54), -1).apply { leftMargin = dp(1); rightMargin = dp(1) })
     }
 
     private fun addDockSeparator(parent: LinearLayout) {
@@ -330,7 +334,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
         val controls = GamepadControl.entries.map { it.label }.toTypedArray()
         android.app.AlertDialog.Builder(this)
             .setTitle("Mapping sentuh • ${selectedGame!!.label}")
-            .setMessage("Pilih kontrol, lalu tap lokasi tombol target pada preview tengah. Analog dan tombol akan mengirim sentuhan Shizuku ke titik tersebut. Untuk skill arah, tahan tombol fisik XYBA, geser untuk membidik, lalu lepaskan.")
+            .setMessage("Pilih kontrol, lalu tap lokasi tombol target pada preview tengah. Analog dan tombol mengirim sentuhan Shizuku ke titik tersebut. Untuk Skill atau Battle Spell yang bisa diarahkan, tahan tombol di sisi kanan, geser untuk membidik, lalu lepaskan.")
             .setItems(controls) { _, which ->
                 controlsView.beginCalibration(GamepadControl.entries[which])
                 setStatus("Kalibrasi ${GamepadControl.entries[which].label} • tap target di layar tengah")
@@ -496,6 +500,15 @@ private class StandaloneControlsView(
 
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(1.5f) }
+    private val mobaButtons = listOf(
+        GamepadControl.SKILL_1 to ControlPoint(0.80f, 0.75f),
+        GamepadControl.SKILL_2 to ControlPoint(0.86f, 0.65f),
+        GamepadControl.SKILL_3 to ControlPoint(0.92f, 0.56f),
+        GamepadControl.ATTACK to ControlPoint(0.93f, 0.80f),
+        GamepadControl.BATTLE_SPELL to ControlPoint(0.96f, 0.43f),
+        GamepadControl.REGEN to ControlPoint(0.86f, 0.45f),
+        GamepadControl.RECALL to ControlPoint(0.76f, 0.53f)
+    )
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.rgb(236, 246, 255)
         textAlign = Paint.Align.CENTER
@@ -532,15 +545,10 @@ private class StandaloneControlsView(
         outline.color = Color.argb(alpha, 78, 163, 255)
         canvas.drawCircle(stickX + stickDx, stickY + stickDy, radius * 0.36f, outline)
 
-        val buttonRadius = min(width * 0.0265f, height * 0.048f)
-        val controls = listOf(
-            Triple("Y", width * 0.848f, height * 0.414f) to GamepadControl.SKILL_1,
-            Triple("X", width * 0.800f, height * 0.489f) to GamepadControl.SKILL_2,
-            Triple("B", width * 0.896f, height * 0.489f) to GamepadControl.SKILL_3,
-            Triple("A", width * 0.848f, height * 0.565f) to GamepadControl.ATTACK
-        )
-        controls.forEach { (spec, control) ->
-            drawPad(canvas, spec.second, spec.third, buttonRadius, spec.first, alpha)
+        val buttonRadius = min(width * 0.032f, height * 0.060f)
+        mobaButtons.forEach { (control, center) ->
+            val radius = buttonRadius * if (control == GamepadControl.ATTACK) 1.22f else 0.88f
+            drawMobaButton(canvas, control, width * center.x, height * center.y, radius, alpha)
         }
 
         calibrationTarget?.let { target ->
@@ -566,6 +574,37 @@ private class StandaloneControlsView(
             label.textSize = radius * 0.76f
             canvas.drawText(text, x, y + radius * 0.28f, label)
         }
+    }
+
+    private fun drawMobaButton(canvas: Canvas, control: GamepadControl, x: Float, y: Float, radius: Float, alpha: Int) {
+        val colors = when (control) {
+            GamepadControl.ATTACK -> intArrayOf(Color.rgb(255, 194, 91), Color.rgb(179, 75, 32), Color.rgb(78, 27, 28))
+            GamepadControl.BATTLE_SPELL -> intArrayOf(Color.rgb(120, 225, 255), Color.rgb(23, 118, 186), Color.rgb(13, 39, 100))
+            GamepadControl.REGEN -> intArrayOf(Color.rgb(150, 255, 191), Color.rgb(35, 153, 110), Color.rgb(12, 57, 62))
+            GamepadControl.RECALL -> intArrayOf(Color.rgb(218, 178, 255), Color.rgb(108, 75, 190), Color.rgb(41, 31, 94))
+            else -> intArrayOf(Color.rgb(145, 202, 255), Color.rgb(38, 105, 215), Color.rgb(11, 30, 83))
+        }
+        fun withAlpha(color: Int) = Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
+        fill.shader = RadialGradient(x - radius * 0.3f, y - radius * 0.4f, radius * 1.5f,
+            intArrayOf(withAlpha(colors[0]), withAlpha(colors[1]), withAlpha(colors[2])),
+            floatArrayOf(0f, 0.64f, 1f), Shader.TileMode.CLAMP)
+        canvas.drawCircle(x, y, radius, fill)
+        fill.shader = null
+        outline.color = withAlpha(colors[0])
+        outline.strokeWidth = dp(1.4f)
+        canvas.drawCircle(x, y, radius, outline)
+        val text = when (control) {
+            GamepadControl.ATTACK -> "ATK"
+            GamepadControl.SKILL_1 -> "S1"
+            GamepadControl.SKILL_2 -> "S2"
+            GamepadControl.SKILL_3 -> "ULT"
+            GamepadControl.BATTLE_SPELL -> "SP"
+            GamepadControl.REGEN -> "HP"
+            GamepadControl.RECALL -> "REC"
+            GamepadControl.MOVE -> ""
+        }
+        label.textSize = min(dp(if (control == GamepadControl.ATTACK) 12f else 10f), radius * 0.72f)
+        canvas.drawText(text, x, y + radius * 0.30f, label)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -672,14 +711,11 @@ private class StandaloneControlsView(
     }
 
     private fun buttonAt(x: Float, y: Float): GamepadControl? {
-        val r = min(width * 0.042f, height * 0.073f)
-        val buttons = listOf(
-            width * 0.848f to height * 0.414f to GamepadControl.SKILL_1,
-            width * 0.800f to height * 0.489f to GamepadControl.SKILL_2,
-            width * 0.896f to height * 0.489f to GamepadControl.SKILL_3,
-            width * 0.848f to height * 0.565f to GamepadControl.ATTACK
-        )
-        return buttons.firstOrNull { (point, _) -> hypot(x - point.first, y - point.second) <= r }?.second
+        val base = min(width * 0.042f, height * 0.073f)
+        return mobaButtons.firstOrNull { (control, center) ->
+            val radius = base * if (control == GamepadControl.ATTACK) 1.22f else 0.88f
+            hypot(x - width * center.x, y - height * center.y) <= radius
+        }?.first
     }
 
     private fun updateStick(x: Float, y: Float) {
@@ -711,7 +747,8 @@ private class StandaloneControlsView(
     )
 
     private fun GamepadControl.isSkill(): Boolean =
-        this == GamepadControl.SKILL_1 || this == GamepadControl.SKILL_2 || this == GamepadControl.SKILL_3
+        this == GamepadControl.SKILL_1 || this == GamepadControl.SKILL_2 ||
+            this == GamepadControl.SKILL_3 || this == GamepadControl.BATTLE_SPELL
 
     private fun dp(value: Float): Float = value * density
 }

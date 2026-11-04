@@ -470,6 +470,8 @@ private class GamepadOverlayView(
                 GamepadControl.SKILL_2 -> "S2"
                 GamepadControl.SKILL_3 -> "S3"
                 GamepadControl.RECALL -> "REC"
+                GamepadControl.BATTLE_SPELL -> "SP"
+                GamepadControl.REGEN -> "HP"
                 GamepadControl.MOVE -> ""
             }
             textPaint.textSize = dp(if (control == GamepadControl.ATTACK) 11f else 10f)
@@ -642,7 +644,8 @@ private class GamepadOverlayView(
     )
 
     private fun GamepadControl.isSkill(): Boolean =
-        this == GamepadControl.SKILL_1 || this == GamepadControl.SKILL_2 || this == GamepadControl.SKILL_3
+        this == GamepadControl.SKILL_1 || this == GamepadControl.SKILL_2 ||
+            this == GamepadControl.SKILL_3 || this == GamepadControl.BATTLE_SPELL
 
     private fun dp(value: Float): Float = value * density
 }

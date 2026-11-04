@@ -12,8 +12,10 @@ enum class GamepadControl(val label: String, val pointerId: Int) {
     ATTACK("Serang", 1),
     SKILL_1("Skill 1", 2),
     SKILL_2("Skill 2", 3),
-    SKILL_3("Skill 3", 4),
-    RECALL("Recall", 5)
+    SKILL_3("Ultimate / Skill 3", 4),
+    RECALL("Recall", 5),
+    BATTLE_SPELL("Battle Spell", 6),
+    REGEN("Regen", 7)
 }
 
 data class GamepadProfile(
@@ -22,7 +24,9 @@ data class GamepadProfile(
     val skill1: ControlPoint = ControlPoint(0.805f, 0.700f),
     val skill2: ControlPoint = ControlPoint(0.875f, 0.610f),
     val skill3: ControlPoint = ControlPoint(0.755f, 0.590f),
-    val recall: ControlPoint = ControlPoint(0.955f, 0.575f)
+    val recall: ControlPoint = ControlPoint(0.955f, 0.575f),
+    val battleSpell: ControlPoint = ControlPoint(0.945f, 0.485f),
+    val regen: ControlPoint = ControlPoint(0.865f, 0.465f)
 ) {
     fun pointFor(control: GamepadControl): ControlPoint = when (control) {
         GamepadControl.MOVE -> movement
@@ -31,6 +35,8 @@ data class GamepadProfile(
         GamepadControl.SKILL_2 -> skill2
         GamepadControl.SKILL_3 -> skill3
         GamepadControl.RECALL -> recall
+        GamepadControl.BATTLE_SPELL -> battleSpell
+        GamepadControl.REGEN -> regen
     }
 
     fun withPoint(control: GamepadControl, point: ControlPoint): GamepadProfile {
@@ -42,6 +48,8 @@ data class GamepadProfile(
             GamepadControl.SKILL_2 -> copy(skill2 = safe)
             GamepadControl.SKILL_3 -> copy(skill3 = safe)
             GamepadControl.RECALL -> copy(recall = safe)
+            GamepadControl.BATTLE_SPELL -> copy(battleSpell = safe)
+            GamepadControl.REGEN -> copy(regen = safe)
         }
     }
 
