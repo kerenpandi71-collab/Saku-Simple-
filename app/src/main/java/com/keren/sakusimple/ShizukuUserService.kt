@@ -531,8 +531,25 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
     }
 
     override fun runShellCommand(command: String): Boolean {
-        // Only expose Android's input command to this bridge; never accept arbitrary shell code.
+        // Never accept arbitrary shell code; only allow input commands and the two existing Pixelboard actions.
         val safeCommand = command.trim()
+        val pixelboardCommands = setOf(
+            "pm disable-user --user 0 com.akshaykadam.pixelboard",
+            "pm enable --user 0 com.akshaykadam.pixelboard"
+        )
+        if (safeCommand in pixelboardCommands) {
+            val result = runShizukuShell(safeCommand, timeoutMs = 4000L, maxCharacters = 900)
+            val accepted = result.first == 0 &&
+                !result.second.contains("Error", ignoreCase = true) &&
+                !result.second.contains("Exception", ignoreCase = true)
+            lastError = if (accepted) {
+                "PIXELBOARD shell OK • cmd=$safeCommand • exit=${result.first} • ${result.second}"
+            } else {
+                "PIXELBOARD shell GAGAL • cmd=$safeCommand • exit=${result.first} • ${result.second}"
+            }
+            if (accepted) Log.i(TAG, lastError) else Log.w(TAG, lastError)
+            return accepted
+        }
         val displayPrefix = Regex("""^input -d ([0-9]{1,5}) """).find(safeCommand)
         val tail = displayPrefix?.let { safeCommand.substring(it.range.last + 1) }.orEmpty()
         val isKeyEvent = tail == "keyevent 67" || tail == "keyevent 66" || tail == "keyevent 112" || tail == "keyevent 279"
@@ -541,7 +558,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             tail.removePrefix("text '").removeSuffix("'").replace("'\\''", "").none { it == '\'' }
         val allowed = displayPrefix != null && (isKeyEvent || isText)
         if (!allowed) {
-            lastError = "Perintah shell ditolak: hanya input text/backspace/enter/paste yang diizinkan."
+            lastError = "Perintah shell ditolak: hanya input teks/keyboard dan dua aksi Pixelboard yang diizinkan."
             return false
         }
         val displayMatch = Regex("""^input -d ([0-9]{1,5}) """).find(safeCommand)

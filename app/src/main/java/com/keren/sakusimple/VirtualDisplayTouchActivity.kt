@@ -1632,6 +1632,48 @@ class VirtualDisplayTouchActivity : ComponentActivity() {
         }
     }
 
+    private fun confirmPixelboardState(disable: Boolean) {
+        val packageName = "com.akshaykadam.pixelboard"
+        val action = if (disable) "dinonaktifkan" else "diaktifkan kembali"
+        val command = if (disable) {
+            "pm disable-user --user 0 $packageName"
+        } else {
+            "pm enable --user 0 $packageName"
+        }
+        val title = if (disable) "Nonaktifkan Pixelboard di seluruh perangkat?" else "Aktifkan kembali Pixelboard?"
+        val message = if (disable) {
+            "Android tidak menyediakan pemblokiran paket ini hanya pada Virtual Display melalui API standar. Pilihan ini akan menonaktifkan $packageName untuk semua layar, termasuk Display 0. Kamu bisa mengaktifkannya lagi dari menu ini."
+        } else {
+            "Perintah ini akan mengaktifkan kembali $packageName untuk seluruh perangkat. Aplikasi dapat dibuka lagi di Display 0 maupun Virtual Display."
+        }
+
+        android.app.AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(message)
+            .setNegativeButton("Batal", null)
+            .setPositiveButton(if (disable) "Nonaktifkan" else "Aktifkan") { _, _ ->
+                shizukuBridge.connect { connected ->
+                    if (!connected) {
+                        runOnUiThread { status.text = "Hubungkan Shizuku terlebih dahulu." }
+                    } else {
+                        Thread({
+                            val changed = shizukuBridge.runShellCommand(command)
+                            val detail = shizukuBridge.getLastError()
+                            runOnUiThread {
+                                status.text = if (changed) {
+                                    "Perintah $action Pixelboard dikirim. Periksa Runtime Log untuk hasilnya."
+                                } else {
+                                    "Gagal mengubah status Pixelboard: $detail"
+                                }
+                                appendRuntimeLog("Pixelboard • action=${if (disable) "disable" else "enable"} • success=$changed • $detail")
+                            }
+                        }, "SakuPixelboardState").apply { isDaemon = true; start() }
+                    }
+                }
+            }
+            .show()
+    }
+
     private fun persistKeyboardSize() {
         getSharedPreferences("saku_desktop_keyboard", Context.MODE_PRIVATE).edit()
             .putInt("width_percent", keyboardWidthPercent)
