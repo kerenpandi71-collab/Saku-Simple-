@@ -521,6 +521,12 @@ private class StandaloneControlsView(
     var isMappingMode = false
         private set
     private var draggingMapping: GamepadControl? = null
+    private var draggingOverlay: GamepadControl? = null
+    var isOverlayEditMode = false
+        private set
+    private var layoutPackage = ""
+    private val overlayPositions = HashMap<GamepadControl, ControlPoint>()
+    private val overlayScales = HashMap<GamepadControl, Float>()
     private var stickDx = 0f
     private var stickDy = 0f
     var inputEnabled = true
@@ -560,6 +566,55 @@ private class StandaloneControlsView(
     fun setProfile(value: GamepadProfile) {
         profile = value
         invalidate()
+    }
+
+    fun setLayoutPackage(packageName: String) {
+        layoutPackage = packageName
+        val prefs = context.getSharedPreferences("saku_gamepad_overlay_layout", Context.MODE_PRIVATE)
+        GamepadControl.entries.forEach { control ->
+            val fallback = defaultOverlayPoint(control)
+            overlayPositions[control] = ControlPoint(
+                prefs.getFloat(layoutKey(control, "x"), fallback.x),
+                prefs.getFloat(layoutKey(control, "y"), fallback.y)
+            ).bounded()
+            overlayScales[control] = prefs.getFloat(layoutKey(control, "scale"), 1f).coerceIn(0.6f, 1.6f)
+        }
+        invalidate()
+    }
+
+    fun controlScale(control: GamepadControl): Float = overlayScales[control] ?: 1f
+
+    fun setControlScale(control: GamepadControl, scale: Float) {
+        overlayScales[control] = scale.coerceIn(0.6f, 1.6f)
+        saveOverlayLayout(control)
+        invalidate()
+    }
+
+    fun setOverlayEditMode(enabled: Boolean) {
+        isOverlayEditMode = enabled
+        draggingOverlay = null
+        active.clear()
+        input.releaseAll()
+        onStatus(if (enabled) "Seret analog dan tombol ke posisi yang nyaman" else "Posisi kontrol disimpan otomatis")
+        invalidate()
+    }
+
+    private fun defaultOverlayPoint(control: GamepadControl): ControlPoint = when (control) {
+        GamepadControl.MOVE -> ControlPoint(0.09f, 0.53f)
+        else -> mobaButtons.firstOrNull { it.first == control }?.second ?: ControlPoint(0.9f, 0.7f)
+    }
+
+    private fun layoutKey(control: GamepadControl, field: String): String =
+        "$layoutPackage.${control.name.lowercase()}.$field"
+
+    private fun saveOverlayLayout(control: GamepadControl) {
+        if (layoutPackage.isBlank()) return
+        val point = overlayPositions[control] ?: defaultOverlayPoint(control)
+        context.getSharedPreferences("saku_gamepad_overlay_layout", Context.MODE_PRIVATE).edit()
+            .putFloat(layoutKey(control, "x"), point.x)
+            .putFloat(layoutKey(control, "y"), point.y)
+            .putFloat(layoutKey(control, "scale"), controlScale(control))
+            .apply()
     }
 
     fun setMappingMode(enabled: Boolean) {
