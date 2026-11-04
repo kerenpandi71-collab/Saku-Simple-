@@ -23,6 +23,8 @@ import android.widget.FrameLayout
 import android.widget.BaseAdapter
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.SeekBar
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -121,6 +123,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
             },
             onStatus = ::setStatus
         )
+        controlsView.setLayoutPackage(selectedGame?.packageName.orEmpty())
         root.addView(controlsView, FrameLayout.LayoutParams(-1, -1))
         root.addView(buildTopDock(), FrameLayout.LayoutParams(-1, dp(66), Gravity.TOP).apply {
             leftMargin = dp(18); rightMargin = dp(18); topMargin = dp(10)
@@ -220,7 +223,9 @@ class StandaloneGamepadActivity : ComponentActivity() {
             "Buat / tutup virtual display",
             "Pilih game",
             "Jalankan game pada display",
-            if (controlsView.isMappingMode) "Selesai atur mapping" else "Atur mapping kontrol",
+            if (controlsView.isMappingMode) "Selesai atur mapping titik sentuh" else "Atur titik sentuh game",
+            if (controlsView.isOverlayEditMode) "Selesai atur posisi analog/tombol" else "Atur posisi analog & tombol",
+            "Atur ukuran masing-masing tombol",
             "Tap Recall",
             if (inputPaused) "Lanjutkan input" else "Jeda input"
         )
@@ -233,8 +238,10 @@ class StandaloneGamepadActivity : ComponentActivity() {
                     2 -> showGamePicker()
                     3 -> launchSelectedGame()
                     4 -> toggleMappingMode()
-                    5 -> tapRecall()
-                    6 -> togglePause()
+                    5 -> controlsView.setOverlayEditMode(!controlsView.isOverlayEditMode)
+                    6 -> showControlSizeSettings()
+                    7 -> tapRecall()
+                    8 -> togglePause()
                 }
             }
             .setNegativeButton("Tutup", null)
@@ -318,6 +325,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
             selectedGame = games[which]
             profile = GamepadProfile.load(this, selectedGame!!.packageName)
             controlsView.setProfile(profile)
+            controlsView.setLayoutPackage(selectedGame!!.packageName)
             dialog.dismiss()
             setStatus("Dipilih • " + selectedGame!!.label)
         }
