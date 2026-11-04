@@ -29,8 +29,8 @@ class ShizukuBridge(
     private val userServiceArgs = Shizuku.UserServiceArgs(
         ComponentName(context.packageName, ShizukuUserService::class.java.name)
     ).processNameSuffix("saku_virtual_display")
-        .tag("saku-virtual-display-v2")
-        .version(5)
+        .tag("saku-virtual-display-v3")
+        .version(6)
         .daemon(false)
 
     private val serviceConnection = object : ServiceConnection {
@@ -258,6 +258,17 @@ class ShizukuBridge(
             Log.e(TAG, "runShellCommand failed", error)
             onStatus("Shell Shizuku gagal: ${error.cause?.message ?: error.message}")
             false
+        }
+    }
+
+    fun launchAppOnDisplay(displayId: Int, packageName: String, activityName: String): String {
+        return try {
+            val service = remote ?: throw IllegalStateException("Shizuku UserService belum terhubung.")
+            service.launchAppOnDisplay(displayId, packageName, activityName).also(onStatus)
+        } catch (error: Throwable) {
+            Log.e(TAG, "launchAppOnDisplay failed", error)
+            (error.cause?.message ?: error.message ?: "Gagal meluncurkan game ke virtual display.")
+                .also(onStatus)
         }
     }
 

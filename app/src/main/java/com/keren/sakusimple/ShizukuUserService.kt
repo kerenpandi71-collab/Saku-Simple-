@@ -553,6 +553,43 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         return runInputCommand(displayId, safeCommand, "IME_TEXT")
     }
 
+    override fun launchAppOnDisplay(displayId: Int, packageName: String?, activityName: String?): String {
+        val safePackage = packageName.orEmpty()
+        val safeActivity = activityName.orEmpty()
+        if (!safePackage.matches(Regex("""^[A-Za-z0-9_.]+$""")) ||
+            !safeActivity.matches(Regex("""^[A-Za-z0-9_.$]+$"""))
+        ) {
+            lastError = "Peluncuran ditolak: nama paket atau activity tidak valid."
+            return lastError
+        }
+        val activeDisplayId = virtualDisplay?.display?.displayId ?: -1
+        if (displayId != activeDisplayId) {
+            lastError = "Peluncuran ditolak: display $displayId bukan virtual display Saku yang aktif ($activeDisplayId)."
+            return lastError
+        }
+        val componentClass = when {
+            safeActivity.startsWith(".") -> safePackage + safeActivity
+            !safeActivity.contains(".") -> "$safePackage.$safeActivity"
+            else -> safeActivity
+        }
+        val componentArgument = "'$safePackage/$componentClass'"
+        val result = runShizukuShell(
+            "/system/bin/am start --display $displayId -n $componentArgument",
+            timeoutMs = 8000L,
+            maxCharacters = 1200
+        )
+        val accepted = result.first == 0 &&
+            !result.second.contains("Error", ignoreCase = true) &&
+            !result.second.contains("Exception", ignoreCase = true)
+        lastError = if (accepted) {
+            "Game diluncurkan ke virtual display $displayId • ${result.second.trim()}"
+        } else {
+            "Game gagal diluncurkan ke virtual display $displayId • exit=${result.first} • ${result.second.trim()}"
+        }
+        if (accepted) Log.i(TAG, lastError) else Log.w(TAG, lastError)
+        return lastError
+    }
+
     override fun releaseVirtualDisplay() {
         val identity = Binder.clearCallingIdentity()
         try {
