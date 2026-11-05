@@ -169,6 +169,36 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         InputEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType)
     }
 
+    /**
+     * Some OEM InputManager implementations reject WAIT_FOR_RESULT for secondary-display
+     * touch/mouse events even though they accept the same event in asynchronous mode.
+     * Try queueing first, then use the synchronous mode as a compatibility fallback.
+     */
+    private fun injectEventCompat(event: InputEvent, label: String): Boolean {
+        return try {
+            val asyncAccepted = injectInputEventMethod.invoke(
+                inputManagerService, event, INJECT_ASYNC
+            ) as? Boolean ?: false
+            if (asyncAccepted) {
+                lastError = "$label diterima (async) • display=${event.displayId}"
+                true
+            } else {
+                val waited = injectInputEventMethod.invoke(
+                    inputManagerService, event, INJECT_WAIT_FOR_RESULT
+                ) as? Boolean ?: false
+                if (!waited) {
+                    lastError = "$label ditolak InputManager • display=${event.displayId}"
+                    Log.w(TAG, lastError)
+                }
+                waited
+            }
+        } catch (error: Throwable) {
+            lastError = "$label gagal • ${error.javaClass.simpleName}: ${error.message ?: "tanpa detail"}"
+            Log.w(TAG, lastError, error)
+            false
+        }
+    }
+
     override fun injectHover(displayId: Int, x: Float, y: Float): Boolean {
         val point = parseDisplayPoint(displayId, x, y) ?: return false
         return injectMouseEvent(
@@ -249,9 +279,8 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             } }
             event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), sortedAction, sortedIds.size, props, coords, 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0)
             setDisplayIdMethod.invoke(event, displayId)
-            val accepted = injectInputEventMethod.invoke(inputManagerService, event, INJECT_WAIT_FOR_RESULT) as? Boolean ?: false
-            lastError = if (accepted) "MULTITOUCH accepted • display=$displayId • pointers=${sortedIds.size} • action=$sortedAction" else "MULTITOUCH rejected • display=$displayId • pointers=${sortedIds.size} • action=$sortedAction"
-            if (!accepted) Log.w(TAG, lastError)
+            val accepted = injectEventCompat(event, "MULTITOUCH")
+            if (accepted) lastError = "MULTITOUCH accepted • display=$displayId • pointers=${sortedIds.size} • action=$sortedAction"
             return accepted
         } catch (error: Throwable) {
             lastError = "Multi-touch gagal • ${error.javaClass.simpleName}: ${error.message}"
@@ -294,10 +323,8 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0
             )
             setDisplayIdMethod.invoke(event, displayId)
-            val accepted = injectInputEventMethod.invoke(inputManagerService, event, INJECT_WAIT_FOR_RESULT) as? Boolean ?: false
-            lastError = if (accepted) "TOUCH accepted • display=$displayId • action=$action • x=${point.first} y=${point.second}"
-                else "TOUCH rejected • display=$displayId • action=$action • x=${point.first} y=${point.second}"
-            if (!accepted) Log.w(TAG, lastError)
+            val accepted = injectEventCompat(event, "TOUCH")
+            if (accepted) lastError = "TOUCH accepted • display=$displayId • action=$action • x=${point.first} y=${point.second}"
             return accepted
         } catch (error: Throwable) {
             lastError = "TOUCH gagal • ${error.javaClass.simpleName}: ${error.message}"
@@ -492,13 +519,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                 1f, 1f, 0, 0, InputDevice.SOURCE_MOUSE, 0
             )
             setDisplayIdMethod.invoke(event, displayId)
-            val accepted = injectInputEventMethod.invoke(
-                inputManagerService, event, INJECT_WAIT_FOR_RESULT
-            ) as? Boolean ?: false
-            if (!accepted && actionName != "MOUSE_MOVE") {
-                lastError = "$actionName ditolak InputManager • display=$displayId • x=${x.toInt()} y=${y.toInt()}"
-                Log.w(TAG, lastError)
-            }
+            val accepted = injectEventCompat(event, actionName)
             return accepted
         } catch (error: Throwable) {
             lastError = "$actionName gagal • ${error.javaClass.simpleName}: ${error.message ?: "tanpa detail"}"
