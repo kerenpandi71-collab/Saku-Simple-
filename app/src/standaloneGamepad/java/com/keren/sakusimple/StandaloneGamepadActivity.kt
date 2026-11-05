@@ -351,6 +351,9 @@ class StandaloneGamepadActivity : ComponentActivity() {
             "Atur resolusi & DPI display",
             "Pilih game",
             "Jalankan game pada display",
+            if (gamepadVisible) "Sembunyikan gamepad" else "Tampilkan gamepad",
+            if (mouseTrackpadMode) "Mode input: Mouse trackpad (ubah ke Touch)" else "Mode input: Touch langsung (ubah ke Mouse)",
+            if (trackpadVisible) "Matikan trackpad layar penuh" else "Aktifkan trackpad layar penuh",
             if (controlsView.isMappingMode) "Selesai atur mapping titik sentuh" else "Atur titik sentuh game",
             if (controlsView.isOverlayEditMode) "Selesai atur posisi analog/tombol" else "Atur posisi analog & tombol",
             "Atur ukuran masing-masing tombol",
@@ -366,11 +369,14 @@ class StandaloneGamepadActivity : ComponentActivity() {
                     2 -> showDisplaySettings()
                     3 -> showGamePicker()
                     4 -> launchSelectedGame()
-                    5 -> toggleMappingMode()
-                    6 -> controlsView.setOverlayEditMode(!controlsView.isOverlayEditMode)
-                    7 -> showControlSizeSettings()
-                    8 -> togglePause()
-                    9 -> showDisplayStretchSettings()
+                    5 -> toggleGamepadVisibility()
+                    6 -> toggleInputMode()
+                    7 -> toggleTrackpadVisibility()
+                    8 -> toggleMappingMode()
+                    9 -> controlsView.setOverlayEditMode(!controlsView.isOverlayEditMode)
+                    10 -> showControlSizeSettings()
+                    11 -> togglePause()
+                    12 -> showDisplayStretchSettings()
                 }
             }
             .setNegativeButton("Tutup", null)
@@ -379,15 +385,17 @@ class StandaloneGamepadActivity : ComponentActivity() {
 
     @Suppress("DEPRECATION")
     private fun discoverGames(): List<StandaloneGameEntry> {
-        // Hanya aplikasi pengguna; aplikasi sistem dan system app yang diperbarui dikecualikan.
-        // Paket clone tetap ditampilkan jika Android mengeksposnya sebagai paket non-sistem.
+        // Ambil seluruh paket yang mempunyai launcher activity, termasuk game bawaan/OEM
+        // dan game yang dipasang sebagai updated-system-app. Jangan membatasi FLAG_SYSTEM.
+        val launcherQuery = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val launcherActivities = packageManager.queryIntentActivities(
+            launcherQuery, PackageManager.MATCH_DEFAULT_ONLY
+        )
+        val launchablePackages = launcherActivities.mapNotNull { it.activityInfo?.packageName }.toSet()
         return packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
             .asSequence()
             .filter { it.packageName != packageName }
-            .filter {
-                (it.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) == 0 &&
-                    (it.flags and android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) == 0
-            }
+            .filter { it.packageName in launchablePackages }
             .mapNotNull { app ->
                 val launchIntent = packageManager.getLaunchIntentForPackage(app.packageName)
                 val activityName = launchIntent?.component?.className
@@ -409,7 +417,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
 
     private fun showGamePicker() {
         if (games.isEmpty()) {
-            Toast.makeText(this, "Tidak ada aplikasi pengguna yang bisa dibuka.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Tidak ada game/aplikasi yang memiliki ikon launcher. Periksa izin QUERY_ALL_PACKAGES.", Toast.LENGTH_LONG).show()
             return
         }
         val selected = games.indexOfFirst { it.packageName == selectedGame?.packageName }
@@ -1527,13 +1535,13 @@ private class StandaloneControlsView(
         val x = event.getX(index)
         val y = event.getY(index)
         when {
-            isInStick(x, y) -> {
+            showGamepadControls && isInStick(x, y) -> {
                 if (active.values.any { it == Binding.Stick }) return
                 active[id] = Binding.Stick
                 updateStick(x, y)
                 input.press(GamepadControl.MOVE.pointerId, movementPoint(x, y))
             }
-            buttonAt(x, y) != null -> {
+            showGamepadControls && buttonAt(x, y) != null -> {
                 val control = buttonAt(x, y) ?: return
                 if (active.values.any { it is Binding.Action && it.control == control }) return
                 val point = profile.pointFor(control)
