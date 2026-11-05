@@ -477,8 +477,16 @@ class StandaloneGamepadActivity : ComponentActivity() {
             panel.addView(value)
             panel.addView(slider, LinearLayout.LayoutParams(-1, dp(42)))
         }
-        addScaleControl("Lebar horizontal", displayScaleX) { displayScaleX = it; root.requestLayout() }
-        addScaleControl("Tinggi vertikal", displayScaleY) { displayScaleY = it; root.requestLayout() }
+        addScaleControl("Lebar horizontal", displayScaleX) {
+            displayScaleX = it
+            prefs.edit().putFloat("display_scale_x", it).apply()
+            root.requestLayout()
+        }
+        addScaleControl("Tinggi vertikal", displayScaleY) {
+            displayScaleY = it
+            prefs.edit().putFloat("display_scale_y", it).apply()
+            root.requestLayout()
+        }
         panel.addView(TextView(this).apply {
             text = "100% = rasio asli. Atur lebar dan tinggi secara terpisah untuk menyesuaikan tampilan game."
             textSize = 12f
