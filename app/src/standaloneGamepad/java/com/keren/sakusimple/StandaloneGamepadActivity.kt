@@ -1160,8 +1160,7 @@ private class StandaloneControlsView(
         GamepadControl.SKILL_3 to ControlPoint(0.92f, 0.56f),
         GamepadControl.ATTACK to ControlPoint(0.93f, 0.80f),
         GamepadControl.BATTLE_SPELL to ControlPoint(0.96f, 0.43f),
-        GamepadControl.REGEN to ControlPoint(0.86f, 0.45f),
-        GamepadControl.RECALL to ControlPoint(0.76f, 0.53f)
+        GamepadControl.REGEN to ControlPoint(0.86f, 0.45f)
     )
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.rgb(236, 246, 255)
@@ -1588,7 +1587,7 @@ private class StandaloneControlsView(
 
     private fun mappingControls(): List<GamepadControl> = listOf(
         GamepadControl.SKILL_1, GamepadControl.SKILL_2, GamepadControl.SKILL_3,
-        GamepadControl.ATTACK, GamepadControl.RECALL, GamepadControl.BATTLE_SPELL,
+        GamepadControl.ATTACK, GamepadControl.BATTLE_SPELL,
         GamepadControl.REGEN, GamepadControl.MOVE
     )
 
