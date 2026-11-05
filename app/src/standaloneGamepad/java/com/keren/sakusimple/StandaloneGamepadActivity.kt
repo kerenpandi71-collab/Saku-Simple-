@@ -58,6 +58,8 @@ class StandaloneGamepadActivity : ComponentActivity() {
     private var pendingMouseX = Float.NaN
     private var pendingMouseY = Float.NaN
     private var mouseMoveDrainScheduled = false
+    private val displayWidth = 1280
+    private val displayHeight = 720
     private var cursorX = displayWidth / 2f
     private var cursorY = displayHeight / 2f
     private var lastTrackpadX = 0f
@@ -73,8 +75,6 @@ class StandaloneGamepadActivity : ComponentActivity() {
     private var trackpadVisible = true
 
     private val previewRect = RectF()
-    private val displayWidth = 1280
-    private val displayHeight = 720
     private var displayId = -1
     private var selectedGame: StandaloneGameEntry? = null
     private var games: List<StandaloneGameEntry> = emptyList()
@@ -622,7 +622,6 @@ class StandaloneGamepadActivity : ComponentActivity() {
                     mouseDragActive = false
                 } else if (!trackpadHadMultiTouch && !trackpadPointerMoved) {
                     queueMouseClick(cursorX, cursorY)
-                    performTrackpadClick()
                 }
                 trackpadPointerMoved = false
                 trackpadHadMultiTouch = false
@@ -653,10 +652,6 @@ class StandaloneGamepadActivity : ComponentActivity() {
             y += event.getY(index)
         }
         return (x / count) to (y / count)
-    }
-
-    private fun performTrackpadClick() {
-        // A native SOURCE_MOUSE click is injected; this is not a synthetic touchscreen tap.
     }
 
     private fun performClickForTrackpad() {
