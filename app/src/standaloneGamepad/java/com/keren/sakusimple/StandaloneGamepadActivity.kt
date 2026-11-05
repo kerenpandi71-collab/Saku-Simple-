@@ -416,6 +416,8 @@ class StandaloneGamepadActivity : ComponentActivity() {
     }
 
     private fun showGamePicker() {
+        // Refresh on every open so games installed/updated while the app was running appear.
+        games = discoverGames()
         if (games.isEmpty()) {
             Toast.makeText(this, "Tidak ada game/aplikasi yang memiliki ikon launcher. Periksa izin QUERY_ALL_PACKAGES.", Toast.LENGTH_LONG).show()
             return
