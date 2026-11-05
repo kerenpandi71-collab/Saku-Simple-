@@ -121,7 +121,13 @@ class StandaloneGamepadActivity : ComponentActivity() {
             displayId = { displayId },
             displayWidth = { displayWidth },
             displayHeight = { displayHeight },
-            inject = { id, action, pointerIds, xs, ys -> shizuku.injectTouchPoints(id, action, pointerIds, xs, ys) }
+            inject = { id, action, pointerIds, xs, ys ->
+                if (pointerIds.size == 1 && (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE || action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL)) {
+                    shizuku.injectTouchEvent(id, action, xs[0], ys[0])
+                } else {
+                    shizuku.injectTouchPoints(id, action, pointerIds, xs, ys)
+                }
+            }
         )
         buildScreen()
     }
@@ -307,7 +313,6 @@ class StandaloneGamepadActivity : ComponentActivity() {
             if (controlsView.isMappingMode) "Selesai atur mapping titik sentuh" else "Atur titik sentuh game",
             if (controlsView.isOverlayEditMode) "Selesai atur posisi analog/tombol" else "Atur posisi analog & tombol",
             "Atur ukuran masing-masing tombol",
-            "Tap Recall",
             if (inputPaused) "Lanjutkan input" else "Jeda input",
             "Atur peregangan tampilan"
         )
@@ -323,9 +328,8 @@ class StandaloneGamepadActivity : ComponentActivity() {
                     5 -> toggleMappingMode()
                     6 -> controlsView.setOverlayEditMode(!controlsView.isOverlayEditMode)
                     7 -> showControlSizeSettings()
-                    8 -> tapRecall()
-                    9 -> togglePause()
-                    10 -> showDisplayStretchSettings()
+                    8 -> togglePause()
+                    9 -> showDisplayStretchSettings()
                 }
             }
             .setNegativeButton("Tutup", null)
@@ -680,7 +684,6 @@ class StandaloneGamepadActivity : ComponentActivity() {
         menu.menu.add(0, 9, 8, if (trackpadVisible) "Matikan trackpad layar penuh" else "Aktifkan trackpad layar penuh")
         menu.menu.add(0, 15, 14, if (mouseTrackpadMode) "Mode input: Mouse trackpad (ubah ke Touch)" else "Mode input: Touch langsung (ubah ke Mouse)")
         menu.menu.add(0, 10, 9, if (inputPaused) "Lanjutkan input gamepad" else "Jeda input gamepad")
-        menu.menu.add(0, 11, 10, "Tap Recall")
         menu.menu.add(0, 12, 11, "Sensitivitas mouse")
         menu.menu.add(0, 13, 12, "Resolusi & DPI display")
         menu.menu.add(0, 14, 13, "Atur peregangan tampilan")
@@ -696,7 +699,6 @@ class StandaloneGamepadActivity : ComponentActivity() {
                 8 -> showControlSizeSettings()
                 9 -> toggleTrackpadVisibility()
                 10 -> togglePause()
-                11 -> tapRecall()
                 12 -> showMouseSensitivitySettings()
                 13 -> showDisplaySettings()
                 14 -> showDisplayStretchSettings()
@@ -1070,16 +1072,6 @@ class StandaloneGamepadActivity : ComponentActivity() {
         setStatus(if (inputPaused) "Input dijeda • semua sentuhan dilepas" else "Input aktif")
     }
 
-    private fun tapRecall() {
-        if (inputPaused || displayId < 0) {
-            Toast.makeText(this, "Hubungkan Shizuku dan buat display terlebih dahulu.", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val point = profile.pointFor(GamepadControl.RECALL)
-        input.press(GamepadControl.RECALL.pointerId, point)
-        input.release(GamepadControl.RECALL.pointerId)
-    }
-
     private fun releaseInputs() {
         input.releaseAll()
         setStatus("Semua sentuhan dilepas")
@@ -1262,8 +1254,10 @@ private class StandaloneControlsView(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        if (!showGamepadControls) return
         val alpha = if (inputEnabled) 255 else 105
+        // Home/Back selalu digambar, bahkan ketika seluruh kontrol gamepad disembunyikan.
+        drawVirtualNavigationButtons(canvas, alpha)
+        if (!showGamepadControls) return
         val stickPoint = overlayPositions[GamepadControl.MOVE] ?: defaultOverlayPoint(GamepadControl.MOVE)
         val stickX = width * stickPoint.x
         val stickY = height * stickPoint.y
@@ -1274,8 +1268,6 @@ private class StandaloneControlsView(
         canvas.drawCircle(stickX + stickDx, stickY + stickDy, radius * 0.36f, fill)
         outline.color = Color.argb(alpha, 78, 163, 255)
         canvas.drawCircle(stickX + stickDx, stickY + stickDy, radius * 0.36f, outline)
-        drawVirtualNavigationButtons(canvas, stickX, stickY, radius, alpha)
-
         val buttonRadius = min(width * 0.032f, height * 0.060f)
         mobaButtons.forEach { (control, _) ->
             val center = overlayPositions[control] ?: defaultOverlayPoint(control)
@@ -1325,15 +1317,14 @@ private class StandaloneControlsView(
     }
 
     private fun virtualNavRects(): Pair<RectF, RectF> {
-        val stickPoint = overlayPositions[GamepadControl.MOVE] ?: defaultOverlayPoint(GamepadControl.MOVE)
-        val cx = width * stickPoint.x
-        val cy = height * stickPoint.y
-        val radius = min(width * 0.075f, height * 0.12f) * controlScale(GamepadControl.MOVE)
-        val buttonWidth = dp(38f)
-        val buttonHeight = dp(27f)
-        val top = (cy + radius + dp(8f)).coerceAtMost(height - buttonHeight - dp(4f))
-        val home = RectF(cx - buttonWidth - dp(3f), top, cx - dp(3f), top + buttonHeight)
-        val back = RectF(cx + dp(3f), top, cx + buttonWidth + dp(3f), top + buttonHeight)
+        // Navigasi virtual berdiri sendiri di sudut kiri bawah, tidak mengikuti posisi analog.
+        val buttonWidth = dp(42f)
+        val buttonHeight = dp(34f)
+        val left = dp(22f)
+        val gap = dp(8f)
+        val top = (height - dp(72f)).coerceAtLeast(dp(8f))
+        val home = RectF(left, top, left + buttonWidth, top + buttonHeight)
+        val back = RectF(left + buttonWidth + gap, top, left + buttonWidth * 2 + gap, top + buttonHeight)
         return home to back
     }
 
@@ -1346,7 +1337,7 @@ private class StandaloneControlsView(
         }
     }
 
-    private fun drawVirtualNavigationButtons(canvas: Canvas, stickX: Float, stickY: Float, radius: Float, alpha: Int) {
+    private fun drawVirtualNavigationButtons(canvas: Canvas, alpha: Int) {
         val (home, back) = virtualNavRects()
         fill.shader = null
         fill.color = Color.argb(alpha.coerceAtMost(225), 15, 39, 82)
