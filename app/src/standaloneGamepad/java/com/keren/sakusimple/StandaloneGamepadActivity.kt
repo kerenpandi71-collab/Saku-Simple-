@@ -16,6 +16,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
@@ -171,6 +172,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
         )
         controlsView.setLayoutPackage(selectedGame?.packageName.orEmpty())
         controlsView.setGamepadVisible(gamepadVisible)
+        controlsView.setMouseTrackpadEnabled(mouseTrackpadMode)
         mouseCursorOverlay = object : View(this) {
             private val cursorFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.FILL }
             private val cursorStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -711,6 +713,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
             .putBoolean("mouse_trackpad_mode", mouseTrackpadMode).apply()
         releaseMouseDrag()
         input.releaseAll()
+        controlsView.setMouseTrackpadEnabled(mouseTrackpadMode)
         setStatus(if (mouseTrackpadMode) "Mode mouse trackpad aktif • gerakkan kursor dengan jari"
             else "Mode touch langsung aktif • sentuh layar game secara langsung")
     }
