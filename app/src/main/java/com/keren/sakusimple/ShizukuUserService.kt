@@ -180,14 +180,14 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                 inputManagerService, event, INJECT_ASYNC
             ) as? Boolean ?: false
             if (asyncAccepted) {
-                lastError = "$label diterima (async) • display=${event.displayId}"
+                lastError = "$label diterima (async)"
                 true
             } else {
                 val waited = injectInputEventMethod.invoke(
                     inputManagerService, event, INJECT_WAIT_FOR_RESULT
                 ) as? Boolean ?: false
                 if (!waited) {
-                    lastError = "$label ditolak InputManager • display=${event.displayId}"
+                    lastError = "$label ditolak InputManager"
                     Log.w(TAG, lastError)
                 }
                 waited
