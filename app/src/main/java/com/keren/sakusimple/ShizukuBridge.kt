@@ -298,6 +298,15 @@ class ShizukuBridge(
         }
     }
 
+    fun getDisplayFps(displayId: Int, packageName: String): Float {
+        return try {
+            remote?.getDisplayFps(displayId, packageName) ?: -1f
+        } catch (error: Throwable) {
+            Log.w(TAG, "getDisplayFps failed", error)
+            -1f
+        }
+    }
+
     fun getDisplayDiagnostics(displayId: Int): String {
         return try {
             remote?.getDisplayDiagnostics(displayId) ?: "Shizuku belum terhubung."
