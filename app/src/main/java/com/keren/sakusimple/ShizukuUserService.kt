@@ -194,7 +194,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                     // during pointer transitions on secondary displays. Retry only discrete
                     // transitions synchronously; doing this for every MOVE would add lag.
                     val motion = event as? MotionEvent
-                    val transition = motion?.actionMasked in setOf(
+                    val transition = motion != null && motion.actionMasked in setOf(
                         MotionEvent.ACTION_DOWN,
                         MotionEvent.ACTION_UP,
                         MotionEvent.ACTION_CANCEL,
