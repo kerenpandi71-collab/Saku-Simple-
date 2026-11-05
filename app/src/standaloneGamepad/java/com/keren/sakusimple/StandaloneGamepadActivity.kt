@@ -1550,7 +1550,7 @@ private class StandaloneControlsView(
                 input.move(binding.control.pointerId, point)
             }
             is Binding.Direct -> input.move(binding.pointerId, normalizedInPreview(event.getX(index), event.getY(index)))
-            null -> Unit
+            Binding.VirtualHome, Binding.VirtualBack, null -> Unit
         }
     }
 
