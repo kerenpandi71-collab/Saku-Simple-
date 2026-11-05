@@ -47,7 +47,6 @@ class StandaloneGamepadActivity : ComponentActivity() {
     private lateinit var statusView: TextView
     private lateinit var shizuku: ShizukuBridge
     private lateinit var input: GamepadInputController
-    private lateinit var trackpadView: View
     private lateinit var mouseCursorOverlay: View
 
     private val mouseInputExecutor = Executors.newSingleThreadExecutor { runnable ->
@@ -75,19 +74,8 @@ class StandaloneGamepadActivity : ComponentActivity() {
     private var mouseLongPressTask: Runnable? = null
     private var gamepadVisible = true
     private var trackpadVisible = true
-    private var trackpadX = 0
-    private var trackpadY = 0
-    private var trackpadWidth = 140
-    private var trackpadHeight = 205
-    private var trackpadEditMode = false
-    private var trackpadDragMode = 0
-    private var trackpadDragStartX = 0f
-    private var trackpadDragStartY = 0f
-    private var trackpadStartLeft = 0
-    private var trackpadStartTop = 0
-    private var trackpadStartWidth = 0
-    private var trackpadStartHeight = 0
-    private val trackpadPrefs by lazy { getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE) }
+    private var displayScaleX = 1f
+    private var displayScaleY = 1f
 
     private val previewRect = RectF()
     private var displayId = -1
@@ -122,10 +110,8 @@ class StandaloneGamepadActivity : ComponentActivity() {
         cursorY = displayHeight / 2f
         gamepadVisible = uiPrefs.getBoolean("gamepad_visible", true)
         trackpadVisible = uiPrefs.getBoolean("trackpad_visible", true)
-        trackpadX = uiPrefs.getInt("trackpad_x", -1)
-        trackpadY = uiPrefs.getInt("trackpad_y", dp(58))
-        trackpadWidth = uiPrefs.getInt("trackpad_width", dp(140)).coerceIn(dp(100), dp(260))
-        trackpadHeight = uiPrefs.getInt("trackpad_height", dp(205)).coerceIn(dp(110), dp(360))
+        displayScaleX = uiPrefs.getFloat("display_scale_x", 1f).coerceIn(0.50f, 1.50f)
+        displayScaleY = uiPrefs.getFloat("display_scale_y", 1f).coerceIn(0.50f, 1.50f)
 
         shizuku = ShizukuBridge(this) { message -> runOnUiThread { setStatus(message) } }
         input = GamepadInputController(
@@ -175,7 +161,10 @@ class StandaloneGamepadActivity : ComponentActivity() {
                 controlsView.setProfile(updated)
                 setStatus("Mapping disimpan • ${selectedGame?.label ?: "pilih game"}")
             },
-            onStatus = ::setStatus
+            onStatus = ::setStatus,
+            onMouseTouch = { event, viewWidth, viewHeight ->
+                if (trackpadVisible) handleTrackpadTouch(event, viewWidth, viewHeight) else false
+            }
         )
         controlsView.setLayoutPackage(selectedGame?.packageName.orEmpty())
         controlsView.setGamepadVisible(gamepadVisible)
@@ -206,13 +195,6 @@ class StandaloneGamepadActivity : ComponentActivity() {
         // walaupun gambar tombol gamepad disembunyikan.
         controlsView.visibility = View.VISIBLE
 
-        trackpadView = buildTrackpadPanel()
-        root.addView(trackpadView, FrameLayout.LayoutParams(trackpadWidth, trackpadHeight, Gravity.TOP or Gravity.START).apply {
-            leftMargin = if (trackpadX >= 0) trackpadX else dp(8)
-            topMargin = trackpadY
-        })
-        trackpadView.visibility = if (trackpadVisible) View.VISIBLE else View.GONE
-
         val assistantPrefs = getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE)
         root.addView(buildAssistantBall(), FrameLayout.LayoutParams(dp(48), dp(48), Gravity.TOP or Gravity.START).apply {
             leftMargin = assistantPrefs.getInt("assistant_ball_x", dp(8))
@@ -225,47 +207,34 @@ class StandaloneGamepadActivity : ComponentActivity() {
             val height = bottom - top
             if (width <= 0 || height <= 0) return@addOnLayoutChangeListener
 
-            // Preview mengikuti rasio asli display: tidak ada peregangan isi.
-            // Bingkai luar tetap tinggi penuh, sementara SurfaceView di tengah
-            // mempertahankan rasio display dan sudut bingkai dibuat rounded.
+            // Skala X/Y terpisah: 100% mempertahankan rasio asli display.
             val displayAspect = displayWidth.toFloat() / displayHeight.coerceAtLeast(1)
-            val previousPreviewHeight = min(height * 0.65f, width * 0.65f / displayAspect)
-            val previewWidth = (previousPreviewHeight * displayAspect).roundToInt()
-            val fittedHeight = height
-            val previewLeft = (width - previewWidth) / 2f
-            val previewTop = 0f
+            val baseHeight = min(height * 0.65f, width * 0.65f / displayAspect)
+            val baseWidth = baseHeight * displayAspect
+            val contentWidth = (baseWidth * displayScaleX).roundToInt().coerceIn(1, width)
+            val contentHeight = (baseHeight * displayScaleY).roundToInt().coerceIn(1, height)
+            val previewLeft = (width - contentWidth) / 2f
+            val contentTop = ((height - contentHeight) / 2f).roundToInt()
 
             val params = previewFrame.layoutParams as FrameLayout.LayoutParams
-            params.width = previewWidth
-            params.height = fittedHeight
+            params.width = contentWidth
+            params.height = contentHeight
             params.gravity = Gravity.TOP or Gravity.START
             params.leftMargin = previewLeft.roundToInt()
-            params.topMargin = 0
+            params.topMargin = contentTop
             previewFrame.layoutParams = params
 
-            val contentHeight = (previewWidth / displayAspect).roundToInt().coerceAtMost(height)
-            val contentTop = ((height - contentHeight) / 2f).roundToInt()
             val surfaceParams = surfaceView.layoutParams as FrameLayout.LayoutParams
-            surfaceParams.width = previewWidth
+            surfaceParams.width = contentWidth
             surfaceParams.height = contentHeight
-            surfaceParams.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            surfaceParams.topMargin = contentTop
+            surfaceParams.gravity = Gravity.TOP or Gravity.START
+            surfaceParams.leftMargin = 0
+            surfaceParams.topMargin = 0
             surfaceView.layoutParams = surfaceParams
 
-            previewRect.set(previewLeft, contentTop.toFloat(), previewLeft + previewWidth, contentTop + contentHeight.toFloat())
+            previewRect.set(previewLeft, contentTop.toFloat(), previewLeft + contentWidth, contentTop + contentHeight.toFloat())
             controlsView.setPreviewRect(previewRect)
             mouseCursorOverlay.invalidate()
-
-            val trackpadParams = trackpadView.layoutParams as FrameLayout.LayoutParams
-            trackpadParams.width = trackpadWidth.coerceIn(dp(100), dp(260))
-            trackpadParams.height = trackpadHeight.coerceIn(dp(110), dp(360))
-            trackpadParams.gravity = Gravity.TOP or Gravity.START
-            val defaultLeft = (previewLeft + previewWidth + dp(4)).roundToInt()
-                .coerceAtMost((width - trackpadParams.width - dp(6)).coerceAtLeast(0))
-            trackpadParams.leftMargin = (if (trackpadX >= 0) trackpadX else defaultLeft)
-                .coerceIn(0, (width - trackpadParams.width).coerceAtLeast(0))
-            trackpadParams.topMargin = trackpadY.coerceIn(0, (height - trackpadParams.height).coerceAtLeast(0))
-            trackpadView.layoutParams = trackpadParams
         }
         setStatus(if (selectedGame == null) "Pilih game • hubungkan Shizuku • buat display" else "${selectedGame!!.label} siap dipilih")
     }
@@ -335,7 +304,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
             "Atur ukuran masing-masing tombol",
             "Tap Recall",
             if (inputPaused) "Lanjutkan input" else "Jeda input",
-            if (trackpadEditMode) "Selesai atur posisi / ukuran touchpad" else "Atur posisi / ukuran touchpad"
+            "Atur peregangan tampilan"
         )
         android.app.AlertDialog.Builder(this)
             .setTitle("Saku Gamepad • kontrol")
@@ -351,11 +320,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
                     7 -> showControlSizeSettings()
                     8 -> tapRecall()
                     9 -> togglePause()
-                    10 -> {
-                        trackpadEditMode = !trackpadEditMode
-                        trackpadView.invalidate()
-                        setStatus(if (trackpadEditMode) "Mode atur touchpad • seret bagian atas untuk pindah, sudut kanan bawah untuk ukuran" else "Posisi dan ukuran touchpad disimpan")
-                    }
+                    10 -> showDisplayStretchSettings()
                 }
             }
             .setNegativeButton("Tutup", null)
@@ -481,6 +446,58 @@ class StandaloneGamepadActivity : ComponentActivity() {
             .setPositiveButton("Selesai", null)
             .setNeutralButton("Reset ukuran") { _, _ -> controls.forEach { controlsView.setControlScale(it, 1f) } }
             .show()
+    }
+
+    private fun showDisplayStretchSettings() {
+        val prefs = getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE)
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(8))
+        }
+        fun addScaleControl(title: String, initial: Float, onChange: (Float) -> Unit) {
+            val value = TextView(this).apply {
+                text = "$title • ${(initial * 100).roundToInt()}%"
+                textSize = 14f
+                setTextColor(Color.WHITE)
+                setPadding(0, dp(12), 0, dp(2))
+            }
+            val slider = SeekBar(this).apply {
+                max = 100
+                progress = ((initial - 0.50f) * 100f).roundToInt().coerceIn(0, 100)
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
+                        val scale = 0.50f + progress / 100f
+                        value.text = "$title • ${(scale * 100).roundToInt()}%"
+                        onChange(scale)
+                    }
+                    override fun onStartTrackingTouch(bar: SeekBar?) = Unit
+                    override fun onStopTrackingTouch(bar: SeekBar?) = Unit
+                })
+            }
+            panel.addView(value)
+            panel.addView(slider, LinearLayout.LayoutParams(-1, dp(42)))
+        }
+        addScaleControl("Lebar horizontal", displayScaleX) { displayScaleX = it; root.requestLayout() }
+        addScaleControl("Tinggi vertikal", displayScaleY) { displayScaleY = it; root.requestLayout() }
+        panel.addView(TextView(this).apply {
+            text = "100% = rasio asli. Atur lebar dan tinggi secara terpisah untuk menyesuaikan tampilan game."
+            textSize = 12f
+            setTextColor(Color.rgb(190, 211, 240))
+            setPadding(0, dp(10), 0, dp(4))
+        })
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Peregangan tampilan virtual")
+            .setView(panel)
+            .setNegativeButton("Tutup", null)
+            .setNeutralButton("Reset 100%") { _, _ ->
+                displayScaleX = 1f
+                displayScaleY = 1f
+                prefs.edit().putFloat("display_scale_x", 1f).putFloat("display_scale_y", 1f).apply()
+                root.requestLayout()
+            }
+            .setPositiveButton("Simpan", null)
+            .show()
+        prefs.edit().putFloat("display_scale_x", displayScaleX).putFloat("display_scale_y", displayScaleY).apply()
     }
 
     private fun showDisplaySettings() {
@@ -647,11 +664,12 @@ class StandaloneGamepadActivity : ComponentActivity() {
         menu.menu.add(0, 6, 5, if (controlsView.isMappingMode) "Selesai atur mapping" else "Atur mapping titik sentuh")
         menu.menu.add(0, 7, 6, if (controlsView.isOverlayEditMode) "Selesai atur posisi kontrol" else "Atur posisi analog & tombol")
         menu.menu.add(0, 8, 7, "Atur ukuran kontrol")
-        menu.menu.add(0, 9, 8, if (trackpadVisible) "Sembunyikan touchpad mouse" else "Tampilkan touchpad mouse")
+        menu.menu.add(0, 9, 8, if (trackpadVisible) "Matikan trackpad layar penuh" else "Aktifkan trackpad layar penuh")
         menu.menu.add(0, 10, 9, if (inputPaused) "Lanjutkan input gamepad" else "Jeda input gamepad")
         menu.menu.add(0, 11, 10, "Tap Recall")
         menu.menu.add(0, 12, 11, "Sensitivitas mouse")
         menu.menu.add(0, 13, 12, "Resolusi & DPI display")
+        menu.menu.add(0, 14, 13, "Atur peregangan tampilan")
         menu.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 1 -> showGamePicker()
@@ -667,116 +685,11 @@ class StandaloneGamepadActivity : ComponentActivity() {
                 11 -> tapRecall()
                 12 -> showMouseSensitivitySettings()
                 13 -> showDisplaySettings()
+                14 -> showDisplayStretchSettings()
             }
             true
         }
         menu.show()
-    }
-
-    private fun buildTrackpadPanel(): View {
-        return object : View(this) {
-            private var editPointer = -1
-            private val panelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(220, 5, 18, 39) }
-            private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.argb(220, 76, 157, 255)
-                style = Paint.Style.STROKE
-                strokeWidth = dp(1).toFloat()
-            }
-            private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.argb(45, 153, 203, 255)
-                strokeWidth = dp(1).toFloat()
-            }
-            private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.rgb(226, 239, 255)
-                textAlign = Paint.Align.CENTER
-                typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-                textSize = dp(10).toFloat()
-            }
-            override fun onDraw(canvas: Canvas) {
-                super.onDraw(canvas)
-                val rect = RectF(dp(2).toFloat(), dp(2).toFloat(), width - dp(2).toFloat(), height - dp(2).toFloat())
-                canvas.drawRoundRect(rect, dp(16).toFloat(), dp(16).toFloat(), panelPaint)
-                canvas.drawRoundRect(rect, dp(16).toFloat(), dp(16).toFloat(), borderPaint)
-                val cx = rect.centerX()
-                val top = rect.top + dp(18)
-                canvas.drawLine(rect.left + dp(12), top + dp(28), rect.right - dp(12), top + dp(28), gridPaint)
-                canvas.drawLine(cx, top + dp(7), cx, top + dp(50), gridPaint)
-                canvas.drawText("MOUSE", cx, top, textPaint)
-                canvas.drawText("1 JARI • KURSOR", cx, top + dp(68), textPaint)
-                canvas.drawText("TAP • KLIK", cx, top + dp(88), textPaint)
-                canvas.drawText("TAHAN • DRAG", cx, top + dp(108), textPaint)
-                canvas.drawText("2 JARI • SCROLL", cx, top + dp(128), textPaint)
-                textPaint.color = Color.rgb(117, 190, 255)
-                canvas.drawText("SHIZUKU", cx, rect.bottom - dp(14), textPaint)
-                if (trackpadEditMode) {
-                    textPaint.color = Color.rgb(117, 190, 255)
-                    canvas.drawText("SERET AREA ATAS • UBAH UKURAN ↘", cx, rect.bottom - dp(31), textPaint)
-                    val grip = dp(8).toFloat()
-                    for (i in 0..2) {
-                        val offset = i * dp(5).toFloat()
-                        canvas.drawLine(rect.right - dp(8) - offset, rect.bottom - dp(8),
-                            rect.right - dp(8), rect.bottom - dp(8) - offset, borderPaint)
-                    }
-                }
-                textPaint.color = Color.rgb(226, 239, 255)
-            }
-            override fun onTouchEvent(event: MotionEvent): Boolean {
-                val x = event.x
-                val y = event.y
-                when (event.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> {
-                        if (trackpadEditMode && (y <= dp(28) || (x >= width - dp(28) && y >= height - dp(28)))) {
-                            trackpadDragMode = if (x >= width - dp(28) && y >= height - dp(28)) 2 else 1
-                            trackpadDragStartX = event.rawX
-                            trackpadDragStartY = event.rawY
-                            val lp = layoutParams as FrameLayout.LayoutParams
-                            trackpadStartLeft = lp.leftMargin
-                            trackpadStartTop = lp.topMargin
-                            trackpadStartWidth = lp.width
-                            trackpadStartHeight = lp.height
-                            parent.requestDisallowInterceptTouchEvent(true)
-                            return true
-                        }
-                        editPointer = -1
-                    }
-                    MotionEvent.ACTION_MOVE -> if (trackpadDragMode != 0) {
-                        val dx = (event.rawX - trackpadDragStartX).roundToInt()
-                        val dy = (event.rawY - trackpadDragStartY).roundToInt()
-                        val lp = layoutParams as FrameLayout.LayoutParams
-                        if (trackpadDragMode == 1) {
-                            lp.leftMargin = (trackpadStartLeft + dx).coerceAtLeast(0)
-                            lp.topMargin = (trackpadStartTop + dy).coerceAtLeast(0)
-                        } else {
-                            lp.width = (trackpadStartWidth + dx).coerceIn(dp(100), dp(260))
-                            lp.height = (trackpadStartHeight + dy).coerceIn(dp(110), dp(360))
-                        }
-                        layoutParams = lp
-                        trackpadX = lp.leftMargin
-                        trackpadY = lp.topMargin
-                        trackpadWidth = lp.width
-                        trackpadHeight = lp.height
-                        return true
-                    }
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> if (trackpadDragMode != 0) {
-                        trackpadDragMode = 0
-                        trackpadPrefs.edit().putInt("trackpad_x", trackpadX).putInt("trackpad_y", trackpadY)
-                            .putInt("trackpad_width", trackpadWidth).putInt("trackpad_height", trackpadHeight).apply()
-                        invalidate()
-                        return true
-                    }
-                }
-                return handleTrackpadTouch(event, width, height)
-            }
-            override fun performClick(): Boolean {
-                super.performClick()
-                return true
-            }
-        }.apply {
-            isClickable = true
-            isFocusable = true
-            contentDescription = "Touchpad mouse virtual: satu jari menggerakkan kursor, tap untuk klik, tahan untuk drag, dua jari untuk scroll."
-            elevation = dp(7).toFloat()
-        }
     }
 
     private fun handleTrackpadTouch(event: MotionEvent, width: Int, height: Int): Boolean {
@@ -892,7 +805,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
     }
 
     private fun performClickForTrackpad() {
-        trackpadView.performClick()
+        controlsView.performClick()
     }
 
     private fun queueMouseMove(x: Float, y: Float) {
@@ -1014,9 +927,9 @@ class StandaloneGamepadActivity : ComponentActivity() {
 
     private fun toggleTrackpadVisibility() {
         trackpadVisible = !trackpadVisible
-        trackpadView.visibility = if (trackpadVisible) View.VISIBLE else View.GONE
         getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE).edit()
             .putBoolean("trackpad_visible", trackpadVisible).apply()
+        setStatus(if (trackpadVisible) "Trackpad layar penuh aktif" else "Trackpad layar penuh nonaktif")
     }
 
     private fun connectShizuku() {
@@ -1153,7 +1066,8 @@ private class StandaloneControlsView(
     bounds: RectF,
     initialProfile: GamepadProfile,
     private val onProfileChanged: (GamepadProfile) -> Unit,
-    private val onStatus: (String) -> Unit
+    private val onStatus: (String) -> Unit,
+    private val onMouseTouch: (MotionEvent, Int, Int) -> Boolean
 ) : View(context) {
     private sealed interface Binding {
         data object Stick : Binding
@@ -1206,6 +1120,7 @@ private class StandaloneControlsView(
     }
 
     private var showGamepadControls = true
+    private var mouseTouchActive = false
 
     fun setGamepadVisible(visible: Boolean) {
         showGamepadControls = visible
@@ -1319,6 +1234,18 @@ private class StandaloneControlsView(
             }
         }
 
+        if (mouseTouchActive || (
+                event.actionMasked == MotionEvent.ACTION_DOWN &&
+                    preview.contains(event.x, event.y) &&
+                    (!showGamepadControls || (!isInStick(event.x, event.y) && buttonAt(event.x, event.y) == null))
+            )) {
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) mouseTouchActive = true
+            onMouseTouch(event, width, height)
+            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                mouseTouchActive = false
+            }
+            return true
+        }
         if (isMappingMode) {
             fill.shader = null
             fill.color = Color.argb(190, 2, 8, 24)
