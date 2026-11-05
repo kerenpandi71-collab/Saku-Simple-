@@ -705,7 +705,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                 )
                 if (latency.first != 0) continue
                 val frameTimes = latency.second.lineSequence().drop(1).mapNotNull { line ->
-                    val values = line.trim().split(Regex("""\\s+""")).mapNotNull { it.toLongOrNull() }
+                    val values = line.trim().split(Regex("""\s+""")).mapNotNull { it.toLongOrNull() }
                     values.getOrNull(1)?.takeIf { it > 0L }
                 }.filter { it <= nowNs && nowNs - it <= 1_500_000_000L }.toList()
                 if (frameTimes.size >= 2) {
