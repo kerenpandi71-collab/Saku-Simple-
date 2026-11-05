@@ -107,10 +107,18 @@ class GamepadInputController(
         val height = displayHeight().coerceAtLeast(1)
         val id = displayId()
         if (id < 0) return false
+        // Pointer transitions are invalid when only one pointer remains. Some Android
+        // builds reject ACTION_POINTER_DOWN/UP with pointerCount=1 on virtual displays.
+        val masked = action and MotionEvent.ACTION_MASK
+        val safeAction = when {
+            ordered.size == 1 && masked == MotionEvent.ACTION_POINTER_DOWN -> MotionEvent.ACTION_DOWN
+            ordered.size == 1 && masked == MotionEvent.ACTION_POINTER_UP -> MotionEvent.ACTION_UP
+            else -> action
+        }
         return runCatching {
             inject(
                 id,
-                action,
+                safeAction,
                 ordered.map { it.key }.toIntArray(),
                 ordered.map { it.value.x * width }.toFloatArray(),
                 ordered.map { it.value.y * height }.toFloatArray()
