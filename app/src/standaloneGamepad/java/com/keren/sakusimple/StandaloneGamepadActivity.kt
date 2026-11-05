@@ -54,6 +54,10 @@ class StandaloneGamepadActivity : ComponentActivity() {
     private lateinit var batteryInfo: TextView
     private lateinit var fpsInfo: TextView
     private val infoHandler = Handler(Looper.getMainLooper())
+    private val fpsExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "SakuGameFpsMonitor").apply { isDaemon = true }
+    }
+    @Volatile private var fpsPollPending = false
     private val infoUpdater = object : Runnable {
         override fun run() {
             if (!::infoPanel.isInitialized) return
@@ -61,9 +65,23 @@ class StandaloneGamepadActivity : ComponentActivity() {
             val battery = getSystemService(android.os.BatteryManager::class.java)
                 ?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
             batteryInfo.text = if (battery in 0..100) "${battery}%" else "--%"
-            val refresh = if (android.os.Build.VERSION.SDK_INT >= 23) windowManager.defaultDisplay.refreshRate.roundToInt() else 0
-            fpsInfo.text = if (refresh > 0) "FPS —  |  ${refresh}Hz" else "FPS —"
-            infoHandler.postDelayed(this, 1000L)
+            if (displayId >= 0 && selectedGame != null && !fpsPollPending) {
+                fpsPollPending = true
+                val targetDisplay = displayId
+                val targetPackage = selectedGame?.packageName.orEmpty()
+                fpsExecutor.execute {
+                    val measured = shizuku.getDisplayFps(targetDisplay, targetPackage)
+                    runOnUiThread {
+                        fpsPollPending = false
+                        if (displayId == targetDisplay && selectedGame?.packageName == targetPackage) {
+                            fpsInfo.text = if (measured > 0f) "${measured.roundToInt()} FPS" else "FPS —"
+                        }
+                    }
+                }
+            } else if (displayId < 0) {
+                fpsInfo.text = "FPS —"
+            }
+            infoHandler.postDelayed(this, 2000L)
         }
     }
 
@@ -1094,6 +1112,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
         releaseMouseDrag()
         mouseInputExecutor.shutdownNow()
         infoHandler.removeCallbacks(infoUpdater)
+        fpsExecutor.shutdownNow()
         if (::input.isInitialized) input.close()
         if (::shizuku.isInitialized) shizuku.close()
         super.onDestroy()
