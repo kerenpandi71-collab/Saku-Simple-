@@ -60,9 +60,9 @@ class StandaloneGamepadActivity : ComponentActivity() {
             clockInfo.text = java.text.SimpleDateFormat("HH:mm", Locale.getDefault()).format(java.util.Date())
             val battery = getSystemService(android.os.BatteryManager::class.java)
                 ?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
-            batteryInfo.text = if (battery in 0..100) "$" + "battery%" else "--%"
+            batteryInfo.text = if (battery in 0..100) "${battery}%" else "--%"
             val refresh = if (android.os.Build.VERSION.SDK_INT >= 23) windowManager.defaultDisplay.refreshRate.roundToInt() else 0
-            fpsInfo.text = if (refresh > 0) "FPS — • ${refresh}Hz" else "FPS —"
+            fpsInfo.text = if (refresh > 0) "FPS —  |  ${refresh}Hz" else "FPS —"
             infoHandler.postDelayed(this, 1000L)
         }
     }
@@ -191,7 +191,6 @@ class StandaloneGamepadActivity : ComponentActivity() {
             onMouseTouch = { event, viewWidth, viewHeight ->
                 if (trackpadVisible && mouseTrackpadMode) handleTrackpadTouch(event, viewWidth, viewHeight) else false
             },
-            onVirtualNavigation = ::sendVirtualNavigationKey
         )
         controlsView.setLayoutPackage(selectedGame?.packageName.orEmpty())
         controlsView.setGamepadVisible(gamepadVisible)
@@ -448,7 +447,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
     private fun showControlSizeSettings() {
         val controls = listOf(GamepadControl.MOVE, GamepadControl.ATTACK, GamepadControl.SKILL_1,
             GamepadControl.SKILL_2, GamepadControl.SKILL_3, GamepadControl.BATTLE_SPELL,
-            GamepadControl.REGEN, GamepadControl.RECALL)
+            GamepadControl.REGEN)
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(8), dp(20), dp(8))
@@ -1105,6 +1104,55 @@ class StandaloneGamepadActivity : ComponentActivity() {
     }
 }
 
+
+private class VirtualNavigationView(
+    context: Context,
+    private val onNavigate: (Int) -> Unit
+) : View(context) {
+    private val density = resources.displayMetrics.density
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(220, 15, 39, 82) }
+    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(104, 174, 255)
+        style = Paint.Style.STROKE
+        strokeWidth = 1.3f * density
+    }
+    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textAlign = Paint.Align.CENTER
+        textSize = 18f * density
+        typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+    }
+    private fun homeRect() = RectF(0f, 0f, 48f * density, 40f * density)
+    private fun backRect() = RectF(56f * density, 0f, 104f * density, 40f * density)
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val home = homeRect()
+        val back = backRect()
+        canvas.drawRoundRect(home, 9f * density, 9f * density, fill)
+        canvas.drawRoundRect(back, 9f * density, 9f * density, fill)
+        canvas.drawRoundRect(home, 9f * density, 9f * density, stroke)
+        canvas.drawRoundRect(back, 9f * density, 9f * density, stroke)
+        val baseline = 26f * density
+        canvas.drawText("⌂", home.centerX(), baseline, text)
+        canvas.drawText("‹", back.centerX(), baseline, text)
+    }
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_UP) {
+            when {
+                homeRect().contains(event.x, event.y) -> onNavigate(KeyEvent.KEYCODE_HOME)
+                backRect().contains(event.x, event.y) -> onNavigate(KeyEvent.KEYCODE_BACK)
+            }
+            performClick()
+            return true
+        }
+        return event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_CANCEL
+    }
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
+    }
+}
+
 private class StandaloneControlsView(
     context: Context,
     private val input: GamepadInputController,
@@ -1112,15 +1160,12 @@ private class StandaloneControlsView(
     initialProfile: GamepadProfile,
     private val onProfileChanged: (GamepadProfile) -> Unit,
     private val onStatus: (String) -> Unit,
-    private val onMouseTouch: (MotionEvent, Int, Int) -> Boolean,
-    private val onVirtualNavigation: (Int) -> Unit
+    private val onMouseTouch: (MotionEvent, Int, Int) -> Boolean
 ) : View(context) {
     private sealed interface Binding {
         data object Stick : Binding
         data class Action(val control: GamepadControl, val startX: Float, val startY: Float, val mapped: ControlPoint) : Binding
         data class Direct(val pointerId: Int) : Binding
-        data object VirtualHome : Binding
-        data object VirtualBack : Binding
     }
 
     private val density = resources.displayMetrics.density
@@ -1252,8 +1297,6 @@ private class StandaloneControlsView(
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val alpha = if (inputEnabled) 255 else 105
-        // Home/Back selalu digambar, bahkan ketika seluruh kontrol gamepad disembunyikan.
-        drawVirtualNavigationButtons(canvas, alpha)
         if (!showGamepadControls) return
         val stickPoint = overlayPositions[GamepadControl.MOVE] ?: defaultOverlayPoint(GamepadControl.MOVE)
         val stickX = width * stickPoint.x
@@ -1311,42 +1354,6 @@ private class StandaloneControlsView(
                 canvas.drawText(mappingLabel(control), x, y + dp(4f), label)
             }
         }
-    }
-
-    private fun virtualNavRects(): Pair<RectF, RectF> {
-        // Navigasi virtual berdiri sendiri di sudut kiri bawah, tidak mengikuti posisi analog.
-        val buttonWidth = dp(42f)
-        val buttonHeight = dp(34f)
-        val left = dp(22f)
-        val gap = dp(8f)
-        val top = (height - dp(72f)).coerceAtLeast(dp(8f))
-        val home = RectF(left, top, left + buttonWidth, top + buttonHeight)
-        val back = RectF(left + buttonWidth + gap, top, left + buttonWidth * 2 + gap, top + buttonHeight)
-        return home to back
-    }
-
-    private fun virtualNavAt(x: Float, y: Float): Int {
-        val (home, back) = virtualNavRects()
-        return when {
-            home.contains(x, y) -> 3
-            back.contains(x, y) -> 4
-            else -> 0
-        }
-    }
-
-    private fun drawVirtualNavigationButtons(canvas: Canvas, alpha: Int) {
-        val (home, back) = virtualNavRects()
-        fill.shader = null
-        fill.color = Color.argb(alpha.coerceAtMost(225), 15, 39, 82)
-        canvas.drawRoundRect(home, dp(8f), dp(8f), fill)
-        canvas.drawRoundRect(back, dp(8f), dp(8f), fill)
-        outline.color = Color.argb(alpha, 104, 174, 255)
-        outline.strokeWidth = dp(1.2f)
-        canvas.drawRoundRect(home, dp(8f), dp(8f), outline)
-        canvas.drawRoundRect(back, dp(8f), dp(8f), outline)
-        label.textSize = dp(15f)
-        canvas.drawText("⌂", home.centerX(), home.centerY() + dp(5f), label)
-        canvas.drawText("‹", back.centerX(), back.centerY() + dp(5f), label)
     }
 
     private fun drawPad(canvas: Canvas, x: Float, y: Float, radius: Float, text: String, alpha: Int) {
@@ -1492,14 +1499,6 @@ private class StandaloneControlsView(
         val x = event.getX(index)
         val y = event.getY(index)
         when {
-            virtualNavAt(x, y) == 3 -> {
-                active[id] = Binding.VirtualHome
-                onVirtualNavigation(KeyEvent.KEYCODE_HOME)
-            }
-            virtualNavAt(x, y) == 4 -> {
-                active[id] = Binding.VirtualBack
-                onVirtualNavigation(KeyEvent.KEYCODE_BACK)
-            }
             isInStick(x, y) -> {
                 if (active.values.any { it == Binding.Stick }) return
                 active[id] = Binding.Stick
@@ -1538,7 +1537,7 @@ private class StandaloneControlsView(
                 input.move(binding.control.pointerId, point)
             }
             is Binding.Direct -> input.move(binding.pointerId, normalizedInPreview(event.getX(index), event.getY(index)))
-            Binding.VirtualHome, Binding.VirtualBack, null -> Unit
+            null -> Unit
         }
     }
 
@@ -1547,7 +1546,6 @@ private class StandaloneControlsView(
             Binding.Stick -> { input.release(GamepadControl.MOVE.pointerId); stickDx = 0f; stickDy = 0f }
             is Binding.Action -> input.release(binding.control.pointerId)
             is Binding.Direct -> input.release(binding.pointerId)
-            Binding.VirtualHome, Binding.VirtualBack -> Unit
             null -> Unit
         }
         invalidate()
