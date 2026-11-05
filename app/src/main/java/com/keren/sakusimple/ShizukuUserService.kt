@@ -678,6 +678,48 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         }
     }
 
+    override fun getDisplayFps(displayId: Int, packageName: String?): Float {
+        if (displayId < 0 || displayId > 10000) return -1f
+        val safePackage = packageName.orEmpty()
+        if (!safePackage.matches(Regex("""^[A-Za-z0-9_.]+$"""))) return -1f
+        return try {
+            val layersResult = runShizukuShell(
+                "/system/bin/dumpsys SurfaceFlinger --list",
+                timeoutMs = 4000L,
+                maxCharacters = 24000
+            )
+            if (layersResult.first != 0) return -1f
+            val layers = layersResult.second.lineSequence()
+                .map { it.trim() }
+                .filter { it.contains(safePackage) }
+                .sortedByDescending { if (it.contains("SurfaceView", true) || it.contains("BLAST", true)) 1 else 0 }
+                .take(6)
+                .toList()
+            val nowNs = System.nanoTime()
+            for (layer in layers) {
+                val quotedLayer = layer.replace("'", "'\\''")
+                val latency = runShizukuShell(
+                    "/system/bin/dumpsys SurfaceFlinger --latency '$quotedLayer'",
+                    timeoutMs = 3000L,
+                    maxCharacters = 12000
+                )
+                if (latency.first != 0) continue
+                val frameTimes = latency.second.lineSequence().drop(1).mapNotNull { line ->
+                    val values = line.trim().split(Regex("""\\s+""")).mapNotNull { it.toLongOrNull() }
+                    values.getOrNull(1)?.takeIf { it > 0L }
+                }.filter { it <= nowNs && nowNs - it <= 1_500_000_000L }.toList()
+                if (frameTimes.size >= 2) {
+                    val span = ((frameTimes.maxOrNull() ?: nowNs) - (frameTimes.minOrNull() ?: nowNs)).coerceAtLeast(1L)
+                    return (frameTimes.size * 1_000_000_000f / span).coerceIn(1f, 240f)
+                }
+            }
+            -1f
+        } catch (error: Throwable) {
+            Log.w(TAG, "getDisplayFps failed", error)
+            -1f
+        }
+    }
+
     override fun getDisplayDiagnostics(displayId: Int): String {
         return try {
             if (displayId < 0 || displayId > 10000) return "Display ID tidak valid: $displayId"
