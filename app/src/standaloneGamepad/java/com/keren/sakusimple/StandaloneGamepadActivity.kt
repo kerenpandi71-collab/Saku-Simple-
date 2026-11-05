@@ -721,7 +721,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
 
     private fun showMouseSensitivitySettings() {
         val valueLabel = TextView(this).apply {
-            text = "Sensitivitas \${(cursorSensitivity * 100).roundToInt()}%"
+            text = "Sensitivitas ${(cursorSensitivity * 100).roundToInt()}%"
             textSize = 14f
             setTextColor(Color.WHITE)
             setPadding(dp(18), dp(12), dp(18), dp(2))
@@ -732,7 +732,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
                     cursorSensitivity = 0.20f + progress / 100f
-                    valueLabel.text = "Sensitivitas \${(cursorSensitivity * 100).roundToInt()}%"
+                    valueLabel.text = "Sensitivitas ${(cursorSensitivity * 100).roundToInt()}%"
                 }
                 override fun onStartTrackingTouch(bar: SeekBar?) = Unit
                 override fun onStopTrackingTouch(bar: SeekBar?) = Unit
