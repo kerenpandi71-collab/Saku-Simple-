@@ -835,9 +835,9 @@ class StandaloneGamepadActivity : ComponentActivity() {
         lastTrackpadY = y
         val distance = kotlin.math.hypot(dx, dy)
         if (distance < 0.01f) return false
-        if (distance > dp(1.5f)) trackpadPointerMoved = true
+        if (distance > dp(2)) trackpadPointerMoved = true
         // Acceleration ringan: gerakan lambat presisi, sapuan cepat menjangkau layar lebih jauh.
-        val speed = (distance / dp(18f)).coerceIn(0f, 1.25f)
+        val speed = (distance / dp(18).toFloat()).coerceIn(0f, 1.25f)
         val gain = cursorSensitivity * (0.85f + speed * 0.55f)
         cursorX = (cursorX + dx * displayWidth / width.toFloat() * gain)
             .coerceIn(0f, (displayWidth - 1).toFloat())
