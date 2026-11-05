@@ -385,30 +385,28 @@ class StandaloneGamepadActivity : ComponentActivity() {
 
     @Suppress("DEPRECATION")
     private fun discoverGames(): List<StandaloneGameEntry> {
-        // Ambil seluruh paket yang mempunyai launcher activity, termasuk game bawaan/OEM
-        // dan game yang dipasang sebagai updated-system-app. Jangan membatasi FLAG_SYSTEM.
-        val launcherQuery = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        val launcherActivities = packageManager.queryIntentActivities(
-            launcherQuery, PackageManager.MATCH_DEFAULT_ONLY
-        )
-        val launchablePackages = launcherActivities.mapNotNull { it.activityInfo?.packageName }.toSet()
+        // QUERY_ALL_PACKAGES di manifest mengizinkan daftar paket penuh pada Android 11+.
+        // Jangan membatasi hanya CATEGORY_LAUNCHER: beberapa aplikasi sistem tidak
+        // mengekspos launcher activity, tetapi tetap harus terlihat di daftar.
         return packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
             .asSequence()
             .filter { it.packageName != packageName }
-            .filter { it.packageName in launchablePackages }
-            .mapNotNull { app ->
+            .map { app ->
                 val launchIntent = packageManager.getLaunchIntentForPackage(app.packageName)
-                val activityName = launchIntent?.component?.className
+                val launcherActivity = launchIntent?.component?.className
                     ?: packageManager.queryIntentActivities(
-                        Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(app.packageName),
+                        Intent(Intent.ACTION_MAIN)
+                            .addCategory(Intent.CATEGORY_LAUNCHER)
+                            .setPackage(app.packageName),
                         PackageManager.MATCH_DEFAULT_ONLY
                     ).firstOrNull()?.activityInfo?.name
-                    ?: return@mapNotNull null
                 val label = runCatching { packageManager.getApplicationLabel(app).toString() }
                     .getOrDefault(app.packageName).ifBlank { app.packageName }
                 val icon = runCatching { packageManager.getApplicationIcon(app) }
                     .getOrElse { getDrawable(android.R.drawable.sym_def_app_icon)!! }
-                StandaloneGameEntry(label, app.packageName, activityName, icon)
+                // activityName kosong untuk paket yang terpasang tetapi tidak bisa
+                // dibuka langsung (service/provider/framework Android).
+                StandaloneGameEntry(label, app.packageName, launcherActivity.orEmpty(), icon)
             }
             .distinctBy { it.packageName }
             .sortedBy { it.label.lowercase(Locale.getDefault()) }
@@ -419,7 +417,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
         // Refresh on every open so games installed/updated while the app was running appear.
         games = discoverGames()
         if (games.isEmpty()) {
-            Toast.makeText(this, "Tidak ada game/aplikasi yang memiliki ikon launcher. Periksa izin QUERY_ALL_PACKAGES.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Tidak ada paket aplikasi yang terdeteksi. Pastikan izin QUERY_ALL_PACKAGES tersedia.", Toast.LENGTH_LONG).show()
             return
         }
         val selected = games.indexOfFirst { it.packageName == selectedGame?.packageName }
@@ -456,7 +454,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
             dividerHeight = dp(1)
         }
         val dialog = android.app.AlertDialog.Builder(this)
-            .setTitle("Pilih game / aplikasi")
+            .setTitle("Pilih aplikasi Android (${games.size})")
             .setView(list)
             .setNegativeButton("Batal", null)
             .create()
