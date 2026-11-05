@@ -87,7 +87,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
     private var trackpadStartTop = 0
     private var trackpadStartWidth = 0
     private var trackpadStartHeight = 0
-    private var trackpadPrefs by lazy { getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE) }
+    private val trackpadPrefs by lazy { getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE) }
 
     private val previewRect = RectF()
     private var displayId = -1
