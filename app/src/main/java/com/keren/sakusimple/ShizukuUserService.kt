@@ -194,13 +194,13 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                     // during pointer transitions on secondary displays. Retry only discrete
                     // transitions synchronously; doing this for every MOVE would add lag.
                     val motion = event as? MotionEvent
-                    val transition = motion != null && motion.actionMasked in setOf(
-                        MotionEvent.ACTION_DOWN,
-                        MotionEvent.ACTION_UP,
-                        MotionEvent.ACTION_CANCEL,
-                        MotionEvent.ACTION_POINTER_DOWN,
-                        MotionEvent.ACTION_POINTER_UP
-                    )
+                    val transition = motion?.actionMasked?.let { action ->
+                        action == MotionEvent.ACTION_DOWN ||
+                            action == MotionEvent.ACTION_UP ||
+                            action == MotionEvent.ACTION_CANCEL ||
+                            action == MotionEvent.ACTION_POINTER_DOWN ||
+                            action == MotionEvent.ACTION_POINTER_UP
+                    } ?: false
                     val finishAccepted = if (transition) {
                         injectInputEventMethod.invoke(
                             inputManagerService, event, INJECT_WAIT_FOR_FINISH
@@ -210,8 +210,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                         lastError = "$label diterima (wait-for-finish fallback)"
                         true
                     } else {
-                        val display = runCatching { event.displayId }.getOrDefault(-1)
-                        lastError = "$label ditolak InputManager • display=$display • async=false • wait-result=false" +
+                        lastError = "$label ditolak InputManager • async=false • wait-result=false" +
                             if (transition) " • wait-finish=false" else ""
                         Log.w(TAG, lastError)
                         false
