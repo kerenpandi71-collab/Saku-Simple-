@@ -442,7 +442,12 @@ class StandaloneGamepadActivity : ComponentActivity() {
                     addView(nameView, LinearLayout.LayoutParams(0, -2, 1f))
                 }
                 (row.getChildAt(0) as ImageView).setImageDrawable(getItem(position).icon)
-                (row.getChildAt(1) as TextView).text = getItem(position).label + "\n" + getItem(position).packageName
+                (row.getChildAt(1) as TextView).text = buildString {
+                    append(getItem(position).label)
+                    append("\n")
+                    append(getItem(position).packageName)
+                    if (getItem(position).activityName.isBlank()) append(" • Komponen sistem (tidak bisa dibuka langsung)")
+                }
                 return row
             }
         }
