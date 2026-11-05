@@ -212,7 +212,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
         )
         controlsView.setLayoutPackage(selectedGame?.packageName.orEmpty())
         controlsView.setGamepadVisible(gamepadVisible)
-        controlsView.setMouseTrackpadEnabled(mouseTrackpadMode)
+        controlsView.setMouseTrackpadEnabled(mouseTrackpadMode && trackpadVisible)
         mouseCursorOverlay = object : View(this) {
             private val cursorFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.FILL }
             private val cursorStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -729,7 +729,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
             .putBoolean("mouse_trackpad_mode", mouseTrackpadMode).apply()
         releaseMouseDrag()
         input.releaseAll()
-        controlsView.setMouseTrackpadEnabled(mouseTrackpadMode)
+        controlsView.setMouseTrackpadEnabled(mouseTrackpadMode && trackpadVisible)
         setStatus(if (mouseTrackpadMode) "Mode mouse trackpad aktif • gerakkan kursor dengan jari"
             else "Mode touch langsung aktif • sentuh layar game secara langsung")
     }
@@ -998,6 +998,13 @@ class StandaloneGamepadActivity : ComponentActivity() {
 
     private fun toggleTrackpadVisibility() {
         trackpadVisible = !trackpadVisible
+        controlsView.setMouseTrackpadEnabled(mouseTrackpadMode && trackpadVisible)
+        if (!trackpadVisible) {
+            trackpadFingerDown = false
+            trackpadHadMultiTouch = false
+            mouseLongPressTask?.let(mouseGestureHandler::removeCallbacks)
+            releaseMouseDrag()
+        }
         getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE).edit()
             .putBoolean("trackpad_visible", trackpadVisible).apply()
         setStatus(if (trackpadVisible) "Trackpad layar penuh aktif" else "Trackpad layar penuh nonaktif")
