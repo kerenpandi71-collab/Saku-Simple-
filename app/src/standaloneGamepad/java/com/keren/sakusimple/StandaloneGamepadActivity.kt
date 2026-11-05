@@ -199,12 +199,13 @@ class StandaloneGamepadActivity : ComponentActivity() {
             val height = bottom - top
             if (width <= 0 || height <= 0) return@addOnLayoutChangeListener
 
-            // Isi tinggi layar sepenuhnya sambil mempertahankan rasio virtual display 16:10.
-            val previewHeight = min(height.toFloat(), width / ASPECT)
-            val previewWidth = (previewHeight * ASPECT).roundToInt()
-            val fittedHeight = previewHeight.roundToInt()
+            // Lebar display dikembalikan ke ukuran sebelumnya; hanya tinggi yang
+            // diperpanjang sampai tepi atas dan bawah layar.
+            val previousPreviewHeight = min(height * 0.65f, width * 0.65f / ASPECT)
+            val previewWidth = (previousPreviewHeight * ASPECT).roundToInt()
+            val fittedHeight = height
             val previewLeft = (width - previewWidth) / 2f
-            val previewTop = ((height - fittedHeight) / 2f).toFloat()
+            val previewTop = 0f
 
             val params = previewFrame.layoutParams as FrameLayout.LayoutParams
             params.width = previewWidth
