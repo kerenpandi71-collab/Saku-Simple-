@@ -65,7 +65,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
             val battery = getSystemService(android.os.BatteryManager::class.java)
                 ?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
             batteryInfo.text = if (battery in 0..100) "${battery}%" else "--%"
-            if (displayId >= 0 && selectedGame != null && !fpsPollPending) {
+            if (false && displayId >= 0 && selectedGame != null && !fpsPollPending) {
                 fpsPollPending = true
                 val targetDisplay = displayId
                 val targetPackage = selectedGame?.packageName.orEmpty()
@@ -74,12 +74,12 @@ class StandaloneGamepadActivity : ComponentActivity() {
                     runOnUiThread {
                         fpsPollPending = false
                         if (displayId == targetDisplay && selectedGame?.packageName == targetPackage) {
-                            fpsInfo.text = if (measured > 0f) "${measured.roundToInt()} FPS" else "FPS —"
+                            fpsInfo.text = "⚙"
                         }
                     }
                 }
             } else if (displayId < 0) {
-                fpsInfo.text = "FPS —"
+                fpsInfo.text = "⚙"
             }
             infoHandler.postDelayed(this, 2000L)
         }
@@ -658,7 +658,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
         }
         clockInfo = makeInfoText(14f)
         batteryInfo = makeInfoText(13f)
-        fpsInfo = makeInfoText(12f)
+        fpsInfo = makeInfoText(20f).apply { text = "⚙"; contentDescription = "Pengaturan"; isClickable = true; setOnClickListener { showQuickSettings() } }
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
@@ -674,9 +674,9 @@ class StandaloneGamepadActivity : ComponentActivity() {
             addView(dividerInfo())
             addView(batteryInfo, LinearLayout.LayoutParams(-2, -1))
             addView(dividerInfo())
-            addView(fpsInfo, LinearLayout.LayoutParams(-2, -1))
+            addView(fpsInfo, LinearLayout.LayoutParams(dp(44), -1))
             setOnClickListener { showAssistantMenu(this) }
-            contentDescription = "Panel informasi dan menu • jam, baterai, FPS"
+            contentDescription = "Panel informasi • jam, baterai, pengaturan"
         }
     }
 
@@ -1229,7 +1229,8 @@ private class StandaloneControlsView(
         GamepadControl.SKILL_3 to ControlPoint(0.92f, 0.56f),
         GamepadControl.ATTACK to ControlPoint(0.93f, 0.80f),
         GamepadControl.BATTLE_SPELL to ControlPoint(0.96f, 0.43f),
-        GamepadControl.REGEN to ControlPoint(0.86f, 0.45f)
+        GamepadControl.REGEN to ControlPoint(0.86f, 0.45f),
+        GamepadControl.RECALL to ControlPoint(0.76f, 0.90f)
     )
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.rgb(236, 246, 255)
@@ -1295,6 +1296,7 @@ private class StandaloneControlsView(
 
     private fun defaultOverlayPoint(control: GamepadControl): ControlPoint = when (control) {
         GamepadControl.MOVE -> ControlPoint(0.09f, 0.53f)
+        GamepadControl.RECALL -> ControlPoint(0.76f, 0.90f)
         else -> mobaButtons.firstOrNull { it.first == control }?.second ?: ControlPoint(0.9f, 0.7f)
     }
 
@@ -1422,7 +1424,7 @@ private class StandaloneControlsView(
             GamepadControl.SKILL_3 -> "ULT"
             GamepadControl.BATTLE_SPELL -> "SP"
             GamepadControl.REGEN -> "HP"
-            GamepadControl.RECALL -> "REC"
+            GamepadControl.RECALL -> "RECAL"
             GamepadControl.MOVE -> ""
         }
         label.textSize = min(dp(if (control == GamepadControl.ATTACK) 12f else 10f), radius * 0.72f)
@@ -1610,7 +1612,7 @@ private class StandaloneControlsView(
     private fun mappingControls(): List<GamepadControl> = listOf(
         GamepadControl.SKILL_1, GamepadControl.SKILL_2, GamepadControl.SKILL_3,
         GamepadControl.ATTACK, GamepadControl.BATTLE_SPELL,
-        GamepadControl.REGEN, GamepadControl.MOVE
+        GamepadControl.REGEN, GamepadControl.RECALL, GamepadControl.MOVE
     )
 
     private fun mappingLabel(control: GamepadControl): String = when (control) {
