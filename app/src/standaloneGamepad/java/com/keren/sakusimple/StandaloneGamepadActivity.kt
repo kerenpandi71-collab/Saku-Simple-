@@ -385,13 +385,13 @@ class StandaloneGamepadActivity : ComponentActivity() {
 
     @Suppress("DEPRECATION")
     private fun discoverGames(): List<StandaloneGameEntry> {
-        // QUERY_ALL_PACKAGES di manifest mengizinkan daftar paket penuh pada Android 11+.
-        // Jangan membatasi hanya CATEGORY_LAUNCHER: beberapa aplikasi sistem tidak
-        // mengekspos launcher activity, tetapi tetap harus terlihat di daftar.
+        // Tampilkan semua aplikasi non-system yang terpasang, ditambah aplikasi
+        // system/updated-system yang memang mempunyai ikon/aktivitas di launcher.
+        // Jangan masukkan service, provider, framework, atau paket sistem tersembunyi.
         return packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
             .asSequence()
             .filter { it.packageName != packageName }
-            .map { app ->
+            .mapNotNull { app ->
                 val launchIntent = packageManager.getLaunchIntentForPackage(app.packageName)
                 val launcherActivity = launchIntent?.component?.className
                     ?: packageManager.queryIntentActivities(
@@ -400,12 +400,15 @@ class StandaloneGamepadActivity : ComponentActivity() {
                             .setPackage(app.packageName),
                         PackageManager.MATCH_DEFAULT_ONLY
                     ).firstOrNull()?.activityInfo?.name
+                val isSystemApp = (app.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
+                val isUpdatedSystemApp = (app.flags and android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+                val hasLauncherEntry = !launcherActivity.isNullOrBlank()
+                if (isSystemApp && !isUpdatedSystemApp && !hasLauncherEntry) return@mapNotNull null
+
                 val label = runCatching { packageManager.getApplicationLabel(app).toString() }
                     .getOrDefault(app.packageName).ifBlank { app.packageName }
                 val icon = runCatching { packageManager.getApplicationIcon(app) }
                     .getOrElse { getDrawable(android.R.drawable.sym_def_app_icon)!! }
-                // activityName kosong untuk paket yang terpasang tetapi tidak bisa
-                // dibuka langsung (service/provider/framework Android).
                 StandaloneGameEntry(label, app.packageName, launcherActivity.orEmpty(), icon)
             }
             .distinctBy { it.packageName }
