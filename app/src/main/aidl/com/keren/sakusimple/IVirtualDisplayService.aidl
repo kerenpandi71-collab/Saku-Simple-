@@ -19,4 +19,5 @@ interface IVirtualDisplayService {
     String getDisplayDiagnostics(int displayId) = 8;
     boolean runShellCommand(String command) = 17;
     String launchAppOnDisplay(int displayId, String packageName, String activityName) = 18;
+    float getDisplayFps(int displayId, String packageName) = 19;
 }
