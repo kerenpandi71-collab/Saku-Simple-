@@ -1234,18 +1234,6 @@ private class StandaloneControlsView(
             }
         }
 
-        if (mouseTouchActive || (
-                event.actionMasked == MotionEvent.ACTION_DOWN &&
-                    preview.contains(event.x, event.y) &&
-                    (!showGamepadControls || (!isInStick(event.x, event.y) && buttonAt(event.x, event.y) == null))
-            )) {
-            if (event.actionMasked == MotionEvent.ACTION_DOWN) mouseTouchActive = true
-            onMouseTouch(event, width, height)
-            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
-                mouseTouchActive = false
-            }
-            return true
-        }
         if (isMappingMode) {
             fill.shader = null
             fill.color = Color.argb(190, 2, 8, 24)
@@ -1345,6 +1333,18 @@ private class StandaloneControlsView(
                     draggingOverlay = null
                     invalidate()
                 }
+            }
+            return true
+        }
+        if (mouseTouchActive || (
+                event.actionMasked == MotionEvent.ACTION_DOWN &&
+                    !isMappingMode && !isOverlayEditMode && preview.contains(event.x, event.y) &&
+                    (!showGamepadControls || (!isInStick(event.x, event.y) && buttonAt(event.x, event.y) == null))
+            )) {
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) mouseTouchActive = true
+            onMouseTouch(event, width, height)
+            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                mouseTouchActive = false
             }
             return true
         }
