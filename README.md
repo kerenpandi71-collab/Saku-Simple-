@@ -1,6 +1,6 @@
 # Saku Gamepad Standalone
 
-APK gamepad baru yang berdiri sendiri, dengan launcher dan package ID terpisah (`com.keren.sakugamepad`). Aplikasi lama Saku Simple dan Virtual Display Touch tetap menjadi varian terpisah.
+Proyek ini difokuskan pada APK Saku Gamepad standalone (`com.keren.sakugamepad`). Kode launcher Saku Simple telah dikeluarkan dari modul aplikasi dan tidak ikut dikompilasi ke APK gamepad. Varian Virtual Display Touch tetap dipertahankan.
 
 ## Desain dan kontrol
 
@@ -19,7 +19,7 @@ Jalur izin Shizuku, virtual-display surface, multi-touch injection dan profil ma
 
 ## Build
 
-GitHub Actions membangun artifact **Standalone Gamepad APK** (`standalone-gamepad-debug-apk`) selain APK Saku Simple dan Virtual Display Touch. Flavor `standaloneGamepad` memiliki application ID tersendiri, sehingga dapat diinstal berdampingan.
+GitHub Actions membangun artifact **Standalone Gamepad APK** (`standalone-gamepad-debug-apk`). Flavor `standaloneGamepad` memiliki application ID `com.keren.sakugamepad`.
 
 ## Batasan
 
