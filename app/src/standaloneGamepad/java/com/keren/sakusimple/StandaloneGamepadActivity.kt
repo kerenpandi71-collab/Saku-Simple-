@@ -68,6 +68,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
     private var trackpadPointerMoved = false
     private var trackpadHadMultiTouch = false
     private var mouseDragActive = false
+    private var cursorSensitivity = 0.55f
     private var scrollCentroidX = 0f
     private var scrollCentroidY = 0f
     private var mouseLongPressTask: Runnable? = null
@@ -474,6 +475,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
         menu.menu.add(0, 9, 8, if (trackpadVisible) "Sembunyikan touchpad mouse" else "Tampilkan touchpad mouse")
         menu.menu.add(0, 10, 9, if (inputPaused) "Lanjutkan input gamepad" else "Jeda input gamepad")
         menu.menu.add(0, 11, 10, "Tap Recall")
+        menu.menu.add(0, 12, 11, "Sensitivitas mouse")
         menu.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 1 -> showGamePicker()
@@ -487,6 +489,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
                 9 -> toggleTrackpadVisibility()
                 10 -> togglePause()
                 11 -> tapRecall()
+                12 -> showMouseSensitivitySettings()
             }
             true
         }
@@ -584,13 +587,15 @@ class StandaloneGamepadActivity : ComponentActivity() {
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
-                if (trackpadHadMultiTouch && event.pointerCount >= 2) {
-                    val centroid = trackpadCentroid(event)
-                    val dx = centroid.first - scrollCentroidX
-                    val dy = centroid.second - scrollCentroidY
-                    scrollCentroidX = centroid.first
-                    scrollCentroidY = centroid.second
-                    queueMouseScroll(-dx / dp(12).toFloat(), -dy / dp(12).toFloat())
+                if (trackpadHadMultiTouch) {
+                    if (event.pointerCount >= 2) {
+                        val centroid = trackpadCentroid(event)
+                        val dx = centroid.first - scrollCentroidX
+                        val dy = centroid.second - scrollCentroidY
+                        scrollCentroidX = centroid.first
+                        scrollCentroidY = centroid.second
+                        queueMouseScroll(-dx / dp(12).toFloat(), -dy / dp(12).toFloat())
+                    }
                     return true
                 }
                 if (!trackpadFingerDown) return true
@@ -599,9 +604,9 @@ class StandaloneGamepadActivity : ComponentActivity() {
                 val dx = x - lastTrackpadX
                 val dy = y - lastTrackpadY
                 if (kotlin.math.hypot(dx, dy) > dp(2)) trackpadPointerMoved = true
-                cursorX = (cursorX + dx * displayWidth / width.toFloat() * MOUSE_SENSITIVITY)
+                cursorX = (cursorX + dx * displayWidth / width.toFloat() * cursorSensitivity)
                     .coerceIn(0f, (displayWidth - 1).toFloat())
-                cursorY = (cursorY + dy * displayHeight / height.toFloat() * MOUSE_SENSITIVITY)
+                cursorY = (cursorY + dy * displayHeight / height.toFloat() * cursorSensitivity)
                     .coerceIn(0f, (displayHeight - 1).toFloat())
                 lastTrackpadX = x
                 lastTrackpadY = y
@@ -714,6 +719,53 @@ class StandaloneGamepadActivity : ComponentActivity() {
         }
     }
 
+    private fun showMouseSensitivitySettings() {
+        val valueLabel = TextView(this).apply {
+            text = "Sensitivitas \${(cursorSensitivity * 100).roundToInt()}%"
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setPadding(dp(18), dp(12), dp(18), dp(2))
+        }
+        val slider = SeekBar(this).apply {
+            max = 130
+            progress = ((cursorSensitivity - 0.20f) * 100f).roundToInt().coerceIn(0, 130)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    cursorSensitivity = 0.20f + progress / 100f
+                    valueLabel.text = "Sensitivitas \${(cursorSensitivity * 100).roundToInt()}%"
+                }
+                override fun onStartTrackingTouch(bar: SeekBar?) = Unit
+                override fun onStopTrackingTouch(bar: SeekBar?) = Unit
+            })
+        }
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(valueLabel)
+            addView(slider, LinearLayout.LayoutParams(-1, dp(48)).apply {
+                leftMargin = dp(12); rightMargin = dp(12)
+            })
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Sensitivitas kursor mouse")
+            .setView(panel)
+            .setPositiveButton("Simpan", null)
+            .setNeutralButton("Reset") { _, _ ->
+                cursorSensitivity = 0.55f
+                valueLabel.text = "Sensitivitas 55%"
+                slider.progress = 35
+            }
+            .show()
+    }
+
+    private fun releaseMouseDrag() {
+        mouseLongPressTask?.let(mouseGestureHandler::removeCallbacks)
+        trackpadFingerDown = false
+        if (mouseDragActive && displayId >= 0 && ::shizuku.isInitialized) {
+            runCatching { shizuku.injectMouseButton(displayId, MotionEvent.ACTION_UP, cursorX, cursorY) }
+        }
+        mouseDragActive = false
+    }
+
     private fun toggleGamepadVisibility() {
         gamepadVisible = !gamepadVisible
         controlsView.visibility = if (gamepadVisible) View.VISIBLE else View.GONE
@@ -745,6 +797,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
             Toast.makeText(this, "Tunggu layar tengah selesai dimuat.", Toast.LENGTH_SHORT).show()
             return
         }
+        releaseMouseDrag()
         if (displayId >= 0) {
             setStatus("Melepas sentuhan dan mengganti virtual display…")
             input.releaseAll {
@@ -769,6 +822,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
     }
 
     private fun closeDisplay() {
+        releaseMouseDrag()
         setStatus("Melepas sentuhan lalu menutup virtual display…")
         input.releaseAll {
             runOnUiThread {
@@ -848,10 +902,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
 
     override fun onDestroy() {
-        mouseLongPressTask?.let(mouseGestureHandler::removeCallbacks)
-        if (mouseDragActive && displayId >= 0 && ::shizuku.isInitialized) {
-            runCatching { shizuku.injectMouseButton(displayId, MotionEvent.ACTION_UP, cursorX, cursorY) }
-        }
+        releaseMouseDrag()
         mouseInputExecutor.shutdownNow()
         if (::input.isInitialized) input.close()
         if (::shizuku.isInitialized) shizuku.close()
@@ -861,7 +912,6 @@ class StandaloneGamepadActivity : ComponentActivity() {
     companion object {
         private const val ML_PACKAGE = "com.mobile.legends"
         private const val ASPECT = 16f / 9f
-        private const val MOUSE_SENSITIVITY = 0.55f
     }
 }
 
