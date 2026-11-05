@@ -49,6 +49,23 @@ class StandaloneGamepadActivity : ComponentActivity() {
     private lateinit var shizuku: ShizukuBridge
     private lateinit var input: GamepadInputController
     private lateinit var mouseCursorOverlay: View
+    private lateinit var infoPanel: LinearLayout
+    private lateinit var clockInfo: TextView
+    private lateinit var batteryInfo: TextView
+    private lateinit var fpsInfo: TextView
+    private val infoHandler = Handler(Looper.getMainLooper())
+    private val infoUpdater = object : Runnable {
+        override fun run() {
+            if (!::infoPanel.isInitialized) return
+            clockInfo.text = java.text.SimpleDateFormat("HH:mm", Locale.getDefault()).format(java.util.Date())
+            val battery = getSystemService(android.os.BatteryManager::class.java)
+                ?.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+            batteryInfo.text = if (battery in 0..100) "$" + "battery%" else "--%"
+            val refresh = if (android.os.Build.VERSION.SDK_INT >= 23) windowManager.defaultDisplay.refreshRate.roundToInt() else 0
+            fpsInfo.text = if (refresh > 0) "FPS — • ${refresh}Hz" else "FPS —"
+            infoHandler.postDelayed(this, 1000L)
+        }
+    }
 
     private val mouseInputExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "SakuStandaloneMouseInput").apply { isDaemon = true }
@@ -202,15 +219,22 @@ class StandaloneGamepadActivity : ComponentActivity() {
         root.addView(mouseCursorOverlay, FrameLayout.LayoutParams(-1, -1))
 
         root.addView(controlsView, FrameLayout.LayoutParams(-1, -1))
-        // View tetap aktif agar sentuhan langsung ke area display tetap diteruskan
-        // walaupun gambar tombol gamepad disembunyikan.
+        // Input view tetap aktif saat visual gamepad disembunyikan.
         controlsView.visibility = View.VISIBLE
 
-        val assistantPrefs = getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE)
-        root.addView(buildAssistantBall(), FrameLayout.LayoutParams(dp(48), dp(48), Gravity.TOP or Gravity.START).apply {
-            leftMargin = assistantPrefs.getInt("assistant_ball_x", dp(8))
-            topMargin = assistantPrefs.getInt("assistant_ball_y", dp(8))
+        // Navigasi virtual berdiri sendiri dan tidak ikut disembunyikan bersama gamepad.
+        root.addView(VirtualNavigationView(this, ::sendVirtualNavigationKey),
+            FrameLayout.LayoutParams(dp(112), dp(42), Gravity.BOTTOM or Gravity.START).apply {
+                leftMargin = dp(22)
+                bottomMargin = dp(20)
+            })
+        infoPanel = buildInfoPanel()
+        root.addView(infoPanel, FrameLayout.LayoutParams(-2, dp(42), Gravity.TOP or Gravity.END).apply {
+            topMargin = dp(14)
+            rightMargin = dp(18)
         })
+        infoHandler.removeCallbacks(infoUpdater)
+        infoHandler.post(infoUpdater)
         setContentView(root)
 
         root.addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
@@ -607,68 +631,41 @@ class StandaloneGamepadActivity : ComponentActivity() {
         controlsView.setMappingMode(!controlsView.isMappingMode)
     }
 
-    private fun buildAssistantBall(): View {
-        val ball = TextView(this).apply {
-            text = "S"
-            textSize = 18f
-            gravity = Gravity.CENTER
+    private fun buildInfoPanel(): LinearLayout {
+        fun makeInfoText(size: Float) = TextView(this).apply {
+            textSize = size
             setTextColor(Color.WHITE)
-            typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
-            setShadowLayer(dp(3).toFloat(), 0f, dp(1).toFloat(), Color.argb(180, 0, 18, 56))
+            gravity = Gravity.CENTER
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            setPadding(dp(9), 0, dp(9), 0)
+        }
+        clockInfo = makeInfoText(14f)
+        batteryInfo = makeInfoText(13f)
+        fpsInfo = makeInfoText(12f)
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(5), 0, dp(5), 0)
             background = GradientDrawable().apply {
-                orientation = GradientDrawable.Orientation.TL_BR
-                shape = GradientDrawable.OVAL
-                colors = intArrayOf(Color.rgb(80, 186, 255), Color.rgb(35, 105, 207), Color.rgb(21, 49, 131))
-                setStroke(dp(1), Color.argb(235, 198, 235, 255))
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(18).toFloat()
+                setColor(Color.argb(218, 5, 18, 48))
+                setStroke(dp(1), Color.argb(190, 79, 155, 255))
             }
             elevation = dp(7).toFloat()
-            contentDescription = "Bola asisten Saku Gamepad • semua menu dan pengaturan"
+            addView(clockInfo, LinearLayout.LayoutParams(-2, -1))
+            addView(dividerInfo())
+            addView(batteryInfo, LinearLayout.LayoutParams(-2, -1))
+            addView(dividerInfo())
+            addView(fpsInfo, LinearLayout.LayoutParams(-2, -1))
             setOnClickListener { showAssistantMenu(this) }
+            contentDescription = "Panel informasi dan menu • jam, baterai, FPS"
         }
-        var downRawX = 0f
-        var downRawY = 0f
-        var originLeft = 0
-        var originTop = 0
-        var moved = false
-        ball.setOnTouchListener { view, event ->
-            val params = view.layoutParams as? FrameLayout.LayoutParams ?: return@setOnTouchListener false
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    downRawX = event.rawX
-                    downRawY = event.rawY
-                    originLeft = params.leftMargin
-                    originTop = params.topMargin
-                    moved = false
-                    view.animate().scaleX(0.94f).scaleY(0.94f).setDuration(90).start()
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = event.rawX - downRawX
-                    val dy = event.rawY - downRawY
-                    if (!moved && (kotlin.math.abs(dx) > dp(7) || kotlin.math.abs(dy) > dp(7))) moved = true
-                    if (moved) {
-                        params.leftMargin = (originLeft + dx.toInt()).coerceIn(0, (root.width - view.width).coerceAtLeast(0))
-                        params.topMargin = (originTop + dy.toInt()).coerceIn(0, (root.height - view.height).coerceAtLeast(0))
-                        view.layoutParams = params
-                    }
-                    true
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    view.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
-                    if (moved && event.actionMasked == MotionEvent.ACTION_UP) {
-                        getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE).edit()
-                            .putInt("assistant_ball_x", params.leftMargin)
-                            .putInt("assistant_ball_y", params.topMargin)
-                            .apply()
-                    } else if (!moved && event.actionMasked == MotionEvent.ACTION_UP) {
-                        view.performClick()
-                    }
-                    true
-                }
-                else -> true
-            }
-        }
-        return ball
+    }
+
+    private fun dividerInfo(): View = View(this).apply {
+        setBackgroundColor(Color.argb(100, 180, 210, 255))
+        layoutParams = LinearLayout.LayoutParams(dp(1), dp(20))
     }
 
     private fun showAssistantMenu(anchor: View) {
@@ -1097,6 +1094,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
     override fun onDestroy() {
         releaseMouseDrag()
         mouseInputExecutor.shutdownNow()
+        infoHandler.removeCallbacks(infoUpdater)
         if (::input.isInitialized) input.close()
         if (::shizuku.isInitialized) shizuku.close()
         super.onDestroy()
