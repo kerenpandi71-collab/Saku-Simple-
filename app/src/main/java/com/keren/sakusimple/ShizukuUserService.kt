@@ -186,15 +186,42 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                 val waited = injectInputEventMethod.invoke(
                     inputManagerService, event, INJECT_WAIT_FOR_RESULT
                 ) as? Boolean ?: false
-                if (!waited) {
-                    lastError = "$label ditolak InputManager"
-                    Log.w(TAG, lastError)
+                if (waited) {
+                    lastError = "$label diterima (wait-for-result fallback)"
+                    true
+                } else {
+                    // A few OEM InputManager builds reject queued/WAIT_FOR_RESULT events
+                    // during pointer transitions on secondary displays. Retry only discrete
+                    // transitions synchronously; doing this for every MOVE would add lag.
+                    val motion = event as? MotionEvent
+                    val transition = motion?.actionMasked in setOf(
+                        MotionEvent.ACTION_DOWN,
+                        MotionEvent.ACTION_UP,
+                        MotionEvent.ACTION_CANCEL,
+                        MotionEvent.ACTION_POINTER_DOWN,
+                        MotionEvent.ACTION_POINTER_UP
+                    )
+                    val finishAccepted = if (transition) {
+                        injectInputEventMethod.invoke(
+                            inputManagerService, event, INJECT_WAIT_FOR_FINISH
+                        ) as? Boolean ?: false
+                    } else false
+                    if (finishAccepted) {
+                        lastError = "$label diterima (wait-for-finish fallback)"
+                        true
+                    } else {
+                        val display = runCatching { event.displayId }.getOrDefault(-1)
+                        lastError = "$label ditolak InputManager • display=$display • async=false • wait-result=false" +
+                            if (transition) " • wait-finish=false" else ""
+                        Log.w(TAG, lastError)
+                        false
+                    }
                 }
-                waited
             }
         } catch (error: Throwable) {
-            lastError = "$label gagal • ${error.javaClass.simpleName}: ${error.message ?: "tanpa detail"}"
-            Log.w(TAG, lastError, error)
+            val cause = error.cause ?: error
+            lastError = "$label gagal • ${cause.javaClass.simpleName}: ${cause.message ?: "tanpa detail"}"
+            Log.w(TAG, lastError, cause)
             false
         }
     }
@@ -796,6 +823,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         private const val TRUSTED_FLAG = 1 shl 10
         private const val INJECT_ASYNC = 0
         private const val INJECT_WAIT_FOR_RESULT = 1
+        private const val INJECT_WAIT_FOR_FINISH = 2
         private const val DISPLAY_IME_POLICY_FALLBACK_DISPLAY = 1
         private const val DISPLAY_IME_POLICY_HIDE = 2
     }
