@@ -196,6 +196,13 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
     }
 
     override fun injectTouchPoints(displayId: Int, action: Int, pointerIds: IntArray, xs: FloatArray, ys: FloatArray): Boolean {
+        val actionMask = action and MotionEvent.ACTION_MASK
+        if (pointerIds.size == 1 && xs.size == 1 && ys.size == 1 &&
+            (actionMask == MotionEvent.ACTION_POINTER_DOWN || actionMask == MotionEvent.ACTION_POINTER_UP)
+        ) {
+            val normalizedAction = if (actionMask == MotionEvent.ACTION_POINTER_DOWN) MotionEvent.ACTION_DOWN else MotionEvent.ACTION_UP
+            return injectTouchEvent(displayId, normalizedAction, xs[0], ys[0])
+        }
         if (pointerIds.isEmpty() || pointerIds.size > 5 || pointerIds.size != xs.size || pointerIds.size != ys.size) {
             lastError = "Multi-touch perlu 1-5 pointer dengan array sama panjang."
             return false
