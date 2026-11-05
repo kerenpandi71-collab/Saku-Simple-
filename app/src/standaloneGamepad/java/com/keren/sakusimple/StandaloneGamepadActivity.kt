@@ -74,6 +74,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
     private var mouseLongPressTask: Runnable? = null
     private var gamepadVisible = true
     private var trackpadVisible = true
+    private var mouseTrackpadMode = true
     private var displayScaleX = 1f
     private var displayScaleY = 1f
 
@@ -110,6 +111,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
         cursorY = displayHeight / 2f
         gamepadVisible = uiPrefs.getBoolean("gamepad_visible", true)
         trackpadVisible = uiPrefs.getBoolean("trackpad_visible", true)
+        mouseTrackpadMode = uiPrefs.getBoolean("mouse_trackpad_mode", true)
         displayScaleX = uiPrefs.getFloat("display_scale_x", 1f).coerceIn(0.50f, 1.50f)
         displayScaleY = uiPrefs.getFloat("display_scale_y", 1f).coerceIn(0.50f, 1.50f)
 
@@ -163,8 +165,9 @@ class StandaloneGamepadActivity : ComponentActivity() {
             },
             onStatus = ::setStatus,
             onMouseTouch = { event, viewWidth, viewHeight ->
-                if (trackpadVisible) handleTrackpadTouch(event, viewWidth, viewHeight) else false
-            }
+                if (trackpadVisible && mouseTrackpadMode) handleTrackpadTouch(event, viewWidth, viewHeight) else false
+            },
+            onVirtualNavigation = ::sendVirtualNavigationKey
         )
         controlsView.setLayoutPackage(selectedGame?.packageName.orEmpty())
         controlsView.setGamepadVisible(gamepadVisible)
@@ -673,6 +676,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
         menu.menu.add(0, 7, 6, if (controlsView.isOverlayEditMode) "Selesai atur posisi kontrol" else "Atur posisi analog & tombol")
         menu.menu.add(0, 8, 7, "Atur ukuran kontrol")
         menu.menu.add(0, 9, 8, if (trackpadVisible) "Matikan trackpad layar penuh" else "Aktifkan trackpad layar penuh")
+        menu.menu.add(0, 15, 14, if (mouseTrackpadMode) "Mode input: Mouse trackpad (ubah ke Touch)" else "Mode input: Touch langsung (ubah ke Mouse)")
         menu.menu.add(0, 10, 9, if (inputPaused) "Lanjutkan input gamepad" else "Jeda input gamepad")
         menu.menu.add(0, 11, 10, "Tap Recall")
         menu.menu.add(0, 12, 11, "Sensitivitas mouse")
@@ -694,10 +698,38 @@ class StandaloneGamepadActivity : ComponentActivity() {
                 12 -> showMouseSensitivitySettings()
                 13 -> showDisplaySettings()
                 14 -> showDisplayStretchSettings()
+                15 -> toggleInputMode()
             }
             true
         }
         menu.show()
+    }
+
+    private fun toggleInputMode() {
+        mouseTrackpadMode = !mouseTrackpadMode
+        getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE).edit()
+            .putBoolean("mouse_trackpad_mode", mouseTrackpadMode).apply()
+        releaseMouseDrag()
+        input.releaseAll()
+        setStatus(if (mouseTrackpadMode) "Mode mouse trackpad aktif • gerakkan kursor dengan jari"
+            else "Mode touch langsung aktif • sentuh layar game secara langsung")
+    }
+
+    private fun sendVirtualNavigationKey(keyCode: Int) {
+        val id = displayId
+        if (id < 0) {
+            Toast.makeText(this, "Buat virtual display dahulu.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        mouseInputExecutor.execute {
+            val accepted = shizuku.injectKeyEvents(
+                id,
+                intArrayOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP),
+                intArrayOf(keyCode, keyCode),
+                intArrayOf(0, 0)
+            )
+            if (!accepted) runOnUiThread { setStatus("Tombol navigasi virtual gagal: ${shizuku.getLastError()}") }
+        }
     }
 
     private fun handleTrackpadTouch(event: MotionEvent, width: Int, height: Int): Boolean {
@@ -752,20 +784,12 @@ class StandaloneGamepadActivity : ComponentActivity() {
                     return true
                 }
                 if (!trackpadFingerDown) return true
-                val x = event.getX(0)
-                val y = event.getY(0)
-                val dx = x - lastTrackpadX
-                val dy = y - lastTrackpadY
-                if (kotlin.math.hypot(dx, dy) > dp(2)) trackpadPointerMoved = true
-                cursorX = (cursorX + dx * displayWidth / width.toFloat() * cursorSensitivity)
-                    .coerceIn(0f, (displayWidth - 1).toFloat())
-                cursorY = (cursorY + dy * displayHeight / height.toFloat() * cursorSensitivity)
-                    .coerceIn(0f, (displayHeight - 1).toFloat())
-                lastTrackpadX = x
-                lastTrackpadY = y
-                mouseCursorOverlay.invalidate()
-                if (mouseDragActive) queueMouseButton(MotionEvent.ACTION_MOVE, cursorX, cursorY)
-                else queueMouseMove(cursorX, cursorY)
+                var moved = false
+                for (historyIndex in 0 until event.historySize) {
+                    moved = updateTrackpadCursor(event.getHistoricalX(0, historyIndex), event.getHistoricalY(0, historyIndex), width, height) || moved
+                }
+                moved = updateTrackpadCursor(event.getX(0), event.getY(0), width, height) || moved
+                if (moved) mouseCursorOverlay.invalidate()
                 return true
             }
             MotionEvent.ACTION_POINTER_UP -> {
@@ -798,6 +822,26 @@ class StandaloneGamepadActivity : ComponentActivity() {
                 return true
             }
         }
+        return true
+    }
+
+    private fun updateTrackpadCursor(x: Float, y: Float, width: Int, height: Int): Boolean {
+        val dx = x - lastTrackpadX
+        val dy = y - lastTrackpadY
+        lastTrackpadX = x
+        lastTrackpadY = y
+        val distance = kotlin.math.hypot(dx, dy)
+        if (distance < 0.01f) return false
+        if (distance > dp(1.5f)) trackpadPointerMoved = true
+        // Acceleration ringan: gerakan lambat presisi, sapuan cepat menjangkau layar lebih jauh.
+        val speed = (distance / dp(18f)).coerceIn(0f, 1.25f)
+        val gain = cursorSensitivity * (0.85f + speed * 0.55f)
+        cursorX = (cursorX + dx * displayWidth / width.toFloat() * gain)
+            .coerceIn(0f, (displayWidth - 1).toFloat())
+        cursorY = (cursorY + dy * displayHeight / height.toFloat() * gain)
+            .coerceIn(0f, (displayHeight - 1).toFloat())
+        if (mouseDragActive) queueMouseButton(MotionEvent.ACTION_MOVE, cursorX, cursorY)
+        else queueMouseMove(cursorX, cursorY)
         return true
     }
 
@@ -1075,12 +1119,15 @@ private class StandaloneControlsView(
     initialProfile: GamepadProfile,
     private val onProfileChanged: (GamepadProfile) -> Unit,
     private val onStatus: (String) -> Unit,
-    private val onMouseTouch: (MotionEvent, Int, Int) -> Boolean
+    private val onMouseTouch: (MotionEvent, Int, Int) -> Boolean,
+    private val onVirtualNavigation: (Int) -> Unit
 ) : View(context) {
     private sealed interface Binding {
         data object Stick : Binding
         data class Action(val control: GamepadControl, val startX: Float, val startY: Float, val mapped: ControlPoint) : Binding
         data class Direct(val pointerId: Int) : Binding
+        data object VirtualHome : Binding
+        data object VirtualBack : Binding
     }
 
     private val density = resources.displayMetrics.density
@@ -1129,6 +1176,13 @@ private class StandaloneControlsView(
 
     private var showGamepadControls = true
     private var mouseTouchActive = false
+    private var mouseTrackpadEnabled = true
+
+    fun setMouseTrackpadEnabled(enabled: Boolean) {
+        mouseTrackpadEnabled = enabled
+        mouseTouchActive = false
+        invalidate()
+    }
 
     fun setGamepadVisible(visible: Boolean) {
         showGamepadControls = visible
@@ -1217,6 +1271,7 @@ private class StandaloneControlsView(
         canvas.drawCircle(stickX + stickDx, stickY + stickDy, radius * 0.36f, fill)
         outline.color = Color.argb(alpha, 78, 163, 255)
         canvas.drawCircle(stickX + stickDx, stickY + stickDy, radius * 0.36f, outline)
+        drawVirtualNavigationButtons(canvas, stickX, stickY, radius, alpha)
 
         val buttonRadius = min(width * 0.032f, height * 0.060f)
         mobaButtons.forEach { (control, _) ->
@@ -1264,6 +1319,43 @@ private class StandaloneControlsView(
                 canvas.drawText(mappingLabel(control), x, y + dp(4f), label)
             }
         }
+    }
+
+    private fun virtualNavRects(): Pair<RectF, RectF> {
+        val stickPoint = overlayPositions[GamepadControl.MOVE] ?: defaultOverlayPoint(GamepadControl.MOVE)
+        val cx = width * stickPoint.x
+        val cy = height * stickPoint.y
+        val radius = min(width * 0.075f, height * 0.12f) * controlScale(GamepadControl.MOVE)
+        val buttonWidth = dp(38f)
+        val buttonHeight = dp(27f)
+        val top = (cy + radius + dp(8f)).coerceAtMost(height - buttonHeight - dp(4f))
+        val home = RectF(cx - buttonWidth - dp(3f), top, cx - dp(3f), top + buttonHeight)
+        val back = RectF(cx + dp(3f), top, cx + buttonWidth + dp(3f), top + buttonHeight)
+        return home to back
+    }
+
+    private fun virtualNavAt(x: Float, y: Float): Int {
+        val (home, back) = virtualNavRects()
+        return when {
+            home.contains(x, y) -> 3
+            back.contains(x, y) -> 4
+            else -> 0
+        }
+    }
+
+    private fun drawVirtualNavigationButtons(canvas: Canvas, stickX: Float, stickY: Float, radius: Float, alpha: Int) {
+        val (home, back) = virtualNavRects()
+        fill.shader = null
+        fill.color = Color.argb(alpha.coerceAtMost(225), 15, 39, 82)
+        canvas.drawRoundRect(home, dp(8f), dp(8f), fill)
+        canvas.drawRoundRect(back, dp(8f), dp(8f), fill)
+        outline.color = Color.argb(alpha, 104, 174, 255)
+        outline.strokeWidth = dp(1.2f)
+        canvas.drawRoundRect(home, dp(8f), dp(8f), outline)
+        canvas.drawRoundRect(back, dp(8f), dp(8f), outline)
+        label.textSize = dp(15f)
+        canvas.drawText("⌂", home.centerX(), home.centerY() + dp(5f), label)
+        canvas.drawText("‹", back.centerX(), back.centerY() + dp(5f), label)
     }
 
     private fun drawPad(canvas: Canvas, x: Float, y: Float, radius: Float, text: String, alpha: Int) {
@@ -1344,11 +1436,11 @@ private class StandaloneControlsView(
             }
             return true
         }
-        if (mouseTouchActive || (
+        if (mouseTrackpadEnabled && (mouseTouchActive || (
                 event.actionMasked == MotionEvent.ACTION_DOWN &&
                     !isMappingMode && !isOverlayEditMode && preview.contains(event.x, event.y) &&
                     (!showGamepadControls || (!isInStick(event.x, event.y) && buttonAt(event.x, event.y) == null))
-            )) {
+            ))) {
             if (event.actionMasked == MotionEvent.ACTION_DOWN) mouseTouchActive = true
             onMouseTouch(event, width, height)
             if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
@@ -1409,6 +1501,14 @@ private class StandaloneControlsView(
         val x = event.getX(index)
         val y = event.getY(index)
         when {
+            virtualNavAt(x, y) == 3 -> {
+                active[id] = Binding.VirtualHome
+                onVirtualNavigation(KeyEvent.KEYCODE_HOME)
+            }
+            virtualNavAt(x, y) == 4 -> {
+                active[id] = Binding.VirtualBack
+                onVirtualNavigation(KeyEvent.KEYCODE_BACK)
+            }
             isInStick(x, y) -> {
                 if (active.values.any { it == Binding.Stick }) return
                 active[id] = Binding.Stick
@@ -1456,6 +1556,7 @@ private class StandaloneControlsView(
             Binding.Stick -> { input.release(GamepadControl.MOVE.pointerId); stickDx = 0f; stickDy = 0f }
             is Binding.Action -> input.release(binding.control.pointerId)
             is Binding.Direct -> input.release(binding.pointerId)
+            Binding.VirtualHome, Binding.VirtualBack -> Unit
             null -> Unit
         }
         invalidate()
