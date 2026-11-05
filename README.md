@@ -15,6 +15,7 @@ Jalur izin Shizuku, virtual-display surface, multi-touch injection dan profil ma
 3. Ketuk **Izin** untuk menyambungkan Shizuku dan memberikan izin, lalu ketuk **Layar** untuk membuat display virtual 1152 × 720.
 4. Ketuk **Mainkan** untuk membuka game pada display. Jika game menolak secondary display, ikuti status yang muncul dan gunakan game yang kompatibel.
 5. Ketuk **Menu** untuk mapping per game, melepas input, jeda, dan kontrol tambahan.
+6. Untuk mengubah layar virtual, buka **Menu → Resolusi & DPI display**, isi lebar/tinggi (320–2560 px) dan DPI (120–640), lalu ketuk **Terapkan**. Pilihan disimpan; bila display sedang aktif, display akan dibuat ulang dengan pengaturan baru.
 
 ## Build
 

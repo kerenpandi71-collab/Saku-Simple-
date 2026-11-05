@@ -58,8 +58,9 @@ class StandaloneGamepadActivity : ComponentActivity() {
     private var pendingMouseX = Float.NaN
     private var pendingMouseY = Float.NaN
     private var mouseMoveDrainScheduled = false
-    private val displayWidth = 1152
-    private val displayHeight = 720
+    private var displayWidth = 1152
+    private var displayHeight = 720
+    private var displayDensityDpi = 0
     private var cursorX = displayWidth / 2f
     private var cursorY = displayHeight / 2f
     private var lastTrackpadX = 0f
@@ -101,6 +102,11 @@ class StandaloneGamepadActivity : ComponentActivity() {
         selectedGame = games.firstOrNull { it.packageName == ML_PACKAGE }
         profile = GamepadProfile.load(this, selectedGame?.packageName.orEmpty())
         val uiPrefs = getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE)
+        displayWidth = uiPrefs.getInt("display_width", 1152).coerceIn(320, 2560)
+        displayHeight = uiPrefs.getInt("display_height", 720).coerceIn(320, 2560)
+        displayDensityDpi = uiPrefs.getInt("display_density_dpi", resources.displayMetrics.densityDpi.coerceIn(120, 640)).coerceIn(120, 640)
+        cursorX = displayWidth / 2f
+        cursorY = displayHeight / 2f
         gamepadVisible = uiPrefs.getBoolean("gamepad_visible", true)
         trackpadVisible = uiPrefs.getBoolean("trackpad_visible", true)
 
@@ -123,7 +129,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
             foreground = rounded(Color.TRANSPARENT, dp(0), Color.rgb(38, 104, 255), dp(1))
             foregroundGravity = Gravity.FILL
             clipToOutline = true
-            contentDescription = "Layar game virtual 16 banding 10"
+            contentDescription = "Layar game virtual ${displayWidth} banding ${displayHeight}"
         }
         surfaceView = SurfaceView(this).apply {
             contentDescription = "Preview game pada layar Saku Gamepad"
@@ -199,10 +205,11 @@ class StandaloneGamepadActivity : ComponentActivity() {
             val height = bottom - top
             if (width <= 0 || height <= 0) return@addOnLayoutChangeListener
 
-            // Lebar display dikembalikan ke ukuran sebelumnya; hanya tinggi yang
-            // diperpanjang sampai tepi atas dan bawah layar.
-            val previousPreviewHeight = min(height * 0.65f, width * 0.65f / ASPECT)
-            val previewWidth = (previousPreviewHeight * ASPECT).roundToInt()
+            // Pertahankan lebar preview yang ramping; tinggi panel memanjang penuh.
+            // Aspek lebar tetap mengikuti resolusi custom pengguna.
+            val displayAspect = displayWidth.toFloat() / displayHeight.coerceAtLeast(1)
+            val previousPreviewHeight = min(height * 0.65f, width * 0.65f / displayAspect)
+            val previewWidth = (previousPreviewHeight * displayAspect).roundToInt()
             val fittedHeight = height
             val previewLeft = (width - previewWidth) / 2f
             val previewTop = 0f
@@ -289,6 +296,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
         val entries = arrayOf(
             "Hubungkan Shizuku",
             "Buat / tutup virtual display",
+            "Atur resolusi & DPI display",
             "Pilih game",
             "Jalankan game pada display",
             if (controlsView.isMappingMode) "Selesai atur mapping titik sentuh" else "Atur titik sentuh game",
@@ -303,13 +311,14 @@ class StandaloneGamepadActivity : ComponentActivity() {
                 when (index) {
                     0 -> connectShizuku()
                     1 -> if (displayId >= 0) closeDisplay() else createDisplay()
-                    2 -> showGamePicker()
-                    3 -> launchSelectedGame()
-                    4 -> toggleMappingMode()
-                    5 -> controlsView.setOverlayEditMode(!controlsView.isOverlayEditMode)
-                    6 -> showControlSizeSettings()
-                    7 -> tapRecall()
-                    8 -> togglePause()
+                    2 -> showDisplaySettings()
+                    3 -> showGamePicker()
+                    4 -> launchSelectedGame()
+                    5 -> toggleMappingMode()
+                    6 -> controlsView.setOverlayEditMode(!controlsView.isOverlayEditMode)
+                    7 -> showControlSizeSettings()
+                    8 -> tapRecall()
+                    9 -> togglePause()
                 }
             }
             .setNegativeButton("Tutup", null)
@@ -437,6 +446,87 @@ class StandaloneGamepadActivity : ComponentActivity() {
             .show()
     }
 
+    private fun showDisplaySettings() {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(4))
+        }
+        fun addField(title: String, value: Int): android.widget.EditText {
+            panel.addView(TextView(this).apply {
+                text = title
+                textSize = 14f
+                setTextColor(Color.WHITE)
+                setPadding(0, dp(10), 0, dp(3))
+            })
+            return android.widget.EditText(this).apply {
+                inputType = android.text.InputType.TYPE_CLASS_NUMBER
+                setSingleLine(true)
+                setText(value.toString())
+                setTextColor(Color.WHITE)
+                setHintTextColor(Color.LTGRAY)
+                background = rounded(Color.argb(85, 110, 150, 220), dp(10), Color.argb(150, 140, 190, 255), dp(1))
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+                panel.addView(this, LinearLayout.LayoutParams(-1, dp(48)))
+            }
+        }
+        val widthInput = addField("Lebar (px)", displayWidth)
+        val heightInput = addField("Tinggi (px)", displayHeight)
+        val dpiInput = addField("DPI", displayDensityDpi)
+        panel.addView(TextView(this).apply {
+            text = "Rentang: lebar/tinggi 320–2560 px, DPI 120–640. Jika display aktif, pengaturan diterapkan dengan membuat ulang display."
+            textSize = 12f
+            setTextColor(Color.rgb(190, 211, 240))
+            setPadding(0, dp(12), 0, dp(4))
+        })
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setTitle("Resolusi & DPI display")
+            .setView(ScrollView(this).apply { addView(panel) })
+            .setNegativeButton("Batal", null)
+            .setNeutralButton("Default 1152×720", null)
+            .setPositiveButton("Terapkan", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val w = widthInput.text.toString().toIntOrNull()
+                val h = heightInput.text.toString().toIntOrNull()
+                val dpi = dpiInput.text.toString().toIntOrNull()
+                if (w == null || w !in 320..2560 || h == null || h !in 320..2560 || dpi == null || dpi !in 120..640) {
+                    Toast.makeText(this, "Isi lebar/tinggi 320–2560 dan DPI 120–640.", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                applyDisplaySettings(w, h, dpi)
+                dialog.dismiss()
+            }
+            dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                widthInput.setText("1152")
+                heightInput.setText("720")
+                dpiInput.setText(resources.displayMetrics.densityDpi.coerceIn(120, 640).toString())
+            }
+        }
+        dialog.show()
+    }
+
+    private fun applyDisplaySettings(width: Int, height: Int, dpi: Int) {
+        val hadDisplay = displayId >= 0
+        displayWidth = width
+        displayHeight = height
+        displayDensityDpi = dpi
+        cursorX = width / 2f
+        cursorY = height / 2f
+        getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE).edit()
+            .putInt("display_width", width)
+            .putInt("display_height", height)
+            .putInt("display_density_dpi", dpi)
+            .apply()
+        surfaceView.holder.setFixedSize(width, height)
+        root.requestLayout()
+        if (hadDisplay) {
+            createDisplay()
+        } else {
+            setStatus("Pengaturan display: ${width}×${height} • ${dpi} DPI • tersimpan")
+        }
+    }
+
     private fun toggleMappingMode() {
         if (selectedGame == null) {
             Toast.makeText(this, "Pilih game dahulu agar posisi kontrol disimpan ke profil yang benar.", Toast.LENGTH_LONG).show()
@@ -524,6 +614,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
         menu.menu.add(0, 10, 9, if (inputPaused) "Lanjutkan input gamepad" else "Jeda input gamepad")
         menu.menu.add(0, 11, 10, "Tap Recall")
         menu.menu.add(0, 12, 11, "Sensitivitas mouse")
+        menu.menu.add(0, 13, 12, "Resolusi & DPI display")
         menu.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 1 -> showGamePicker()
@@ -538,6 +629,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
                 10 -> togglePause()
                 11 -> tapRecall()
                 12 -> showMouseSensitivitySettings()
+                13 -> showDisplaySettings()
             }
             true
         }
@@ -861,8 +953,8 @@ class StandaloneGamepadActivity : ComponentActivity() {
     }
 
     private fun startDisplayOnSurface() {
-        setStatus("Meminta Shizuku membuat virtual display 1152 × 720 (16:10)…")
-        shizuku.createVirtualDisplay(displayWidth, displayHeight, resources.displayMetrics.densityDpi.coerceIn(120, 640), surfaceView.holder.surface) { id, detail ->
+        setStatus("Meminta Shizuku membuat virtual display ${displayWidth} × ${displayHeight} • ${displayDensityDpi} DPI…")
+        shizuku.createVirtualDisplay(displayWidth, displayHeight, displayDensityDpi, surfaceView.holder.surface) { id, detail ->
             displayId = id
             if (id >= 0) setStatus("Display aktif • ID $id • ${displayWidth}×$displayHeight • $detail")
             else setStatus("Gagal membuat display • $detail")
@@ -959,7 +1051,6 @@ class StandaloneGamepadActivity : ComponentActivity() {
 
     companion object {
         private const val ML_PACKAGE = "com.mobile.legends"
-        private const val ASPECT = 16f / 10f
     }
 }
 
