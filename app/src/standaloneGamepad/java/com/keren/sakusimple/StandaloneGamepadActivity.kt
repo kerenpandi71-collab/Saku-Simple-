@@ -58,7 +58,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
     private var pendingMouseX = Float.NaN
     private var pendingMouseY = Float.NaN
     private var mouseMoveDrainScheduled = false
-    private val displayWidth = 1280
+    private val displayWidth = 1152
     private val displayHeight = 720
     private var cursorX = displayWidth / 2f
     private var cursorY = displayHeight / 2f
@@ -123,7 +123,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
             foreground = rounded(Color.TRANSPARENT, dp(0), Color.rgb(38, 104, 255), dp(1))
             foregroundGravity = Gravity.FILL
             clipToOutline = true
-            contentDescription = "Layar game virtual 16 banding 9"
+            contentDescription = "Layar game virtual 16 banding 10"
         }
         surfaceView = SurfaceView(this).apply {
             contentDescription = "Preview game pada layar Saku Gamepad"
@@ -187,9 +187,10 @@ class StandaloneGamepadActivity : ComponentActivity() {
         })
         trackpadView.visibility = if (trackpadVisible) View.VISIBLE else View.GONE
 
+        val assistantPrefs = getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE)
         root.addView(buildAssistantBall(), FrameLayout.LayoutParams(dp(48), dp(48), Gravity.TOP or Gravity.START).apply {
-            leftMargin = dp(8)
-            topMargin = dp(8)
+            leftMargin = assistantPrefs.getInt("assistant_ball_x", dp(8))
+            topMargin = assistantPrefs.getInt("assistant_ball_y", dp(8))
         })
         setContentView(root)
 
@@ -198,7 +199,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
             val height = bottom - top
             if (width <= 0 || height <= 0) return@addOnLayoutChangeListener
 
-            // Isi tinggi layar sepenuhnya sambil mempertahankan rasio virtual display 16:9.
+            // Isi tinggi layar sepenuhnya sambil mempertahankan rasio virtual display 16:10.
             val previewHeight = min(height.toFloat(), width / ASPECT)
             val previewWidth = (previewHeight * ASPECT).roundToInt()
             val fittedHeight = previewHeight.roundToInt()
@@ -445,21 +446,67 @@ class StandaloneGamepadActivity : ComponentActivity() {
     }
 
     private fun buildAssistantBall(): View {
-        return TextView(this).apply {
+        val ball = TextView(this).apply {
             text = "S"
-            textSize = 19f
+            textSize = 18f
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
             typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
+            setShadowLayer(dp(3).toFloat(), 0f, dp(1).toFloat(), Color.argb(180, 0, 18, 56))
             background = GradientDrawable().apply {
+                orientation = GradientDrawable.Orientation.TL_BR
                 shape = GradientDrawable.OVAL
-                setColor(Color.argb(232, 20, 91, 168))
-                setStroke(dp(2), Color.rgb(139, 207, 255))
+                colors = intArrayOf(Color.rgb(80, 186, 255), Color.rgb(35, 105, 207), Color.rgb(21, 49, 131))
+                setStroke(dp(1), Color.argb(235, 198, 235, 255))
             }
-            elevation = dp(10).toFloat()
+            elevation = dp(7).toFloat()
             contentDescription = "Bola asisten Saku Gamepad • semua menu dan pengaturan"
             setOnClickListener { showAssistantMenu(this) }
         }
+        var downRawX = 0f
+        var downRawY = 0f
+        var originLeft = 0
+        var originTop = 0
+        var moved = false
+        ball.setOnTouchListener { view, event ->
+            val params = view.layoutParams as? FrameLayout.LayoutParams ?: return@setOnTouchListener false
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    originLeft = params.leftMargin
+                    originTop = params.topMargin
+                    moved = false
+                    view.animate().scaleX(0.94f).scaleY(0.94f).setDuration(90).start()
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - downRawX
+                    val dy = event.rawY - downRawY
+                    if (!moved && (kotlin.math.abs(dx) > dp(7) || kotlin.math.abs(dy) > dp(7))) moved = true
+                    if (moved) {
+                        params.leftMargin = (originLeft + dx.toInt()).coerceIn(0, (root.width - view.width).coerceAtLeast(0))
+                        params.topMargin = (originTop + dy.toInt()).coerceIn(0, (root.height - view.height).coerceAtLeast(0))
+                        view.layoutParams = params
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    view.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+                    if (moved && event.actionMasked == MotionEvent.ACTION_UP) {
+                        getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE).edit()
+                            .putInt("assistant_ball_x", params.leftMargin)
+                            .putInt("assistant_ball_y", params.topMargin)
+                            .apply()
+                    } else if (!moved && event.actionMasked == MotionEvent.ACTION_UP) {
+                        view.performClick()
+                    }
+                    true
+                }
+                else -> true
+            }
+        }
+        return ball
     }
 
     private fun showAssistantMenu(anchor: View) {
@@ -813,7 +860,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
     }
 
     private fun startDisplayOnSurface() {
-        setStatus("Meminta Shizuku membuat virtual display 1280 × 720…")
+        setStatus("Meminta Shizuku membuat virtual display 1152 × 720 (16:10)…")
         shizuku.createVirtualDisplay(displayWidth, displayHeight, resources.displayMetrics.densityDpi.coerceIn(120, 640), surfaceView.holder.surface) { id, detail ->
             displayId = id
             if (id >= 0) setStatus("Display aktif • ID $id • ${displayWidth}×$displayHeight • $detail")
@@ -911,7 +958,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
 
     companion object {
         private const val ML_PACKAGE = "com.mobile.legends"
-        private const val ASPECT = 16f / 9f
+        private const val ASPECT = 16f / 10f
     }
 }
 
