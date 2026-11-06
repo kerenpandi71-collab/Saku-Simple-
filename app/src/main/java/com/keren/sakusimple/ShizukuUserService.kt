@@ -80,7 +80,8 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             // virtual display. This lets Gboard stay visible on the phone while typing directly
             // into the app window that owns focus on the virtual display.
             virtualDisplay = created
-            applyVirtualDisplayImePolicy(created.display.displayId)
+            val imeFallbackApplied = applyVirtualDisplayImePolicy(created.display.displayId)
+            val imeFallbackDetail = lastError
             val display = created.display
             val stateName = when (display.state) {
                 Display.STATE_ON -> "ON"
@@ -90,7 +91,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                 Display.STATE_ON_SUSPEND -> "ON_SUSPEND"
                 else -> "UNKNOWN(${display.state})"
             }
-            lastError = "Virtual display created • id=${display.displayId} • ${width.coerceIn(320, 2560)}×${height.coerceIn(320, 2560)} • state=$stateName • surfaceValid=${surface.isValid}"
+            lastError = "Virtual display created • id=${display.displayId} • ${width.coerceIn(320, 2560)}×${height.coerceIn(320, 2560)} • state=$stateName • surfaceValid=${surface.isValid} • imeFallback=$imeFallbackApplied • $imeFallbackDetail"
             Log.i(TAG, "$lastError flags=0x${flags.toString(16)}")
             display.displayId
         } catch (error: Throwable) {
@@ -102,10 +103,10 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         }
     }
 
-    private fun applyVirtualDisplayImePolicy(displayId: Int) {
+    private fun applyVirtualDisplayImePolicy(displayId: Int): Boolean {
         // FALLBACK_DISPLAY=1: editor tetap berada di virtual display, sedangkan Gboard
         // ditampilkan pada display utama. Jangan gunakan HIDE karena itu memblokir IME.
-        runCatching {
+        return runCatching {
             enableHiddenApiAccess()
             val windowManagerGlobal = Class.forName("android.view.WindowManagerGlobal")
             val windowManager = windowManagerGlobal.getMethod("getWindowManagerService").invoke(null)
@@ -135,9 +136,26 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             if (readBack != null && readBack != policy) {
                 throw IllegalStateException("Policy IME tidak cocok: diminta=$policy terbaca=$readBack")
             }
+            lastError = "Keyboard Android diarahkan ke display utama • virtual display=$displayId • policy=$policy • readBack=${readBack ?: "tidak tersedia"}"
             Log.i(TAG, "IME fallback ke display utama • display=$displayId • policy=$policy • readBack=${readBack ?: "unsupported"}.")
+            true
         }.onFailure { error ->
+            lastError = "Gagal mengaktifkan fallback keyboard Android • ${error.javaClass.simpleName}: ${error.message ?: "tanpa detail"}"
             Log.w(TAG, "Gagal mengatur IME fallback pada virtual display $displayId: ${error.message}", error)
+        }.getOrDefault(false)
+    }
+
+    override fun applyImeFallback(displayId: Int): Boolean {
+        val activeDisplayId = virtualDisplay?.display?.displayId ?: -1
+        if (displayId < 0 || displayId != activeDisplayId) {
+            lastError = "Fallback keyboard ditolak: display $displayId bukan display aktif ($activeDisplayId)."
+            return false
+        }
+        val identity = Binder.clearCallingIdentity()
+        return try {
+            applyVirtualDisplayImePolicy(displayId)
+        } finally {
+            Binder.restoreCallingIdentity(identity)
         }
     }
 
@@ -430,6 +448,11 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             lastError = "Keyboard input ditolak: display ID tidak valid ($displayId)."
             return false
         }
+        val activeDisplayId = virtualDisplay?.display?.displayId ?: -1
+        if (displayId != activeDisplayId) {
+            lastError = "Keyboard input ditolak: target display=$displayId, virtual display aktif=$activeDisplayId. Buat ulang display lalu coba lagi."
+            return false
+        }
         if (actions.size != keyCodes.size || actions.size != metaStates.size) {
             lastError = "Keyboard input ditolak: ukuran array event tidak sama."
             return false
@@ -442,7 +465,11 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             for (index in actions.indices) {
                 val action = actions[index]
                 val code = keyCodes[index]
-                if (action != android.view.KeyEvent.ACTION_DOWN && action != android.view.KeyEvent.ACTION_UP) continue
+                if (action != android.view.KeyEvent.ACTION_DOWN && action != android.view.KeyEvent.ACTION_UP) {
+                    allAccepted = false
+                    lastError = "KeyEvent batch ditolak • index=$index • action tidak valid=$action"
+                    break
+                }
                 val now = SystemClock.uptimeMillis()
                 val downTime = if (action == android.view.KeyEvent.ACTION_DOWN) {
                     now.also { injectedKeyDownTimes[code] = it }
@@ -460,7 +487,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                 }
                 if (!accepted) {
                     allAccepted = false
-                    lastError = "KeyEvent ditolak • display=$displayId • action=$action keyCode=$code"
+                        lastError = "KeyEvent ditolak InputManager • display=$displayId • index=$index/${actions.lastIndex} • action=$action keyCode=$code • batch mungkin hanya terkirim sebagian"
                     Log.w(TAG, lastError)
                 }
                 if (!allAccepted) break
@@ -586,6 +613,11 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             lastError = "Input ditolak: display ID tidak valid ($displayId)."
             return null
         }
+        val activeDisplayId = virtualDisplay?.display?.displayId ?: -1
+        if (displayId != activeDisplayId) {
+            lastError = "Input ditolak: target display=$displayId, virtual display aktif=$activeDisplayId. Buat ulang display lalu coba lagi."
+            return null
+        }
         if (!x.isFinite() || !y.isFinite()) {
             lastError = "Input ditolak: koordinat bukan angka valid."
             return null
@@ -595,18 +627,22 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
 
     private fun runInputCommand(displayId: Int, command: String, action: String): Boolean {
         val result = runShizukuShell(command, timeoutMs = 4000L, maxCharacters = 900)
+        val loggedCommand = redactInputText(command)
         val accepted = result.first == 0 &&
             !result.second.contains("Error:", ignoreCase = true) &&
             !result.second.contains("Exception", ignoreCase = true) &&
             !result.second.contains("Unknown command", ignoreCase = true)
         lastError = if (accepted) {
-            "$action shell OK • display=$displayId • cmd=$command • exit=${result.first} • ${result.second}"
+            "$action shell OK • display=$displayId • cmd=$loggedCommand • exit=${result.first} • ${result.second}"
         } else {
-            "$action shell GAGAL • display=$displayId • cmd=$command • exit=${result.first} • ${result.second}"
+            "$action shell GAGAL • display=$displayId • cmd=$loggedCommand • exit=${result.first} • ${result.second}"
         }
         if (accepted) Log.i(TAG, lastError) else Log.w(TAG, lastError)
         return accepted
     }
+
+    private fun redactInputText(command: String): String = Regex("(?i)^(input\\s+-d\\s+\\d+\\s+text\\s+).*$")
+        .replace(command) { it.groupValues[1] + "'<teks-disamarkan>'" }
 
     override fun runShellCommand(command: String): Boolean {
         // Never accept arbitrary shell code; only allow input commands and the two existing Pixelboard actions.
@@ -742,7 +778,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         } catch (error: Throwable) {
             val cause = error.cause ?: error
             val detail = "${cause.javaClass.simpleName}: ${cause.message ?: "tanpa detail"}\n${Log.getStackTraceString(cause)}"
-            Log.e(TAG, "Shell command failed: $command", cause)
+            Log.e(TAG, "Shell command failed: ${redactInputText(command)}", cause)
             -1 to detail.take(maxCharacters)
         } finally {
             runCatching { process?.destroy() }

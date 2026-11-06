@@ -1,6 +1,7 @@
 package com.keren.sakusimple
 
 import android.content.Context
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.app.Activity
@@ -16,6 +17,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.net.Uri
 import android.view.Gravity
 import android.view.KeyCharacterMap
 import android.view.KeyEvent
@@ -57,6 +59,9 @@ class StandaloneGamepadActivity : Activity() {
     private val infoHandler = Handler(Looper.getMainLooper())
     private val fpsExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "SakuGameFpsMonitor").apply { isDaemon = true }
+    }
+    private val diagnosticsExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "SakuDiagnostics").apply { isDaemon = true }
     }
     @Volatile private var fpsPollPending = false
     private val infoUpdater = object : Runnable {
@@ -131,6 +136,9 @@ class StandaloneGamepadActivity : Activity() {
     private var games: List<StandaloneGameEntry> = emptyList()
     private var profile = GamepadProfile()
     private var inputPaused = false
+    private var pendingRestorePlan: SettingsBackup.ImportPlan? = null
+    private var lastFailureToastAt = 0L
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -150,9 +158,6 @@ class StandaloneGamepadActivity : Activity() {
                 View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
             )
 
-        games = discoverGames()
-        selectedGame = games.firstOrNull { it.packageName == ML_PACKAGE }
-        profile = GamepadProfile.load(this, selectedGame?.packageName.orEmpty())
         val uiPrefs = getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE)
         // Migrate the legacy single profile to Landscape once; Portrait gets an independent default.
         if (!uiPrefs.contains("landscape_display_width")) {
@@ -168,6 +173,11 @@ class StandaloneGamepadActivity : Activity() {
         displayDensityDpi = uiPrefs.getInt("${modePrefix}_display_density_dpi", resources.displayMetrics.densityDpi.coerceIn(120, 640)).coerceIn(120, 640)
         portraitKeyboardVisible = uiPrefs.getBoolean("portrait_keyboard_visible", true)
         portraitTrackpadVisible = uiPrefs.getBoolean("portrait_trackpad_visible", true)
+        games = discoverGames()
+        val rememberedPackage = uiPrefs.getString("selected_game_package", null)
+        selectedGame = games.firstOrNull { it.packageName == rememberedPackage }
+            ?: games.firstOrNull { it.packageName == ML_PACKAGE }
+        profile = GamepadProfile.load(this, selectedGame?.packageName.orEmpty())
         cursorX = displayWidth / 2f
         cursorY = displayHeight / 2f
         gamepadVisible = uiPrefs.getBoolean("gamepad_visible", true)
@@ -175,6 +185,7 @@ class StandaloneGamepadActivity : Activity() {
         mouseTrackpadMode = uiPrefs.getBoolean("mouse_trackpad_mode", true)
         displayScaleX = uiPrefs.getFloat("display_scale_x", 1f).coerceIn(0.50f, 1.50f)
         displayScaleY = uiPrefs.getFloat("display_scale_y", 1f).coerceIn(0.50f, 1.50f)
+        cursorSensitivity = uiPrefs.getFloat("cursor_sensitivity", 0.55f).coerceIn(0.20f, 1.50f)
 
         shizuku = ShizukuBridge(this) { message -> runOnUiThread { setStatus(message) } }
         input = GamepadInputController(
@@ -602,7 +613,11 @@ class StandaloneGamepadActivity : Activity() {
             "Atur peregangan tampilan",
             "Pilih mode Landscape / Portrait",
             if (portraitKeyboardVisible) "Sembunyikan keyboard Portrait" else "Tampilkan keyboard Portrait",
-            if (portraitTrackpadVisible) "Sembunyikan trackpad Portrait" else "Tampilkan trackpad Portrait"
+            if (portraitTrackpadVisible) "Sembunyikan trackpad Portrait" else "Tampilkan trackpad Portrait",
+            "Keyboard Android / Gboard di layar utama",
+            "Backup pengaturan ke file",
+            "Restore pengaturan dari file",
+            "Log diagnostik • salin / hapus"
         )
         android.app.AlertDialog.Builder(this)
             .setTitle("Saku Gamepad • kontrol")
@@ -624,11 +639,235 @@ class StandaloneGamepadActivity : Activity() {
                     13 -> showLayoutModePicker()
                     14 -> togglePortraitKeyboardVisibility()
                     15 -> togglePortraitTrackpadVisibility()
+                    16 -> showAndroidKeyboardGuide()
+                    17 -> createSettingsBackup()
+                    18 -> chooseSettingsRestore()
+                    19 -> showDiagnosticLog()
                 }
             }
             .setNegativeButton("Tutup", null)
             .show()
     }
+
+    private fun showAndroidKeyboardGuide() {
+        val id = displayId
+        if (id < 0) {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Keyboard Android / Gboard")
+                .setMessage("Buat virtual display dan jalankan game terlebih dahulu. Setelah itu aktifkan rute Gboard, lalu ketuk kolom teks di dalam game.")
+                .setPositiveButton("Mengerti", null).show()
+            return
+        }
+        shizuku.connect { connected ->
+            if (!connected) {
+                android.app.AlertDialog.Builder(this).setTitle("Keyboard Android")
+                    .setMessage("Shizuku belum terhubung. Hubungkan Shizuku dahulu, lalu coba lagi.")
+                    .setPositiveButton("OK", null).show()
+            } else {
+                diagnosticsExecutor.execute {
+                    val applied = shizuku.applyImeFallback(id)
+                    runOnUiThread {
+                        val message = if (applied) {
+                            "Rute Gboard ke layar utama sudah diaktifkan untuk virtual display $id.\n\nSekarang ketuk kolom teks yang dapat diedit di game. Android akan menampilkan keyboard pada layar utama/ponsel, sementara input tetap ditujukan ke editor game.\n\nCatatan: keyboard hanya muncul jika game meminta Android IME. Kolom chat khusus atau UI game yang bukan editor teks tidak dapat dipaksa menerima Gboard; gunakan keyboard virtual tombol sebagai alternatif."
+                        } else {
+                            "Rute keyboard gagal diaktifkan. Cek koneksi Shizuku dan salin log diagnostik untuk melihat detail.\n\n${shizuku.getLastError()}"
+                        }
+                        android.app.AlertDialog.Builder(this).setTitle("Keyboard Android / Gboard")
+                            .setMessage(message)
+                            .setPositiveButton("Log diagnostik") { _, _ -> showDiagnosticLog() }
+                            .setNegativeButton("Tutup", null).show()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun createSettingsBackup() {
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = SettingsBackup.MIME_TYPE
+            putExtra(Intent.EXTRA_TITLE, "saku-gamepad-settings-${System.currentTimeMillis()}.json")
+        }
+        runCatching { startActivityForResult(intent, REQUEST_EXPORT_SETTINGS) }
+            .onFailure { Toast.makeText(this, "Tidak dapat membuka pemilih lokasi file: ${it.message}", Toast.LENGTH_LONG).show() }
+    }
+
+    private fun chooseSettingsRestore() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = SettingsBackup.MIME_TYPE
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(SettingsBackup.MIME_TYPE, "text/*"))
+        }
+        runCatching { startActivityForResult(intent, REQUEST_IMPORT_SETTINGS) }
+            .onFailure { Toast.makeText(this, "Tidak dapat membuka pemilih file: ${it.message}", Toast.LENGTH_LONG).show() }
+    }
+
+    @Deprecated("Uses Storage Access Framework result callback for minSdk 26 compatibility")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+        when (requestCode) {
+            REQUEST_EXPORT_SETTINGS -> exportSettingsTo(uri)
+            REQUEST_IMPORT_SETTINGS -> readSettingsRestore(uri)
+        }
+    }
+
+    private fun exportSettingsTo(uri: Uri) {
+        runCatching {
+            val content = SettingsBackup.export(this)
+            require(content.toByteArray(Charsets.UTF_8).size <= 2 * 1024 * 1024) { "Backup melebihi batas 2 MiB." }
+            contentResolver.openOutputStream(uri, "wt")?.bufferedWriter(Charsets.UTF_8)?.use { it.write(content) }
+                ?: error("Lokasi tujuan tidak dapat ditulis.")
+            DiagnosticsLog.append(this, "Backup pengaturan diekspor")
+            Toast.makeText(this, "Backup pengaturan berhasil disimpan.", Toast.LENGTH_LONG).show()
+        }.onFailure { Toast.makeText(this, "Backup gagal: ${it.message ?: it.javaClass.simpleName}", Toast.LENGTH_LONG).show() }
+    }
+
+    private fun readSettingsRestore(uri: Uri) {
+        runCatching {
+            val bytes = contentResolver.openInputStream(uri)?.use { stream ->
+                val output = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(8 * 1024)
+                var total = 0
+                while (true) {
+                    val count = stream.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    require(total <= 2 * 1024 * 1024) { "File backup lebih besar dari 2 MiB." }
+                    output.write(buffer, 0, count)
+                }
+                output.toByteArray()
+            }
+                ?: error("File backup tidak dapat dibaca.")
+            require(bytes.size <= 2 * 1024 * 1024) { "File backup lebih besar dari 2 MiB." }
+            SettingsBackup.parse(bytes.toString(Charsets.UTF_8))
+        }.onSuccess { plan ->
+            pendingRestorePlan = plan
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Pulihkan pengaturan?")
+                .setMessage("${plan.summary}\n\nVirtual display yang sedang berjalan akan ditutup agar pengaturan layar dapat diterapkan. Game tidak dihapus.")
+                .setNegativeButton("Batal") { _, _ -> pendingRestorePlan = null }
+                .setPositiveButton("Pulihkan") { _, _ -> applySettingsRestore() }
+                .show()
+        }.onFailure {
+            DiagnosticsLog.append(this, "Restore ditolak oleh validasi: ${it.message ?: it.javaClass.simpleName}")
+            android.app.AlertDialog.Builder(this).setTitle("File backup tidak valid")
+                .setMessage(it.message ?: it.javaClass.simpleName).setPositiveButton("OK", null).show()
+        }
+    }
+
+    private fun applySettingsRestore() {
+        val plan = pendingRestorePlan ?: return
+        pendingRestorePlan = null
+        releaseMouseDrag()
+        mouseInputExecutor.execute {
+            input.releaseAll {
+                runOnUiThread { finishSettingsRestore(plan) }
+            }
+        }
+    }
+
+    private fun finishSettingsRestore(plan: SettingsBackup.ImportPlan) {
+        runCatching {
+            if (displayId >= 0) shizuku.releaseVirtualDisplay()
+            displayId = -1
+            plan.apply(this)
+            val prefs = getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE)
+            games = discoverGames()
+            val savedPackage = prefs.getString("selected_game_package", null)
+            selectedGame = games.firstOrNull { it.packageName == savedPackage }
+                ?: games.firstOrNull { it.packageName == ML_PACKAGE }
+            profile = GamepadProfile.load(this, selectedGame?.packageName.orEmpty())
+            portraitMode = prefs.getBoolean("portrait_mode", false)
+            val modePrefix = if (portraitMode) "portrait" else "landscape"
+            displayWidth = prefs.getInt("${modePrefix}_display_width", if (portraitMode) 720 else 1152).coerceIn(320, 2560)
+            displayHeight = prefs.getInt("${modePrefix}_display_height", if (portraitMode) 1280 else 720).coerceIn(320, 2560)
+            displayDensityDpi = prefs.getInt("${modePrefix}_display_density_dpi", resources.displayMetrics.densityDpi).coerceIn(120, 640)
+            portraitKeyboardVisible = prefs.getBoolean("portrait_keyboard_visible", true)
+            portraitTrackpadVisible = prefs.getBoolean("portrait_trackpad_visible", true)
+            gamepadVisible = prefs.getBoolean("gamepad_visible", true)
+            trackpadVisible = prefs.getBoolean("trackpad_visible", true)
+            mouseTrackpadMode = prefs.getBoolean("mouse_trackpad_mode", true)
+            displayScaleX = prefs.getFloat("display_scale_x", 1f).coerceIn(.5f, 1.5f)
+            displayScaleY = prefs.getFloat("display_scale_y", 1f).coerceIn(.5f, 1.5f)
+            cursorSensitivity = prefs.getFloat("cursor_sensitivity", .55f).coerceIn(.2f, 1.5f)
+            cursorX = displayWidth / 2f
+            cursorY = displayHeight / 2f
+            requestedOrientation = if (portraitMode) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            if ((portraitMode && resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT) ||
+                (!portraitMode && resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE)
+            ) buildScreen()
+            DiagnosticsLog.append(this, "Pengaturan berhasil dipulihkan; virtual display ditutup untuk menerapkan konfigurasi")
+            Toast.makeText(this, "Pengaturan berhasil dipulihkan. Buat virtual display kembali untuk melanjutkan.", Toast.LENGTH_LONG).show()
+        }.onFailure {
+            DiagnosticsLog.append(this, "Restore gagal: ${it.message ?: it.javaClass.simpleName}")
+            android.app.AlertDialog.Builder(this).setTitle("Restore gagal")
+                .setMessage(it.message ?: it.javaClass.simpleName).setPositiveButton("OK", null).show()
+        }
+    }
+
+    private fun showDiagnosticLog() {
+        val display = displayId
+        diagnosticsExecutor.execute {
+            val displayDetails = if (display >= 0) runCatching { shizuku.getDisplayDiagnostics(display) }
+                .getOrElse { "Tidak dapat membaca display: ${it.message}" }
+            else "Virtual display tidak aktif • ${shizuku.getLastError()}"
+            val appVersion = runCatching { packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown" }
+                .getOrDefault("unknown")
+            val details = buildString {
+                append("Saku Gamepad diagnostics\n")
+                append("App ID: com.keren.sakugamepad • version $appVersion\n")
+                append("Android API: ${android.os.Build.VERSION.SDK_INT} • device=${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} • layout=${if (portraitMode) "Portrait" else "Landscape"}\n")
+                append("displayId=$display • ukuran=${displayWidth}x${displayHeight} • DPI=$displayDensityDpi\n")
+                append("Shizuku: ${shizuku.getLastError()}\n\n")
+                append("--- Status tampilan / window ---\n$displayDetails\n\n")
+                append("--- Log lokal (${DiagnosticsLog.read(this@StandaloneGamepadActivity).lineSequence().count { it.isNotBlank() }} event) ---\n")
+                append(DiagnosticsLog.read(this@StandaloneGamepadActivity).ifBlank { "Belum ada event log." })
+                append("\n\nCatatan: log lokal tidak menyimpan teks ketikan atau identifier unik perangkat. Snapshot window dapat memuat nama paket/proses yang terlihat di Android.")
+            }
+            runOnUiThread { showDiagnosticDialog(details) }
+        }
+    }
+
+    private fun showDiagnosticDialog(details: String) {
+        val textView = TextView(this).apply {
+            text = details
+            textSize = 12f
+            setTextColor(Color.rgb(218, 232, 250))
+            setTextIsSelectable(true)
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+        }
+        val scroll = ScrollView(this).apply { addView(textView) }
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setTitle("Log diagnostik")
+            .setView(scroll)
+            .setPositiveButton("Salin", null)
+            .setNeutralButton("Hapus log lokal", null)
+            .setNegativeButton("Tutup", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.window?.setLayout((resources.displayMetrics.widthPixels * .92f).toInt(), (resources.displayMetrics.heightPixels * .76f).toInt())
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Saku Gamepad diagnostics", details))
+                Toast.makeText(this, "Log diagnostik disalin. Tinjau sebelum dibagikan.", Toast.LENGTH_LONG).show()
+            }
+            dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                android.app.AlertDialog.Builder(this).setTitle("Hapus log lokal?")
+                    .setMessage("Ini hanya menghapus riwayat diagnostik yang disimpan aplikasi; bukan log sistem Android.")
+                    .setNegativeButton("Batal", null)
+                    .setPositiveButton("Hapus") { _, _ ->
+                        DiagnosticsLog.clear(this)
+                        dialog.dismiss()
+                        showDiagnosticLog()
+                    }.show()
+            }
+        }
+        dialog.show()
+    }
+
 
     @Suppress("DEPRECATION")
     private fun discoverGames(): List<StandaloneGameEntry> {
@@ -715,6 +954,8 @@ class StandaloneGamepadActivity : Activity() {
             .create()
         list.setOnItemClickListener { _, _, which, _ ->
             selectedGame = games[which]
+            getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE).edit()
+                .putString("selected_game_package", selectedGame!!.packageName).apply()
             profile = GamepadProfile.load(this, selectedGame!!.packageName)
             controlsView.setProfile(profile)
             controlsView.setLayoutPackage(selectedGame!!.packageName)
@@ -984,6 +1225,10 @@ class StandaloneGamepadActivity : Activity() {
             menu.menu.add(0, 17, 16, if (portraitKeyboardVisible) "Sembunyikan keyboard Portrait" else "Tampilkan keyboard Portrait")
             menu.menu.add(0, 18, 17, if (portraitTrackpadVisible) "Sembunyikan trackpad Portrait" else "Tampilkan trackpad Portrait")
         }
+        menu.menu.add(0, 21, 20, "Keyboard Android / Gboard di layar utama")
+        menu.menu.add(0, 22, 21, "Backup pengaturan ke file")
+        menu.menu.add(0, 23, 22, "Restore pengaturan dari file")
+        menu.menu.add(0, 24, 23, "Log diagnostik • salin / hapus")
         menu.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 1 -> showGamePicker()
@@ -1003,6 +1248,10 @@ class StandaloneGamepadActivity : Activity() {
                 16 -> showLayoutModePicker()
                 17 -> togglePortraitKeyboardVisibility()
                 18 -> togglePortraitTrackpadVisibility()
+                21 -> showAndroidKeyboardGuide()
+                22 -> createSettingsBackup()
+                23 -> chooseSettingsRestore()
+                24 -> showDiagnosticLog()
             }
             true
         }
@@ -1234,6 +1483,8 @@ class StandaloneGamepadActivity : Activity() {
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
                     cursorSensitivity = 0.20f + progress / 100f
+                    getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE).edit()
+                        .putFloat("cursor_sensitivity", cursorSensitivity).apply()
                     valueLabel.text = "Sensitivitas ${(cursorSensitivity * 100).roundToInt()}%"
                 }
                 override fun onStartTrackingTouch(bar: SeekBar?) = Unit
@@ -1253,6 +1504,8 @@ class StandaloneGamepadActivity : Activity() {
             .setPositiveButton("Simpan", null)
             .setNeutralButton("Reset") { _, _ ->
                 cursorSensitivity = 0.55f
+                getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE).edit()
+                    .putFloat("cursor_sensitivity", cursorSensitivity).apply()
                 valueLabel.text = "Sensitivitas 55%"
                 slider.progress = 35
             }
@@ -1406,10 +1659,15 @@ class StandaloneGamepadActivity : Activity() {
     }
 
     private fun setStatus(message: String) {
+        DiagnosticsLog.append(this, message)
         if (::root.isInitialized) root.contentDescription = message
         else window.decorView.contentDescription = message
         if (message.contains("gagal", ignoreCase = true) || message.contains("ditolak", ignoreCase = true)) {
-            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+            val now = android.os.SystemClock.uptimeMillis()
+            if (now - lastFailureToastAt >= 2_500L) {
+                lastFailureToastAt = now
+                Toast.makeText(this, "${message.take(140)} • Menu → Log diagnostik", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -1427,6 +1685,7 @@ class StandaloneGamepadActivity : Activity() {
         mouseInputExecutor.shutdownNow()
         infoHandler.removeCallbacks(infoUpdater)
         fpsExecutor.shutdownNow()
+        diagnosticsExecutor.shutdownNow()
         if (::input.isInitialized) input.close()
         if (::shizuku.isInitialized) shizuku.close()
         super.onDestroy()
@@ -1435,6 +1694,8 @@ class StandaloneGamepadActivity : Activity() {
     companion object {
         private const val ML_PACKAGE = "com.mobile.legends"
         private const val PORTRAIT_TOUCH_POINTER = 30
+        private const val REQUEST_EXPORT_SETTINGS = 7301
+        private const val REQUEST_IMPORT_SETTINGS = 7302
     }
 }
 

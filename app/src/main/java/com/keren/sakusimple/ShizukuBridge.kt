@@ -30,7 +30,7 @@ class ShizukuBridge(
         ComponentName(context.packageName, ShizukuUserService::class.java.name)
     ).processNameSuffix("saku_virtual_display")
         .tag("saku-virtual-display-v3")
-        .version(7)
+        .version(8)
         .daemon(false)
 
     private val serviceConnection = object : ServiceConnection {
@@ -95,6 +95,7 @@ class ShizukuBridge(
         if (!wantsConnection || remote != null || binding) return
         if (!Shizuku.pingBinder()) {
             onStatus("Shizuku belum aktif. Jalankan Shizuku dahulu, lalu tekan Hubungkan Shizuku.")
+            finishPending(false)
             return
         }
 
@@ -258,6 +259,20 @@ class ShizukuBridge(
         } catch (error: Throwable) {
             Log.e(TAG, "injectKeyEvents failed", error)
             onStatus("Input keyboard gagal: ${error.cause?.message ?: error.message}")
+            false
+        }
+    }
+
+    fun applyImeFallback(displayId: Int): Boolean {
+        return try {
+            val service = remote ?: throw IllegalStateException("Shizuku UserService belum terhubung.")
+            val applied = service.applyImeFallback(displayId)
+            val detail = service.getLastError()
+            onStatus(if (applied) detail else "Keyboard Android belum dapat diarahkan ke layar utama: $detail")
+            applied
+        } catch (error: Throwable) {
+            Log.e(TAG, "applyImeFallback failed", error)
+            onStatus("Keyboard Android fallback gagal: ${error.cause?.message ?: error.message ?: error.javaClass.simpleName}")
             false
         }
     }

@@ -21,4 +21,5 @@ interface IVirtualDisplayService {
     boolean runShellCommand(String command) = 17;
     String launchAppOnDisplay(int displayId, String packageName, String activityName) = 18;
     float getDisplayFps(int displayId, String packageName) = 19;
+    boolean applyImeFallback(int displayId) = 21;
 }
