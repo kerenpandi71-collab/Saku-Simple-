@@ -7,7 +7,10 @@ import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Serializes Shizuku input IPC and coalesces high-frequency analog MOVE updates. */
+/**
+ * Serializes all touch transitions through one worker. MOVE events are coalesced,
+ * but DOWN/UP/CANCEL transitions are never coalesced or reordered.
+ */
 class GamepadInputController(
     private val displayId: () -> Int,
     private val displayWidth: () -> Int,
@@ -19,6 +22,7 @@ class GamepadInputController(
     private val executor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "SakuGamepadInput").apply { isDaemon = true }
     }
+    // This is the authoritative set of pointers currently held on the virtual display.
     private val active = LinkedHashMap<Int, Point>()
     private val pendingLock = Any()
     private val pendingMoves = HashMap<Int, Point>()
@@ -28,11 +32,18 @@ class GamepadInputController(
     fun press(pointerId: Int, point: ControlPoint) {
         if (closed || pointerId !in 0..31) return
         submit {
-            if (pointerId in active || active.size >= MAX_POINTERS) return@submit
+            // A stale pointer must never silently block a new physical press.
+            if (pointerId in active) {
+                if (!cancelActiveStream()) active.clear()
+            }
+            if (active.size >= MAX_POINTERS) return@submit
             val wasEmpty = active.isEmpty()
             active[pointerId] = normalized(point)
-            val action = if (wasEmpty) MotionEvent.ACTION_DOWN else pointerAction(MotionEvent.ACTION_POINTER_DOWN, pointerId)
-            if (!send(action)) active.remove(pointerId)
+            val action = if (wasEmpty) MotionEvent.ACTION_DOWN
+                else pointerAction(MotionEvent.ACTION_POINTER_DOWN, pointerId)
+            if (!send(action)) {
+                recoverAfterRejectedTransition()
+            }
         }
     }
 
@@ -52,7 +63,8 @@ class GamepadInputController(
     fun releaseAll(afterRelease: () -> Unit = {}) {
         synchronized(pendingLock) { pendingMoves.clear() }
         submit {
-            releaseAllOnWorker()
+            cancelActiveStream()
+            active.clear()
             runCatching(afterRelease)
         }
     }
@@ -60,43 +72,71 @@ class GamepadInputController(
     private fun scheduleMoveDrain() {
         if (!moveDrainQueued.compareAndSet(false, true)) return
         submit {
-            val updates = synchronized(pendingLock) {
-                pendingMoves.toMap().also { pendingMoves.clear() }
-            }
-            var changed = false
-            updates.forEach { (pointerId, point) ->
-                if (active.containsKey(pointerId)) {
-                    active[pointerId] = point
-                    changed = true
+            try {
+                val updates = synchronized(pendingLock) {
+                    pendingMoves.toMap().also { pendingMoves.clear() }
                 }
+                var changed = false
+                updates.forEach { (pointerId, point) ->
+                    if (active.containsKey(pointerId)) {
+                        active[pointerId] = point
+                        changed = true
+                    }
+                }
+                if (changed && !send(MotionEvent.ACTION_MOVE)) {
+                    // A rejected MOVE is not a release. Keep the stream alive; the next
+                    // position update or the corresponding UP/CANCEL will close it.
+                }
+            } finally {
+                moveDrainQueued.set(false)
+                val hasMore = synchronized(pendingLock) { pendingMoves.isNotEmpty() }
+                if (hasMore) scheduleMoveDrain()
             }
-            if (changed) send(MotionEvent.ACTION_MOVE)
-            moveDrainQueued.set(false)
-            val hasMore = synchronized(pendingLock) { pendingMoves.isNotEmpty() }
-            if (hasMore) scheduleMoveDrain()
         }
     }
 
     private fun releaseOnWorker(pointerId: Int) {
         if (!active.containsKey(pointerId)) return
-        val action = if (active.size == 1) MotionEvent.ACTION_UP else pointerAction(MotionEvent.ACTION_POINTER_UP, pointerId)
+        val action = if (active.size == 1) MotionEvent.ACTION_UP
+            else pointerAction(MotionEvent.ACTION_POINTER_UP, pointerId)
         if (send(action)) {
             active.remove(pointerId)
-        } else if (send(MotionEvent.ACTION_CANCEL)) {
-            active.clear()
+        } else {
+            // Do not leave a rejected pointer transition in the local active map.
+            // A failed POINTER_UP otherwise causes future presses of that control to be
+            // ignored indefinitely and can leave analog + action buttons stuck together.
+            recoverAfterRejectedTransition()
         }
     }
 
-    private fun releaseAllOnWorker() {
-        while (active.isNotEmpty()) {
-            val countBefore = active.size
-            releaseOnWorker(active.keys.first())
-            if (active.size == countBefore) break
+    private fun recoverAfterRejectedTransition() {
+        cancelActiveStream()
+        active.clear()
+        synchronized(pendingLock) { pendingMoves.clear() }
+    }
+
+    /**
+     * CANCEL is the only valid single event that releases an arbitrary multi-pointer
+     * stream. Retry briefly because some OEM InputManager builds reject the first
+     * secondary-display transition while the display/focus is changing.
+     */
+    private fun cancelActiveStream(): Boolean {
+        if (active.isEmpty()) return true
+        repeat(CANCEL_RETRIES) {
+            if (send(MotionEvent.ACTION_CANCEL)) return true
+            try {
+                Thread.sleep(CANCEL_RETRY_DELAY_MS)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return false
+            }
         }
+        return false
     }
 
     private fun pointerAction(maskedAction: Int, pointerId: Int): Int {
-        val index = active.keys.sorted().indexOf(pointerId).coerceAtLeast(0)
+        val index = active.keys.sorted().indexOf(pointerId)
+        if (index < 0) return maskedAction
         return maskedAction or (index shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)
     }
 
@@ -107,9 +147,8 @@ class GamepadInputController(
         val height = displayHeight().coerceAtLeast(1)
         val id = displayId()
         if (id < 0) return false
-        // Pointer transitions are invalid when only one pointer remains. Some Android
-        // builds reject ACTION_POINTER_DOWN/UP with pointerCount=1 on virtual displays.
         val masked = action and MotionEvent.ACTION_MASK
+        // A one-pointer stream uses DOWN/UP, never POINTER_DOWN/POINTER_UP.
         val safeAction = when {
             ordered.size == 1 && masked == MotionEvent.ACTION_POINTER_DOWN -> MotionEvent.ACTION_DOWN
             ordered.size == 1 && masked == MotionEvent.ACTION_POINTER_UP -> MotionEvent.ACTION_UP
@@ -142,15 +181,20 @@ class GamepadInputController(
         if (closed) return
         synchronized(pendingLock) { pendingMoves.clear() }
         try {
-            executor.execute { releaseAllOnWorker() }
+            executor.execute {
+                cancelActiveStream()
+                active.clear()
+            }
         } catch (_: RejectedExecutionException) {
         }
         closed = true
         executor.shutdown()
-        runCatching { executor.awaitTermination(350, TimeUnit.MILLISECONDS) }
+        runCatching { executor.awaitTermination(500, TimeUnit.MILLISECONDS) }
     }
 
     companion object {
         private const val MAX_POINTERS = 5
+        private const val CANCEL_RETRIES = 3
+        private const val CANCEL_RETRY_DELAY_MS = 12L
     }
 }
