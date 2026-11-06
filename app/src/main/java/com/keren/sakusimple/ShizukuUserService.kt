@@ -115,30 +115,38 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             // HIDE=2. Prefer the framework constant, but keep FALLBACK_DISPLAY as the
             // compatibility value when an OEM hides the field from reflection. Falling
             // back to HIDE would suppress the keyboard instead of routing it to display 0.
-            val policy = runCatching {
-                Class.forName("android.view.WindowManager")
-                    .getField("DISPLAY_IME_POLICY_FALLBACK_DISPLAY")
-                    .getInt(null)
-            }.getOrDefault(DISPLAY_IME_POLICY_FALLBACK_DISPLAY)
+            val policy = DISPLAY_IME_POLICY_FALLBACK_DISPLAY
             val iWindowManager = Class.forName("android.view.IWindowManager")
             val setPolicy = iWindowManager.getMethod(
                 "setDisplayImePolicy",
                 Int::class.javaPrimitiveType,
                 Int::class.javaPrimitiveType
             )
-            setPolicy.invoke(windowManager, displayId, policy)
 
-            // Read back the policy where the Android version exposes the getter.
+            // Try the framework Binder API and the public shell command. Some OEM builds
+            // accept the Binder call but silently keep LOCAL; the shell command is a
+            // second supported route on Android builds that expose WindowManagerShellCommand.
+            val binderAttempt = runCatching { setPolicy.invoke(windowManager, displayId, policy) }
+            val shellAttempt = runShizukuShell(
+                "cmd window set-display-ime-policy $displayId fallback",
+                timeoutMs = 3500L,
+                maxCharacters = 500
+            )
             val readBack = runCatching {
                 iWindowManager.getMethod("getDisplayImePolicy", Int::class.javaPrimitiveType)
                     .invoke(windowManager, displayId) as? Int
             }.getOrNull()
-            if (readBack != null && readBack != policy) {
-                throw IllegalStateException("Policy IME tidak cocok: diminta=$policy terbaca=$readBack")
+            val shellAccepted = shellAttempt.first == 0 &&
+                !shellAttempt.second.contains("Error", ignoreCase = true) &&
+                !shellAttempt.second.contains("Exception", ignoreCase = true)
+            val applied = readBack == policy || (readBack == null && (shellAccepted || binderAttempt.isSuccess))
+            lastError = if (applied) {
+                "Gboard fallback aktif • virtual display=$displayId • target=display utama • policy=$policy • readBack=${readBack ?: "tidak tersedia"}"
+            } else {
+                "ROM belum menerapkan IME fallback • display=$displayId • diminta=$policy • terbaca=${readBack ?: "tidak tersedia"} • shell=${shellAttempt.second.trim().take(180)}"
             }
-            lastError = "Keyboard Android diarahkan ke display utama • virtual display=$displayId • policy=$policy • readBack=${readBack ?: "tidak tersedia"}"
-            Log.i(TAG, "IME fallback ke display utama • display=$displayId • policy=$policy • readBack=${readBack ?: "unsupported"}.")
-            true
+            Log.i(TAG, "$lastError • binder=${binderAttempt.isSuccess} • shellExit=${shellAttempt.first}")
+            applied
         }.onFailure { error ->
             lastError = "Gagal mengaktifkan fallback keyboard Android • ${error.javaClass.simpleName}: ${error.message ?: "tanpa detail"}"
             Log.w(TAG, "Gagal mengatur IME fallback pada virtual display $displayId: ${error.message}", error)
