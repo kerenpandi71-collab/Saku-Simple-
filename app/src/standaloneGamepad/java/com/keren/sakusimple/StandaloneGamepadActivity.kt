@@ -115,6 +115,10 @@ class StandaloneGamepadActivity : Activity() {
     private var displayScaleX = 1f
     private var displayScaleY = 1f
     private var portraitMode = false
+    private var portraitKeyboardVisible = true
+    private var portraitTrackpadVisible = true
+    private lateinit var portraitKeyboardView: View
+    private lateinit var portraitTrackpadView: View
     private var portraitShift = false
     private var portraitCaps = false
     private var portraitCtrl = false
@@ -150,9 +154,15 @@ class StandaloneGamepadActivity : Activity() {
         selectedGame = games.firstOrNull { it.packageName == ML_PACKAGE }
         profile = GamepadProfile.load(this, selectedGame?.packageName.orEmpty())
         val uiPrefs = getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE)
-        displayWidth = uiPrefs.getInt("display_width", 1152).coerceIn(320, 2560)
-        displayHeight = uiPrefs.getInt("display_height", 720).coerceIn(320, 2560)
-        displayDensityDpi = uiPrefs.getInt("display_density_dpi", resources.displayMetrics.densityDpi.coerceIn(120, 640)).coerceIn(120, 640)
+        val modePrefix = if (portraitMode) "portrait" else "landscape"
+        val legacyWidth = uiPrefs.getInt("display_width", if (portraitMode) 720 else 1152)
+        val legacyHeight = uiPrefs.getInt("display_height", if (portraitMode) 1280 else 720)
+        val legacyDpi = uiPrefs.getInt("display_density_dpi", resources.displayMetrics.densityDpi.coerceIn(120, 640))
+        displayWidth = uiPrefs.getInt("${modePrefix}_display_width", legacyWidth).coerceIn(320, 2560)
+        displayHeight = uiPrefs.getInt("${modePrefix}_display_height", legacyHeight).coerceIn(320, 2560)
+        displayDensityDpi = uiPrefs.getInt("${modePrefix}_display_density_dpi", legacyDpi).coerceIn(120, 640)
+        portraitKeyboardVisible = uiPrefs.getBoolean("portrait_keyboard_visible", true)
+        portraitTrackpadVisible = uiPrefs.getBoolean("portrait_trackpad_visible", true)
         cursorX = displayWidth / 2f
         cursorY = displayHeight / 2f
         gamepadVisible = uiPrefs.getBoolean("gamepad_visible", true)
@@ -353,10 +363,14 @@ class StandaloneGamepadActivity : Activity() {
         previewFrame.addView(controlsView, FrameLayout.LayoutParams(-1, -1))
         column.addView(previewFrame, LinearLayout.LayoutParams(-1, 0, 1f).apply { bottomMargin = dp(5) })
 
-        val keyboard = buildPortraitKeyboard()
-        column.addView(keyboard, LinearLayout.LayoutParams(-1, 0, 1.35f).apply { bottomMargin = dp(5) })
-        val trackpad = buildPortraitTrackpadPanel()
-        column.addView(trackpad, LinearLayout.LayoutParams(-1, 0, .9f))
+        portraitKeyboardView = buildPortraitKeyboard().apply {
+            visibility = if (portraitKeyboardVisible) View.VISIBLE else View.GONE
+        }
+        column.addView(portraitKeyboardView, LinearLayout.LayoutParams(-1, 0, 1.35f).apply { bottomMargin = dp(5) })
+        portraitTrackpadView = buildPortraitTrackpadPanel().apply {
+            visibility = if (portraitTrackpadVisible) View.VISIBLE else View.GONE
+        }
+        column.addView(portraitTrackpadView, LinearLayout.LayoutParams(-1, 0, .9f))
         root.addView(column, FrameLayout.LayoutParams(-1, -1))
 
         mouseCursorOverlay = object : View(this) {
@@ -381,14 +395,22 @@ class StandaloneGamepadActivity : Activity() {
             val availableHeight = (height - dp(111)).coerceAtLeast(dp(240))
             val previewHeight = min(width / (displayWidth.toFloat() / displayHeight.coerceAtLeast(1)), availableHeight * .43f)
             val previewParams = previewFrame.layoutParams as LinearLayout.LayoutParams
-            val keyboardParams = keyboard.layoutParams as LinearLayout.LayoutParams
-            val trackpadParams = trackpad.layoutParams as LinearLayout.LayoutParams
-            val remainder = (availableHeight - previewHeight - dp(10)).coerceAtLeast(dp(180).toFloat())
+            val keyboardParams = portraitKeyboardView.layoutParams as LinearLayout.LayoutParams
+            val trackpadParams = portraitTrackpadView.layoutParams as LinearLayout.LayoutParams
+            val showKeyboard = portraitKeyboardVisible
+            val showTrackpad = portraitTrackpadVisible
+            portraitKeyboardView.visibility = if (showKeyboard) View.VISIBLE else View.GONE
+            portraitTrackpadView.visibility = if (showTrackpad) View.VISIBLE else View.GONE
+            val remainder = (availableHeight - previewHeight - dp(10)).coerceAtLeast(dp(120).toFloat())
             if (previewParams.height != previewHeight.roundToInt() || previewParams.weight != 0f) {
                 previewParams.height = previewHeight.roundToInt(); previewParams.weight = 0f; previewFrame.layoutParams = previewParams
-                keyboardParams.height = (remainder * .61f).roundToInt(); keyboardParams.weight = 0f; keyboard.layoutParams = keyboardParams
-                trackpadParams.height = (remainder * .39f).roundToInt(); trackpadParams.weight = 0f; trackpad.layoutParams = trackpadParams
             }
+            keyboardParams.height = if (showKeyboard && showTrackpad) (remainder * .61f).roundToInt() else if (showKeyboard) remainder.roundToInt() else 0
+            keyboardParams.weight = 0f
+            portraitKeyboardView.layoutParams = keyboardParams
+            trackpadParams.height = if (showKeyboard && showTrackpad) (remainder * .39f).roundToInt() else if (showTrackpad) remainder.roundToInt() else 0
+            trackpadParams.weight = 0f
+            portraitTrackpadView.layoutParams = trackpadParams
             val col = previewFrame.parent as View
             previewRect.set((col.left + previewFrame.left).toFloat(), (col.top + previewFrame.top).toFloat(),
                 (col.left + previewFrame.left + previewFrame.width).toFloat(), (col.top + previewFrame.top + previewFrame.height).toFloat())
@@ -520,6 +542,8 @@ class StandaloneGamepadActivity : Activity() {
         }
         addDockIcon(dock, "▶", "Mainkan", "Jalankan game di layar virtual") { launchSelectedGame() }
         addDockIcon(dock, "⚙", "Menu", "Pengaturan dan kontrol lainnya") { showQuickSettings() }
+        addDockIcon(dock, "↶", "Back", "Kembali pada virtual display") { sendVirtualNavigationKey(KeyEvent.KEYCODE_BACK) }
+        addDockIcon(dock, "⌂", "Home", "Home pada virtual display") { sendVirtualNavigationKey(KeyEvent.KEYCODE_HOME) }
         return dock
     }
 
@@ -548,7 +572,8 @@ class StandaloneGamepadActivity : Activity() {
             maxLines = 1
             setTextColor(Color.rgb(194, 216, 255))
         }, LinearLayout.LayoutParams(-1, dp(15)))
-        parent.addView(item, LinearLayout.LayoutParams(dp(54), -1).apply { leftMargin = dp(1); rightMargin = dp(1) })
+        val itemWidth = if (shortLabel == "Back" || shortLabel == "Home") dp(40) else dp(54)
+        parent.addView(item, LinearLayout.LayoutParams(itemWidth, -1).apply { leftMargin = dp(1); rightMargin = dp(1) })
     }
 
     private fun addDockSeparator(parent: LinearLayout) {
@@ -573,7 +598,9 @@ class StandaloneGamepadActivity : Activity() {
             "Atur ukuran masing-masing tombol",
             if (inputPaused) "Lanjutkan input" else "Jeda input",
             "Atur peregangan tampilan",
-            "Pilih mode Landscape / Portrait"
+            "Pilih mode Landscape / Portrait",
+            if (portraitKeyboardVisible) "Sembunyikan keyboard Portrait" else "Tampilkan keyboard Portrait",
+            if (portraitTrackpadVisible) "Sembunyikan trackpad Portrait" else "Tampilkan trackpad Portrait"
         )
         android.app.AlertDialog.Builder(this)
             .setTitle("Saku Gamepad • kontrol")
@@ -593,6 +620,8 @@ class StandaloneGamepadActivity : Activity() {
                     11 -> togglePause()
                     12 -> showDisplayStretchSettings()
                     13 -> showLayoutModePicker()
+                    14 -> togglePortraitKeyboardVisibility()
+                    15 -> togglePortraitTrackpadVisibility()
                 }
             }
             .setNegativeButton("Tutup", null)
@@ -852,22 +881,37 @@ class StandaloneGamepadActivity : Activity() {
 
     private fun applyDisplaySettings(width: Int, height: Int, dpi: Int) {
         val hadDisplay = displayId >= 0
+        val oldWidth = displayWidth
+        val oldHeight = displayHeight
+        val oldDpi = displayDensityDpi
         displayWidth = width
         displayHeight = height
         displayDensityDpi = dpi
         cursorX = width / 2f
         cursorY = height / 2f
-        getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE).edit()
-            .putInt("display_width", width)
-            .putInt("display_height", height)
-            .putInt("display_density_dpi", dpi)
-            .apply()
+        val prefix = if (portraitMode) "portrait" else "landscape"
+        val prefs = getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE)
+        prefs.edit().putInt("${prefix}_display_width", width)
+            .putInt("${prefix}_display_height", height)
+            .putInt("${prefix}_display_density_dpi", dpi).apply()
         surfaceView.holder.setFixedSize(width, height)
         root.requestLayout()
         if (hadDisplay) {
-            createDisplay()
+            if (!surfaceView.holder.surface.isValid || !shizuku.resizeVirtualDisplay(width, height, dpi, surfaceView.holder.surface)) {
+                displayWidth = oldWidth
+                displayHeight = oldHeight
+                displayDensityDpi = oldDpi
+                prefs.edit().putInt("${prefix}_display_width", oldWidth)
+                    .putInt("${prefix}_display_height", oldHeight)
+                    .putInt("${prefix}_display_density_dpi", oldDpi).apply()
+                surfaceView.holder.setFixedSize(oldWidth, oldHeight)
+                root.requestLayout()
+                setStatus("Gagal mengubah display tanpa memindahkan aplikasi: ${shizuku.getLastError()}")
+                return
+            }
+            setStatus("Display diperbarui • ID $displayId • ${width}×${height} • ${dpi} DPI")
         } else {
-            setStatus("Pengaturan display: ${width}×${height} • ${dpi} DPI • tersimpan")
+            setStatus("Pengaturan ${if (portraitMode) "Portrait" else "Landscape"} tersimpan: ${width}×${height} • ${dpi} DPI")
         }
     }
 
@@ -934,6 +978,10 @@ class StandaloneGamepadActivity : Activity() {
         menu.menu.add(0, 13, 12, "Resolusi & DPI display")
         menu.menu.add(0, 14, 13, "Atur peregangan tampilan")
         menu.menu.add(0, 16, 15, "Pilih mode Landscape / Portrait")
+        if (portraitMode) {
+            menu.menu.add(0, 17, 16, if (portraitKeyboardVisible) "Sembunyikan keyboard Portrait" else "Tampilkan keyboard Portrait")
+            menu.menu.add(0, 18, 17, if (portraitTrackpadVisible) "Sembunyikan trackpad Portrait" else "Tampilkan trackpad Portrait")
+        }
         menu.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 1 -> showGamePicker()
@@ -951,6 +999,8 @@ class StandaloneGamepadActivity : Activity() {
                 14 -> showDisplayStretchSettings()
                 15 -> toggleInputMode()
                 16 -> showLayoutModePicker()
+                17 -> togglePortraitKeyboardVisibility()
+                18 -> togglePortraitTrackpadVisibility()
             }
             true
         }
@@ -1228,6 +1278,27 @@ class StandaloneGamepadActivity : Activity() {
         getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE).edit()
             .putBoolean("gamepad_visible", gamepadVisible).apply()
         setStatus(if (gamepadVisible) "Gamepad ditampilkan" else "Gamepad disembunyikan")
+    }
+
+    private fun togglePortraitKeyboardVisibility() {
+        portraitKeyboardVisible = !portraitKeyboardVisible
+        getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE).edit().putBoolean("portrait_keyboard_visible", portraitKeyboardVisible).apply()
+        if (::portraitKeyboardView.isInitialized) {
+            portraitKeyboardView.visibility = if (portraitKeyboardVisible) View.VISIBLE else View.GONE
+            root.requestLayout()
+        }
+        setStatus(if (portraitKeyboardVisible) "Keyboard Portrait ditampilkan" else "Keyboard Portrait disembunyikan")
+    }
+
+    private fun togglePortraitTrackpadVisibility() {
+        portraitTrackpadVisible = !portraitTrackpadVisible
+        getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE).edit().putBoolean("portrait_trackpad_visible", portraitTrackpadVisible).apply()
+        if (::portraitTrackpadView.isInitialized) {
+            portraitTrackpadView.visibility = if (portraitTrackpadVisible) View.VISIBLE else View.GONE
+            if (!portraitTrackpadVisible) releaseMouseDrag()
+            root.requestLayout()
+        }
+        setStatus(if (portraitTrackpadVisible) "Trackpad Portrait ditampilkan" else "Trackpad Portrait disembunyikan")
     }
 
     private fun toggleTrackpadVisibility() {
