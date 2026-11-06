@@ -398,7 +398,12 @@ class StandaloneGamepadActivity : Activity() {
             val height = bottom.coerceAtLeast(0)
             if (width <= 0 || height <= 0) return@addOnLayoutChangeListener
             val availableHeight = (height - dp(111)).coerceAtLeast(dp(240))
-            val previewHeight = min(width / (displayWidth.toFloat() / displayHeight.coerceAtLeast(1)), availableHeight * .43f)
+            val panelFactor = when {
+                !portraitKeyboardVisible && !portraitTrackpadVisible -> .82f
+                portraitKeyboardVisible.xor(portraitTrackpadVisible) -> .58f
+                else -> .43f
+            }
+            val previewHeight = min(width / (displayWidth.toFloat() / displayHeight.coerceAtLeast(1)), availableHeight * panelFactor)
             val previewParams = previewFrame.layoutParams as LinearLayout.LayoutParams
             portraitKeyboardView.visibility = if (portraitKeyboardVisible) View.VISIBLE else View.GONE
             portraitTrackpadView.visibility = if (portraitTrackpadVisible) View.VISIBLE else View.GONE
@@ -843,7 +848,7 @@ class StandaloneGamepadActivity : Activity() {
         val heightInput = addField("Tinggi (px)", displayHeight)
         val dpiInput = addField("DPI", displayDensityDpi)
         panel.addView(TextView(this).apply {
-            text = "Rentang: lebar/tinggi 320–2560 px, DPI 120–640. Jika display aktif, pengaturan diterapkan dengan membuat ulang display."
+            text = "Rentang: lebar/tinggi 320–2560 px, DPI 120–640. Jika display aktif, ukuran dicoba diperbarui tanpa menutup virtual display agar aplikasi tetap berada di display yang sama."
             textSize = 12f
             setTextColor(Color.rgb(190, 211, 240))
             setPadding(0, dp(12), 0, dp(4))
