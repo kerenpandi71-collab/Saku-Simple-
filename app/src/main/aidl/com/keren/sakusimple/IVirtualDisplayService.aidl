@@ -16,6 +16,7 @@ interface IVirtualDisplayService {
     boolean injectKeyEvents(int displayId, in int[] actions, in int[] keyCodes, in int[] metaStates) = 13;
     boolean injectMouseScroll(int displayId, float x, float y, float horizontal, float vertical) = 10;
     boolean setVirtualDisplaySurface(in Surface surface) = 11;
+    boolean resizeVirtualDisplay(int width, int height, int densityDpi, in Surface surface) = 20;
     String getDisplayDiagnostics(int displayId) = 8;
     boolean runShellCommand(String command) = 17;
     String launchAppOnDisplay(int displayId, String packageName, String activityName) = 18;
