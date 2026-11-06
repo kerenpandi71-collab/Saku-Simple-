@@ -729,11 +729,21 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         val accepted = result.first == 0 &&
             !result.second.contains("Error", ignoreCase = true) &&
             !result.second.contains("Exception", ignoreCase = true)
-        lastError = if (accepted) {
+        val launchDetail = if (accepted) {
             "Game diluncurkan ke virtual display $displayId • ${result.second.trim()}"
         } else {
             "Game gagal diluncurkan ke virtual display $displayId • exit=${result.first} • ${result.second.trim()}"
         }
+        // Re-apply after the target activity has attached its window. Several Android 14/15
+        // vendor builds reset the IME policy during activity launch/display focus changes.
+        val imeApplied = if (accepted) {
+            SystemClock.sleep(280L)
+            applyVirtualDisplayImePolicy(displayId)
+        } else false
+        val imeDetail = lastError
+        lastError = if (accepted) {
+            "$launchDetail • imeFallback=$imeApplied • $imeDetail"
+        } else launchDetail
         if (accepted) Log.i(TAG, lastError) else Log.w(TAG, lastError)
         return lastError
     }
