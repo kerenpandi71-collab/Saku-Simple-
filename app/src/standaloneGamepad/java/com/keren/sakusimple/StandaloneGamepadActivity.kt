@@ -738,18 +738,34 @@ class StandaloneGamepadActivity : Activity() {
             .setView(panel)
             .setNegativeButton("Tutup", null)
             .create()
+        editor.isFocusable = true
+        editor.isFocusableInTouchMode = true
         dialog.setOnShowListener {
-            dialog.window?.setSoftInputMode(
-                WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or
-                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
-            )
-            editor.requestFocus()
-            editor.postDelayed({
+            dialog.window?.let { dialogWindow ->
+                // The host activity is immersive/fullscreen. Ensure the attached dialog
+                // remains an IME target on the phone's default display instead of inheriting
+                // a non-IME-focusable window mode from the game workspace.
+                dialogWindow.clearFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
+                dialogWindow.setSoftInputMode(
+                    WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or
+                        WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+                )
+            }
+            editor.post {
+                editor.requestFocus()
                 val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                imm?.restartInput(editor)
                 imm?.showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT)
-            }, 180L)
+                // MIUI/HyperOS may not attach Gboard on the first frame after a dialog opens.
+                editor.postDelayed({
+                    if (dialog.isShowing && editor.hasFocus()) {
+                        imm?.showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT)
+                    }
+                }, 420L)
+            }
         }
         dialog.show()
+        dialog.window?.clearFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
     }
 
     private fun sendKeyboardBridgeText(targetDisplay: Int, editor: EditText, sendEnter: Boolean) {
