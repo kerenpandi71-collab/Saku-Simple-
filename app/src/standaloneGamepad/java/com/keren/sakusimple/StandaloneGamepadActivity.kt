@@ -572,7 +572,7 @@ class StandaloneGamepadActivity : Activity() {
             maxLines = 1
             setTextColor(Color.rgb(194, 216, 255))
         }, LinearLayout.LayoutParams(-1, dp(15)))
-        val itemWidth = if (shortLabel == "Back" || shortLabel == "Home") dp(40) else dp(54)
+        val itemWidth = if (shortLabel == "Back" || shortLabel == "Home") dp(38) else dp(43)
         parent.addView(item, LinearLayout.LayoutParams(itemWidth, -1).apply { leftMargin = dp(1); rightMargin = dp(1) })
     }
 
@@ -852,10 +852,10 @@ class StandaloneGamepadActivity : Activity() {
             setPadding(0, dp(12), 0, dp(4))
         })
         val dialog = android.app.AlertDialog.Builder(this)
-            .setTitle("Resolusi & DPI display")
+            .setTitle("Resolusi & DPI ${if (portraitMode) "Portrait" else "Landscape"}")
             .setView(ScrollView(this).apply { addView(panel) })
             .setNegativeButton("Batal", null)
-            .setNeutralButton("Default 1152×720", null)
+            .setNeutralButton(if (portraitMode) "Default 720×1280" else "Default 1152×720", null)
             .setPositiveButton("Terapkan", null)
             .create()
         dialog.setOnShowListener {
@@ -871,8 +871,8 @@ class StandaloneGamepadActivity : Activity() {
                 dialog.dismiss()
             }
             dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
-                widthInput.setText("1152")
-                heightInput.setText("720")
+                widthInput.setText(if (portraitMode) "720" else "1152")
+                heightInput.setText(if (portraitMode) "1280" else "720")
                 dpiInput.setText(resources.displayMetrics.densityDpi.coerceIn(120, 640).toString())
             }
         }
