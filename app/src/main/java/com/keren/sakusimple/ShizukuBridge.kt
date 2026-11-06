@@ -30,7 +30,7 @@ class ShizukuBridge(
         ComponentName(context.packageName, ShizukuUserService::class.java.name)
     ).processNameSuffix("saku_virtual_display")
         .tag("saku-virtual-display-v3")
-        .version(6)
+        .version(7)
         .daemon(false)
 
     private val serviceConnection = object : ServiceConnection {
