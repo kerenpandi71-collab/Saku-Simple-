@@ -501,6 +501,30 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         }
     }
 
+    override fun resizeVirtualDisplay(width: Int, height: Int, densityDpi: Int, surface: Surface): Boolean {
+        val identity = Binder.clearCallingIdentity()
+        return try {
+            val display = virtualDisplay ?: throw IllegalStateException("Virtual display belum dibuat.")
+            if (!surface.isValid) throw IllegalArgumentException("Surface tujuan tidak valid.")
+            val safeWidth = width.coerceIn(320, 2560)
+            val safeHeight = height.coerceIn(320, 2560)
+            val safeDpi = densityDpi.coerceIn(120, 640)
+            display.resize(safeWidth, safeHeight, safeDpi)
+            display.setSurface(surface)
+            virtualWidth = safeWidth
+            virtualHeight = safeHeight
+            lastError = "Virtual display diubah tanpa release • id=${display.display.displayId} • ${safeWidth}×${safeHeight} • ${safeDpi} DPI"
+            Log.i(TAG, lastError)
+            true
+        } catch (error: Throwable) {
+            lastError = "Resize virtual display gagal: ${error.javaClass.simpleName}: ${error.message ?: "tanpa detail"}"
+            Log.e(TAG, lastError, error)
+            false
+        } finally {
+            Binder.restoreCallingIdentity(identity)
+        }
+    }
+
     override fun setVirtualDisplaySurface(surface: Surface): Boolean {
         val identity = Binder.clearCallingIdentity()
         return try {
