@@ -160,6 +160,20 @@ class ShizukuBridge(
         }
     }
 
+    fun resizeVirtualDisplay(width: Int, height: Int, densityDpi: Int, surface: Surface): Boolean {
+        return try {
+            val service = remote ?: throw IllegalStateException("Shizuku UserService belum terhubung.")
+            val accepted = service.resizeVirtualDisplay(width, height, densityDpi, surface)
+            val detail = service.getLastError()
+            onStatus(if (accepted) detail else "Resize display ditolak: $detail")
+            accepted
+        } catch (error: Throwable) {
+            Log.e(TAG, "resizeVirtualDisplay failed", error)
+            onStatus("Resize display gagal: ${error.cause?.message ?: error.message ?: error.javaClass.simpleName}")
+            false
+        }
+    }
+
     fun injectHover(displayId: Int, x: Float, y: Float): Boolean {
         return try {
             remote?.injectHover(displayId, x, y) ?: false
