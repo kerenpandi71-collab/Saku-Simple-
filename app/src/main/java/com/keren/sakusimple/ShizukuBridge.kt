@@ -9,6 +9,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import android.view.Surface
+import android.view.MotionEvent
 import rikka.shizuku.Shizuku
 
 /**
@@ -202,7 +203,7 @@ class ShizukuBridge(
         return try {
             val service = remote ?: throw IllegalStateException("Shizuku UserService belum terhubung.")
             val accepted = service.injectTouchEvent(displayId, action, x, y)
-            if (!accepted) onStatus("Sentuhan ditolak: ${service.getLastError()}")
+            if (!accepted && action != MotionEvent.ACTION_MOVE) onStatus("Sentuhan ditolak: ${service.getLastError()}")
             accepted
         } catch (error: Throwable) {
             Log.e(TAG, "injectTouchEvent failed", error)
@@ -215,7 +216,9 @@ class ShizukuBridge(
         return try {
             val service = remote ?: throw IllegalStateException("Shizuku UserService belum terhubung.")
             val accepted = service.injectTouchPoints(displayId, action, pointerIds, xs, ys)
-            if (!accepted) onStatus("Multi-touch ditolak: ${service.getLastError()}")
+            if (!accepted && action and MotionEvent.ACTION_MASK != MotionEvent.ACTION_MOVE) {
+                onStatus("Multi-touch ditolak: ${service.getLastError()}")
+            }
             accepted
         } catch (error: Throwable) {
             Log.e(TAG, "injectTouchPoints failed", error)
@@ -241,7 +244,7 @@ class ShizukuBridge(
         return try {
             val service = remote ?: throw IllegalStateException("Shizuku UserService belum terhubung.")
             val accepted = service.injectMouseButton(displayId, action, x, y)
-            if (!accepted) onStatus("Input mouse ditolak: ${service.getLastError()}")
+            if (!accepted && action != MotionEvent.ACTION_MOVE) onStatus("Input mouse ditolak: ${service.getLastError()}")
             accepted
         } catch (error: Throwable) {
             Log.e(TAG, "injectMouseButton failed", error)

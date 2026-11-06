@@ -194,6 +194,10 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
      */
     private fun injectEventCompat(event: InputEvent, label: String): Boolean {
         return try {
+            val motion = event as? MotionEvent
+            val continuousMotion = motion?.actionMasked == MotionEvent.ACTION_MOVE ||
+                motion?.actionMasked == MotionEvent.ACTION_HOVER_MOVE ||
+                motion?.actionMasked == MotionEvent.ACTION_SCROLL
             val asyncAccepted = injectInputEventMethod.invoke(
                 inputManagerService, event, INJECT_ASYNC
             ) as? Boolean ?: false
@@ -201,6 +205,12 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                 lastError = "$label diterima (async)"
                 true
             } else {
+                // Movement is continuous and may arrive every display frame. Never block
+                // the gamepad worker waiting for an OEM to reject the same MOVE twice.
+                if (continuousMotion) {
+                    lastError = "$label ditolak InputManager • async=false • gerakan dilewati tanpa fallback sinkron"
+                    return false
+                }
                 val waited = injectInputEventMethod.invoke(
                     inputManagerService, event, INJECT_WAIT_FOR_RESULT
                 ) as? Boolean ?: false
@@ -211,7 +221,6 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                     // A few OEM InputManager builds reject queued/WAIT_FOR_RESULT events
                     // during pointer transitions on secondary displays. Retry only discrete
                     // transitions synchronously; doing this for every MOVE would add lag.
-                    val motion = event as? MotionEvent
                     val transition = motion?.actionMasked?.let { action ->
                         action == MotionEvent.ACTION_DOWN ||
                             action == MotionEvent.ACTION_UP ||

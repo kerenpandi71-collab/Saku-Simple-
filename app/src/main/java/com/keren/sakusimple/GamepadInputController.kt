@@ -42,7 +42,14 @@ class GamepadInputController(
             val action = if (wasEmpty) MotionEvent.ACTION_DOWN
                 else pointerAction(MotionEvent.ACTION_POINTER_DOWN, pointerId)
             if (!send(action)) {
-                recoverAfterRejectedTransition()
+                if (wasEmpty) {
+                    // A rejected first DOWN cannot have created a stream; avoid delaying
+                    // the next tap with redundant CANCEL retries on the hot path.
+                    active.clear()
+                    synchronized(pendingLock) { pendingMoves.clear() }
+                } else {
+                    recoverAfterRejectedTransition()
+                }
             }
         }
     }
@@ -110,7 +117,7 @@ class GamepadInputController(
     }
 
     private fun recoverAfterRejectedTransition() {
-        cancelActiveStream()
+        cancelActiveStream(CANCEL_RECOVERY_ATTEMPTS)
         active.clear()
         synchronized(pendingLock) { pendingMoves.clear() }
     }
@@ -120,9 +127,9 @@ class GamepadInputController(
      * stream. Retry briefly because some OEM InputManager builds reject the first
      * secondary-display transition while the display/focus is changing.
      */
-    private fun cancelActiveStream(): Boolean {
+    private fun cancelActiveStream(attempts: Int = CANCEL_RETRIES): Boolean {
         if (active.isEmpty()) return true
-        repeat(CANCEL_RETRIES) {
+        repeat(attempts) {
             if (send(MotionEvent.ACTION_CANCEL)) return true
             try {
                 Thread.sleep(CANCEL_RETRY_DELAY_MS)
@@ -195,6 +202,7 @@ class GamepadInputController(
     companion object {
         private const val MAX_POINTERS = 5
         private const val CANCEL_RETRIES = 3
+        private const val CANCEL_RECOVERY_ATTEMPTS = 1
         private const val CANCEL_RETRY_DELAY_MS = 12L
     }
 }

@@ -1,6 +1,7 @@
 package com.keren.sakusimple
 
 import android.content.Context
+import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -26,7 +27,9 @@ import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
 import android.view.WindowManager
+import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
+import android.widget.EditText
 import android.widget.BaseAdapter
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -34,6 +37,7 @@ import android.widget.SeekBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import android.text.InputType
 import java.util.Locale
 import kotlin.math.hypot
 import kotlin.math.min
@@ -62,6 +66,9 @@ class StandaloneGamepadActivity : Activity() {
     }
     private val diagnosticsExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "SakuDiagnostics").apply { isDaemon = true }
+    }
+    private val keyboardBridgeExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "SakuKeyboardBridge").apply { isDaemon = true }
     }
     @Volatile private var fpsPollPending = false
     private val infoUpdater = object : Runnable {
@@ -654,7 +661,7 @@ class StandaloneGamepadActivity : Activity() {
         if (id < 0) {
             android.app.AlertDialog.Builder(this)
                 .setTitle("Keyboard Android / Gboard")
-                .setMessage("Buat virtual display dan jalankan game terlebih dahulu. Setelah itu aktifkan rute Gboard, lalu ketuk kolom teks di dalam game.")
+                .setMessage("Buat virtual display dan jalankan game terlebih dahulu. Aktifkan kolom chat/teks di game, lalu buka Keyboard Android lagi.")
                 .setPositiveButton("Mengerti", null).show()
             return
         }
@@ -666,17 +673,127 @@ class StandaloneGamepadActivity : Activity() {
             } else {
                 diagnosticsExecutor.execute {
                     val applied = shizuku.applyImeFallback(id)
+                    val detail = shizuku.getLastError()
                     runOnUiThread {
-                        val message = if (applied) {
-                            "Rute Gboard ke layar utama sudah diaktifkan untuk virtual display $id.\n\nSekarang ketuk kolom teks yang dapat diedit di game. Android akan menampilkan keyboard pada layar utama/ponsel, sementara input tetap ditujukan ke editor game.\n\nCatatan: keyboard hanya muncul jika game meminta Android IME. Kolom chat khusus atau UI game yang bukan editor teks tidak dapat dipaksa menerima Gboard; gunakan keyboard virtual tombol sebagai alternatif."
-                        } else {
-                            "Rute keyboard gagal diaktifkan. Cek koneksi Shizuku dan salin log diagnostik untuk melihat detail.\n\n${shizuku.getLastError()}"
-                        }
-                        android.app.AlertDialog.Builder(this).setTitle("Keyboard Android / Gboard")
-                            .setMessage(message)
-                            .setPositiveButton("Log diagnostik") { _, _ -> showDiagnosticLog() }
-                            .setNegativeButton("Tutup", null).show()
+                        showKeyboardBridgeDialog(id, applied, detail)
                     }
+                }
+            }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun showKeyboardBridgeDialog(display: Int, imePolicyApplied: Boolean, detail: String) {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(4), dp(16), dp(8))
+        }
+        val guidance = TextView(this).apply {
+            text = buildString {
+                if (imePolicyApplied) append("Rute IME langsung aktif. ")
+                else append("ROM tidak menerima rute IME langsung ($detail). ")
+                append("Keyboard di bawah ini milik layar ponsel, bukan virtual display. Ketik pesan di sini, lalu pilih Tempel ke game.\n\n")
+                append("Sebelum mengetik, buka game di virtual display dan fokuskan kolom chat/teks. Tempel memakai clipboard dan Ctrl+V; game harus menerima perintah paste.")
+            }
+            textSize = 13f
+            setTextColor(Color.rgb(206, 222, 246))
+            setPadding(0, 0, 0, dp(12))
+        }
+        val editor = EditText(this).apply {
+            hint = "Ketik dengan Gboard di layar ponsel…"
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.rgb(130, 151, 183))
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            setSingleLine(false)
+            minLines = 2
+            maxLines = 5
+            gravity = Gravity.TOP or Gravity.START
+            background = rounded(Color.rgb(10, 25, 52), dp(12), Color.rgb(59, 126, 224), dp(1))
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+        }
+        panel.addView(guidance)
+        panel.addView(editor, LinearLayout.LayoutParams(-1, dp(112)))
+        val buttons = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, dp(12), 0, 0)
+        }
+        fun bridgeButton(label: String, sendEnter: Boolean): TextView = TextView(this).apply {
+            text = label
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = rounded(Color.rgb(18, 76, 160), dp(10), Color.rgb(74, 157, 255), dp(1))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { sendKeyboardBridgeText(display, editor, sendEnter) }
+        }
+        buttons.addView(bridgeButton("Tempel ke game", false), LinearLayout.LayoutParams(0, dp(44), 1f).apply { rightMargin = dp(6) })
+        buttons.addView(bridgeButton("Tempel + Enter", true), LinearLayout.LayoutParams(0, dp(44), 1f).apply { leftMargin = dp(6) })
+        panel.addView(buttons)
+
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setTitle("Keyboard Android • layar ponsel")
+            .setView(panel)
+            .setNegativeButton("Tutup", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.window?.setSoftInputMode(
+                WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or
+                    WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+            )
+            editor.requestFocus()
+            editor.postDelayed({
+                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                imm?.showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT)
+            }, 180L)
+        }
+        dialog.show()
+    }
+
+    private fun sendKeyboardBridgeText(targetDisplay: Int, editor: EditText, sendEnter: Boolean) {
+        val text = editor.text?.toString().orEmpty()
+        if (text.isBlank()) {
+            Toast.makeText(this, "Ketik teks terlebih dahulu.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (displayId != targetDisplay || targetDisplay < 0) {
+            setStatus("Virtual display berubah; buka kembali Keyboard Android.")
+            return
+        }
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        if (clipboard == null) {
+            setStatus("Clipboard Android tidak tersedia; teks belum dikirim.")
+            return
+        }
+        runCatching { clipboard.setPrimaryClip(ClipData.newPlainText("Saku Gamepad", text)) }
+            .onFailure { setStatus("Gagal menaruh teks ke clipboard: ${it.message}"); return }
+
+        keyboardBridgeExecutor.execute {
+            val ctrl = KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON
+            val pasted = shizuku.injectKeyEvents(
+                targetDisplay,
+                intArrayOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP),
+                intArrayOf(KeyEvent.KEYCODE_V, KeyEvent.KEYCODE_V),
+                intArrayOf(ctrl, ctrl)
+            )
+            val entered = if (pasted && sendEnter) {
+                Thread.sleep(60L)
+                shizuku.injectKeyEvents(
+                    targetDisplay,
+                    intArrayOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP),
+                    intArrayOf(KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_ENTER),
+                    intArrayOf(0, 0)
+                )
+            } else pasted
+            val failure = if (!pasted || !entered) shizuku.getLastError() else ""
+            runOnUiThread {
+                if (pasted && entered) {
+                    editor.text?.clear()
+                    setStatus(if (sendEnter) "Teks ditempel dan Enter dikirim ke display $targetDisplay" else "Teks ditempel ke display $targetDisplay")
+                } else {
+                    setStatus("Game menolak Ctrl+V/Enter atau tidak memiliki fokus teks • $failure")
                 }
             }
         }
@@ -1686,6 +1803,7 @@ class StandaloneGamepadActivity : Activity() {
         infoHandler.removeCallbacks(infoUpdater)
         fpsExecutor.shutdownNow()
         diagnosticsExecutor.shutdownNow()
+        keyboardBridgeExecutor.shutdownNow()
         if (::input.isInitialized) input.close()
         if (::shizuku.isInitialized) shizuku.close()
         super.onDestroy()
