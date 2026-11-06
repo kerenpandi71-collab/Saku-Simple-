@@ -3,6 +3,7 @@ package com.keren.sakusimple
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.app.Activity
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -16,6 +17,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
+import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.SurfaceHolder
@@ -30,7 +32,6 @@ import android.widget.SeekBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import java.util.Locale
 import kotlin.math.hypot
 import kotlin.math.min
@@ -40,7 +41,7 @@ import java.util.concurrent.Executors
 private data class StandaloneGameEntry(val label: String, val packageName: String, val activityName: String, val icon: android.graphics.drawable.Drawable)
 
 /** Independent launcher and screen for the Saku Gamepad standalone APK flavor. */
-class StandaloneGamepadActivity : ComponentActivity() {
+class StandaloneGamepadActivity : Activity() {
     private lateinit var root: FrameLayout
     private lateinit var previewFrame: FrameLayout
     private lateinit var surfaceView: SurfaceView
@@ -113,6 +114,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
     private var mouseTrackpadMode = true
     private var displayScaleX = 1f
     private var displayScaleY = 1f
+    private var portraitMode = false
 
     private val previewRect = RectF()
     private var displayId = -1
@@ -123,7 +125,10 @@ class StandaloneGamepadActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        portraitMode = getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE)
+            .getBoolean("portrait_mode", false)
+        requestedOrientation = if (portraitMode) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.rgb(2, 6, 19)))
         @Suppress("DEPRECATION")
@@ -168,6 +173,10 @@ class StandaloneGamepadActivity : ComponentActivity() {
     }
 
     private fun buildScreen() {
+        if (portraitMode) {
+            buildPortraitScreen()
+            return
+        }
         root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(2, 6, 19)) }
         root.addView(NeonWaveBackground(this), FrameLayout.LayoutParams(-1, -1))
 
@@ -291,6 +300,186 @@ class StandaloneGamepadActivity : ComponentActivity() {
         setStatus(if (selectedGame == null) "Pilih game • hubungkan Shizuku • buat display" else "${selectedGame!!.label} siap dipilih")
     }
 
+    private fun buildPortraitScreen() {
+        root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(2, 6, 19)) }
+        root.addView(NeonWaveBackground(this), FrameLayout.LayoutParams(-1, -1))
+        val column = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(7), dp(5), dp(7), dp(7)) }
+        column.addView(buildTopDock(), LinearLayout.LayoutParams(-1, dp(54)))
+        infoPanel = buildInfoPanel()
+        column.addView(infoPanel, LinearLayout.LayoutParams(-1, dp(36)).apply { topMargin = dp(4); bottomMargin = dp(4) })
+
+        previewFrame = FrameLayout(this).apply {
+            background = rounded(Color.rgb(2, 6, 19), dp(12), Color.rgb(38, 104, 255), dp(1))
+            clipToOutline = true
+        }
+        surfaceView = SurfaceView(this).apply {
+            contentDescription = "Virtual display preview portrait"
+            holder.setFixedSize(displayWidth, displayHeight)
+            holder.addCallback(object : SurfaceHolder.Callback {
+                override fun surfaceCreated(holder: SurfaceHolder) { setStatus("Siap • hubungkan Shizuku lalu buat virtual display") }
+                override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                    if (displayId >= 0 && holder.surface.isValid) shizuku.setVirtualDisplaySurface(holder.surface)
+                }
+                override fun surfaceDestroyed(holder: SurfaceHolder) = Unit
+            })
+            setOnTouchListener { _, event ->
+                val point = ControlPoint((event.x / width.coerceAtLeast(1)).coerceIn(.02f, .98f),
+                    (event.y / height.coerceAtLeast(1)).coerceIn(.02f, .98f))
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> input.press(PORTRAIT_TOUCH_POINTER, point)
+                    MotionEvent.ACTION_MOVE -> input.move(PORTRAIT_TOUCH_POINTER, point)
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> input.release(PORTRAIT_TOUCH_POINTER)
+                }
+                true
+            }
+        }
+        previewFrame.addView(surfaceView, FrameLayout.LayoutParams(-1, -1))
+        controlsView = StandaloneControlsView(
+            context = this, input = input, bounds = previewRect, initialProfile = profile,
+            onProfileChanged = { updated -> profile = updated; selectedGame?.let { profile.save(this, it.packageName) }; controlsView.setProfile(updated) },
+            onStatus = ::setStatus,
+            onMouseTouch = { _, _, _ -> false }
+        ).apply {
+            setLayoutPackage(selectedGame?.packageName.orEmpty())
+            setGamepadVisible(false)
+            setMouseTrackpadEnabled(false)
+            visibility = View.GONE
+        }
+        previewFrame.addView(controlsView, FrameLayout.LayoutParams(-1, -1))
+        column.addView(previewFrame, LinearLayout.LayoutParams(-1, 0, 1f).apply { bottomMargin = dp(5) })
+
+        val keyboard = buildPortraitKeyboard()
+        column.addView(keyboard, LinearLayout.LayoutParams(-1, 0, 1.35f).apply { bottomMargin = dp(5) })
+        val trackpad = buildPortraitTrackpadPanel()
+        column.addView(trackpad, LinearLayout.LayoutParams(-1, 0, .9f))
+        root.addView(column, FrameLayout.LayoutParams(-1, -1))
+
+        mouseCursorOverlay = object : View(this) {
+            private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+            private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; style = Paint.Style.STROKE; strokeWidth = dp(2).toFloat() }
+            override fun onDraw(canvas: Canvas) {
+                if (displayId < 0 || previewRect.isEmpty) return
+                val x = previewRect.left + cursorX / displayWidth * previewRect.width()
+                val y = previewRect.top + cursorY / displayHeight * previewRect.height()
+                canvas.drawCircle(x, y, dp(6).toFloat(), fill)
+                canvas.drawCircle(x, y, dp(6).toFloat(), stroke)
+            }
+        }.apply { isClickable = false; isFocusable = false }
+        root.addView(mouseCursorOverlay, FrameLayout.LayoutParams(-1, -1))
+        setContentView(root)
+        infoHandler.removeCallbacks(infoUpdater)
+        infoHandler.post(infoUpdater)
+        root.addOnLayoutChangeListener { _, _, _, right, bottom, _, _, _, _ ->
+            val width = right.coerceAtLeast(0)
+            val height = bottom.coerceAtLeast(0)
+            if (width <= 0 || height <= 0) return@addOnLayoutChangeListener
+            val availableHeight = (height - dp(111)).coerceAtLeast(dp(240))
+            val previewHeight = min(width / (displayWidth.toFloat() / displayHeight.coerceAtLeast(1)), availableHeight * .43f)
+            val previewParams = previewFrame.layoutParams as LinearLayout.LayoutParams
+            val keyboardParams = keyboard.layoutParams as LinearLayout.LayoutParams
+            val trackpadParams = trackpad.layoutParams as LinearLayout.LayoutParams
+            val remainder = (availableHeight - previewHeight - dp(10)).coerceAtLeast(dp(180).toFloat())
+            if (previewParams.height != previewHeight.roundToInt() || previewParams.weight != 0f) {
+                previewParams.height = previewHeight.roundToInt(); previewParams.weight = 0f; previewFrame.layoutParams = previewParams
+                keyboardParams.height = (remainder * .61f).roundToInt(); keyboardParams.weight = 0f; keyboard.layoutParams = keyboardParams
+                trackpadParams.height = (remainder * .39f).roundToInt(); trackpadParams.weight = 0f; trackpad.layoutParams = trackpadParams
+            }
+            val col = previewFrame.parent as View
+            previewRect.set((col.left + previewFrame.left).toFloat(), (col.top + previewFrame.top).toFloat(),
+                (col.left + previewFrame.left + previewFrame.width).toFloat(), (col.top + previewFrame.top + previewFrame.height).toFloat())
+            controlsView.setPreviewRect(previewRect)
+            mouseCursorOverlay.invalidate()
+        }
+        setStatus("Portrait workspace • virtual display, keyboard, trackpad")
+    }
+
+    private fun buildPortraitTrackpadPanel(): View = object : View(this) {
+        private val panel = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(220, 5, 18, 39) }
+        private val border = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(225, 76, 157, 255); style = Paint.Style.STROKE; strokeWidth = dp(1).toFloat() }
+        private val guide = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(65, 153, 203, 255); strokeWidth = dp(1).toFloat() }
+        private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(226, 239, 255); textAlign = Paint.Align.CENTER; textSize = dp(10).toFloat(); typeface = Typeface.create("sans-serif-medium", Typeface.BOLD) }
+        override fun onDraw(canvas: Canvas) {
+            val r = RectF(dp(2).toFloat(), dp(2).toFloat(), width - dp(2).toFloat(), height - dp(2).toFloat())
+            canvas.drawRoundRect(r, dp(14).toFloat(), dp(14).toFloat(), panel)
+            canvas.drawRoundRect(r, dp(14).toFloat(), dp(14).toFloat(), border)
+            canvas.drawLine(r.left + dp(14), r.centerY(), r.right - dp(14), r.centerY(), guide)
+            canvas.drawLine(r.centerX(), r.top + dp(22), r.centerX(), r.bottom - dp(22), guide)
+            canvas.drawText("TRACKPAD", r.centerX(), r.top + dp(16), label)
+            canvas.drawText("GESER • KURSOR   |   TAP • KLIK", r.centerX(), r.bottom - dp(20), label)
+            canvas.drawText("2 JARI • SCROLL   •   TAHAN • DRAG", r.centerX(), r.bottom - dp(6), label)
+        }
+        override fun onTouchEvent(event: MotionEvent): Boolean = handleTrackpadTouch(event, width, height)
+        override fun performClick(): Boolean { super.performClick(); return true }
+    }.apply { isClickable = true; isFocusable = true; contentDescription = "Trackpad virtual: geser, klik, drag, dua jari scroll" }
+
+    private fun buildPortraitKeyboard(): View {
+        val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; background = rounded(Color.argb(236, 5, 17, 34), dp(11), Color.argb(190, 41, 112, 192), dp(1)); setPadding(dp(4), dp(3), dp(4), dp(3)) }
+        val rows = listOf(
+            listOf("Esc", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "Del"),
+            listOf("`", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "⌫"),
+            listOf("Tab", "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "[", "]"),
+            listOf("Caps", "A", "S", "D", "F", "G", "H", "J", "K", "L", ";", "'", "Enter"),
+            listOf("Shift", "Z", "X", "C", "V", "B", "N", "M", ",", ".", "/", "Shift"),
+            listOf("Ctrl", "Fn", "⊞", "Alt", "Space", "Alt", "←", "↓", "↑", "→")
+        )
+        rows.forEach { labels ->
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            labels.forEach { text ->
+                val weight = when (text) { "Space" -> 3f; "Tab", "Caps", "Shift", "Enter", "⌫" -> 1.5f; else -> 1f }
+                row.addView(TextView(this).apply {
+                    this.text = text; textSize = if (text.length >= 3) 8f else 9f; gravity = Gravity.CENTER; maxLines = 1
+                    setTextColor(Color.rgb(230, 243, 255)); background = rounded(Color.rgb(12, 34, 58), dp(5), Color.rgb(38, 88, 144), dp(1))
+                    isClickable = true; isFocusable = true; setOnClickListener { sendPortraitKey(text) }
+                }, LinearLayout.LayoutParams(0, -1, weight).apply { leftMargin = dp(1); rightMargin = dp(1); topMargin = dp(1); bottomMargin = dp(1) })
+            }
+            panel.addView(row, LinearLayout.LayoutParams(-1, 0, 1f))
+        }
+        return panel
+    }
+
+    private fun sendPortraitKey(label: String) {
+        val id = displayId
+        if (id < 0) { setStatus("Buat virtual display sebelum mengetik"); return }
+        val code = when (label) {
+            "⌫" -> KeyEvent.KEYCODE_DEL; "Del" -> KeyEvent.KEYCODE_FORWARD_DEL; "Enter" -> KeyEvent.KEYCODE_ENTER
+            "Tab" -> KeyEvent.KEYCODE_TAB; "Esc" -> KeyEvent.KEYCODE_ESCAPE; "Space" -> KeyEvent.KEYCODE_SPACE
+            "←" -> KeyEvent.KEYCODE_DPAD_LEFT; "→" -> KeyEvent.KEYCODE_DPAD_RIGHT; "↑" -> KeyEvent.KEYCODE_DPAD_UP; "↓" -> KeyEvent.KEYCODE_DPAD_DOWN
+            "F1" -> KeyEvent.KEYCODE_F1; "F2" -> KeyEvent.KEYCODE_F2; "F3" -> KeyEvent.KEYCODE_F3; "F4" -> KeyEvent.KEYCODE_F4
+            "F5" -> KeyEvent.KEYCODE_F5; "F6" -> KeyEvent.KEYCODE_F6; "F7" -> KeyEvent.KEYCODE_F7; "F8" -> KeyEvent.KEYCODE_F8
+            "F9" -> KeyEvent.KEYCODE_F9; "F10" -> KeyEvent.KEYCODE_F10
+            else -> null
+        }
+        val keyText = when (label) { "Space" -> " "; "Enter" -> "\n"; else -> label.takeIf { it.length == 1 } }
+        mouseInputExecutor.execute {
+            val events = if (code == null && keyText != null) runCatching { KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD).getEvents(keyText.toCharArray()) }.getOrNull() else null
+            val accepted = if (!events.isNullOrEmpty()) shizuku.injectKeyEvents(id, IntArray(events.size) { events[it].action }, IntArray(events.size) { events[it].keyCode }, IntArray(events.size) { events[it].metaState })
+            else if (code != null) shizuku.injectKeyEvents(id, intArrayOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP), intArrayOf(code, code), intArrayOf(0, 0)) else true
+            if (!accepted) runOnUiThread { setStatus("Tombol $label gagal dikirim ke virtual display") }
+        }
+    }
+
+    private fun selectPortraitMode(portrait: Boolean) {
+        if (portrait == portraitMode) return
+        portraitMode = portrait
+        getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE).edit().putBoolean("portrait_mode", portrait).apply()
+        input.releaseAll()
+        requestedOrientation = if (portrait) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+    }
+
+    private fun showLayoutModePicker() {
+        android.app.AlertDialog.Builder(this).setTitle("Mode tampilan")
+            .setSingleChoiceItems(arrayOf("Landscape • gamepad", "Portrait • keyboard + trackpad"), if (portraitMode) 1 else 0) { dialog, which -> dialog.dismiss(); selectPortraitMode(which == 1) }
+            .setNegativeButton("Batal", null).show()
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (!::input.isInitialized || !::shizuku.isInitialized) return
+        portraitMode = getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE).getBoolean("portrait_mode", false)
+        buildScreen()
+    }
+
+
     private fun buildTopDock(): View {
         val dock = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -358,7 +547,8 @@ class StandaloneGamepadActivity : ComponentActivity() {
             if (controlsView.isOverlayEditMode) "Selesai atur posisi analog/tombol" else "Atur posisi analog & tombol",
             "Atur ukuran masing-masing tombol",
             if (inputPaused) "Lanjutkan input" else "Jeda input",
-            "Atur peregangan tampilan"
+            "Atur peregangan tampilan",
+            "Pilih mode Landscape / Portrait"
         )
         android.app.AlertDialog.Builder(this)
             .setTitle("Saku Gamepad • kontrol")
@@ -377,6 +567,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
                     10 -> showControlSizeSettings()
                     11 -> togglePause()
                     12 -> showDisplayStretchSettings()
+                    13 -> showLayoutModePicker()
                 }
             }
             .setNegativeButton("Tutup", null)
@@ -717,6 +908,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
         menu.menu.add(0, 12, 11, "Sensitivitas mouse")
         menu.menu.add(0, 13, 12, "Resolusi & DPI display")
         menu.menu.add(0, 14, 13, "Atur peregangan tampilan")
+        menu.menu.add(0, 16, 15, "Pilih mode Landscape / Portrait")
         menu.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 1 -> showGamePicker()
@@ -733,6 +925,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
                 13 -> showDisplaySettings()
                 14 -> showDisplayStretchSettings()
                 15 -> toggleInputMode()
+                16 -> showLayoutModePicker()
             }
             true
         }
@@ -1143,6 +1336,7 @@ class StandaloneGamepadActivity : ComponentActivity() {
 
     companion object {
         private const val ML_PACKAGE = "com.mobile.legends"
+        private const val PORTRAIT_TOUCH_POINTER = 30
     }
 }
 
