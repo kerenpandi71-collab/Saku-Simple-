@@ -115,6 +115,11 @@ class StandaloneGamepadActivity : Activity() {
     private var displayScaleX = 1f
     private var displayScaleY = 1f
     private var portraitMode = false
+    private var portraitShift = false
+    private var portraitCaps = false
+    private var portraitCtrl = false
+    private var portraitAlt = false
+    private var portraitMeta = false
 
     private val previewRect = RectF()
     private var displayId = -1
@@ -438,6 +443,13 @@ class StandaloneGamepadActivity : Activity() {
     }
 
     private fun sendPortraitKey(label: String) {
+        when (label) {
+            "Shift" -> { portraitShift = !portraitShift; setStatus(if (portraitShift) "Shift aktif" else "Shift mati"); return }
+            "Caps" -> { portraitCaps = !portraitCaps; setStatus(if (portraitCaps) "Caps Lock aktif" else "Caps Lock mati"); return }
+            "Ctrl" -> { portraitCtrl = !portraitCtrl; setStatus(if (portraitCtrl) "Ctrl aktif" else "Ctrl mati"); return }
+            "Alt" -> { portraitAlt = !portraitAlt; setStatus(if (portraitAlt) "Alt aktif" else "Alt mati"); return }
+            "⊞" -> { portraitMeta = !portraitMeta; setStatus(if (portraitMeta) "Meta aktif" else "Meta mati"); return }
+        }
         val id = displayId
         if (id < 0) { setStatus("Buat virtual display sebelum mengetik"); return }
         val code = when (label) {
@@ -449,11 +461,24 @@ class StandaloneGamepadActivity : Activity() {
             "F9" -> KeyEvent.KEYCODE_F9; "F10" -> KeyEvent.KEYCODE_F10
             else -> null
         }
-        val keyText = when (label) { "Space" -> " "; "Enter" -> "\n"; else -> label.takeIf { it.length == 1 } }
+        val shiftedSymbols = mapOf("1" to "!", "2" to "@", "3" to "#", "4" to "$", "5" to "%", "6" to "^", "7" to "&", "8" to "*", "9" to "(", "0" to ")", "-" to "_", "=" to "+", "`" to "~", "[" to "{", "]" to "}", ";" to ":", "'" to "\"", "," to "<", "." to ">", "/" to "?")
+        val useShift = portraitShift || portraitCaps
+        val keyText = when {
+            label == "Space" -> " "
+            label == "Enter" -> "\n"
+            label.length == 1 && label[0].isLetter() -> if (useShift) label.uppercase() else label.lowercase()
+            label.length == 1 && useShift -> shiftedSymbols[label] ?: label
+            label.length == 1 -> label
+            else -> null
+        }
+        val metaState = (if (portraitCtrl) KeyEvent.META_CTRL_ON else 0) or
+            (if (portraitAlt) KeyEvent.META_ALT_ON else 0) or
+            (if (portraitMeta) KeyEvent.META_META_ON else 0)
+        if (portraitShift && label.length == 1) portraitShift = false
         mouseInputExecutor.execute {
             val events = if (code == null && keyText != null) runCatching { KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD).getEvents(keyText.toCharArray()) }.getOrNull() else null
-            val accepted = if (!events.isNullOrEmpty()) shizuku.injectKeyEvents(id, IntArray(events.size) { events[it].action }, IntArray(events.size) { events[it].keyCode }, IntArray(events.size) { events[it].metaState })
-            else if (code != null) shizuku.injectKeyEvents(id, intArrayOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP), intArrayOf(code, code), intArrayOf(0, 0)) else true
+            val accepted = if (!events.isNullOrEmpty()) shizuku.injectKeyEvents(id, IntArray(events.size) { events[it].action }, IntArray(events.size) { events[it].keyCode }, IntArray(events.size) { events[it].metaState or metaState })
+            else if (code != null) shizuku.injectKeyEvents(id, intArrayOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP), intArrayOf(code, code), intArrayOf(metaState, metaState)) else true
             if (!accepted) runOnUiThread { setStatus("Tombol $label gagal dikirim ke virtual display") }
         }
     }
