@@ -154,13 +154,18 @@ class StandaloneGamepadActivity : Activity() {
         selectedGame = games.firstOrNull { it.packageName == ML_PACKAGE }
         profile = GamepadProfile.load(this, selectedGame?.packageName.orEmpty())
         val uiPrefs = getSharedPreferences("standalone_gamepad_ui", Context.MODE_PRIVATE)
+        // Migrate the legacy single profile to Landscape once; Portrait gets an independent default.
+        if (!uiPrefs.contains("landscape_display_width")) {
+            uiPrefs.edit()
+                .putInt("landscape_display_width", uiPrefs.getInt("display_width", 1152))
+                .putInt("landscape_display_height", uiPrefs.getInt("display_height", 720))
+                .putInt("landscape_display_density_dpi", uiPrefs.getInt("display_density_dpi", resources.displayMetrics.densityDpi.coerceIn(120, 640)))
+                .apply()
+        }
         val modePrefix = if (portraitMode) "portrait" else "landscape"
-        val legacyWidth = uiPrefs.getInt("display_width", if (portraitMode) 720 else 1152)
-        val legacyHeight = uiPrefs.getInt("display_height", if (portraitMode) 1280 else 720)
-        val legacyDpi = uiPrefs.getInt("display_density_dpi", resources.displayMetrics.densityDpi.coerceIn(120, 640))
-        displayWidth = uiPrefs.getInt("${modePrefix}_display_width", legacyWidth).coerceIn(320, 2560)
-        displayHeight = uiPrefs.getInt("${modePrefix}_display_height", legacyHeight).coerceIn(320, 2560)
-        displayDensityDpi = uiPrefs.getInt("${modePrefix}_display_density_dpi", legacyDpi).coerceIn(120, 640)
+        displayWidth = uiPrefs.getInt("${modePrefix}_display_width", if (portraitMode) 720 else 1152).coerceIn(320, 2560)
+        displayHeight = uiPrefs.getInt("${modePrefix}_display_height", if (portraitMode) 1280 else 720).coerceIn(320, 2560)
+        displayDensityDpi = uiPrefs.getInt("${modePrefix}_display_density_dpi", resources.displayMetrics.densityDpi.coerceIn(120, 640)).coerceIn(120, 640)
         portraitKeyboardVisible = uiPrefs.getBoolean("portrait_keyboard_visible", true)
         portraitTrackpadVisible = uiPrefs.getBoolean("portrait_trackpad_visible", true)
         cursorX = displayWidth / 2f
@@ -395,22 +400,14 @@ class StandaloneGamepadActivity : Activity() {
             val availableHeight = (height - dp(111)).coerceAtLeast(dp(240))
             val previewHeight = min(width / (displayWidth.toFloat() / displayHeight.coerceAtLeast(1)), availableHeight * .43f)
             val previewParams = previewFrame.layoutParams as LinearLayout.LayoutParams
-            val keyboardParams = portraitKeyboardView.layoutParams as LinearLayout.LayoutParams
-            val trackpadParams = portraitTrackpadView.layoutParams as LinearLayout.LayoutParams
-            val showKeyboard = portraitKeyboardVisible
-            val showTrackpad = portraitTrackpadVisible
-            portraitKeyboardView.visibility = if (showKeyboard) View.VISIBLE else View.GONE
-            portraitTrackpadView.visibility = if (showTrackpad) View.VISIBLE else View.GONE
-            val remainder = (availableHeight - previewHeight - dp(10)).coerceAtLeast(dp(120).toFloat())
+            portraitKeyboardView.visibility = if (portraitKeyboardVisible) View.VISIBLE else View.GONE
+            portraitTrackpadView.visibility = if (portraitTrackpadVisible) View.VISIBLE else View.GONE
             if (previewParams.height != previewHeight.roundToInt() || previewParams.weight != 0f) {
-                previewParams.height = previewHeight.roundToInt(); previewParams.weight = 0f; previewFrame.layoutParams = previewParams
+                previewParams.height = previewHeight.roundToInt()
+                previewParams.weight = 0f
+                previewFrame.layoutParams = previewParams
             }
-            keyboardParams.height = if (showKeyboard && showTrackpad) (remainder * .61f).roundToInt() else if (showKeyboard) remainder.roundToInt() else 0
-            keyboardParams.weight = 0f
-            portraitKeyboardView.layoutParams = keyboardParams
-            trackpadParams.height = if (showKeyboard && showTrackpad) (remainder * .39f).roundToInt() else if (showTrackpad) remainder.roundToInt() else 0
-            trackpadParams.weight = 0f
-            portraitTrackpadView.layoutParams = trackpadParams
+            // Keep both panels weighted: when one is GONE, the other expands automatically.
             val col = previewFrame.parent as View
             previewRect.set((col.left + previewFrame.left).toFloat(), (col.top + previewFrame.top).toFloat(),
                 (col.left + previewFrame.left + previewFrame.width).toFloat(), (col.top + previewFrame.top + previewFrame.height).toFloat())
