@@ -406,18 +406,31 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
                 displayId, MotionEvent.ACTION_DOWN, point.first.toFloat(), point.second.toFloat(),
                 buttonState = MotionEvent.BUTTON_PRIMARY, actionName = "MOUSE_DOWN", downTime = downTime
             )
+            if (!down) {
+                val mouseFailure = lastError
+                val command = "input -d $displayId tap ${point.first} ${point.second}"
+                if (runInputCommand(displayId, command, "MOUSE_CLICK_FALLBACK")) {
+                    lastError = "MOUSE_CLICK accepted by shell tap fallback • display=$displayId • x=${point.first} y=${point.second}"
+                    return true
+                }
+                val tapFailure = lastError
+                lastError = "MOUSE_CLICK denied by InputManager and shell fallback • mouse=[$mouseFailure] • tap=[$tapFailure]"
+                Log.w(TAG, lastError)
+                return false
+            }
+            // Keep DOWN and UP in separate dispatch turns; some OEMs drop an immediate pair.
+            SystemClock.sleep(MOUSE_CLICK_HOLD_MS)
             val up = injectMouseEvent(
                 displayId, MotionEvent.ACTION_UP, point.first.toFloat(), point.second.toFloat(),
                 buttonState = 0, actionName = "MOUSE_UP", downTime = downTime
             )
-            val accepted = down && up
-            lastError = if (accepted) {
+            lastError = if (up) {
                 "MOUSE_CLICK accepted • display=$displayId • x=${point.first} y=${point.second}"
             } else {
-                "MOUSE_CLICK rejected • display=$displayId • x=${point.first} y=${point.second}"
+                "MOUSE_CLICK release rejected • display=$displayId • x=${point.first} y=${point.second} • ${lastError}"
             }
-            if (!accepted) Log.w(TAG, lastError)
-            accepted
+            if (!up) Log.w(TAG, lastError)
+            up
         } catch (error: Throwable) {
             lastError = "MOUSE_CLICK error • ${error.javaClass.simpleName}: ${error.message}"
             Log.w(TAG, lastError, error)
@@ -684,12 +697,13 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         val displayPrefix = Regex("""^input -d ([0-9]{1,5}) """).find(safeCommand)
         val tail = displayPrefix?.let { safeCommand.substring(it.range.last + 1) }.orEmpty()
         val isKeyEvent = tail == "keyevent 67" || tail == "keyevent 66" || tail == "keyevent 112" || tail == "keyevent 279"
+        val tapMatch = Regex("""^tap ([0-9]{1,4}) ([0-9]{1,4})$""").matchEntire(tail)
         val isText = tail.startsWith("text '") && tail.endsWith("'") &&
             !tail.contains('\n') && !tail.contains(';') && !tail.contains('`') &&
             tail.removePrefix("text '").removeSuffix("'").replace("'\\''", "").none { it == '\'' }
-        val allowed = displayPrefix != null && (isKeyEvent || isText)
+        val allowed = displayPrefix != null && (isKeyEvent || isText || tapMatch != null)
         if (!allowed) {
-            lastError = "Perintah shell ditolak: hanya input teks/keyboard dan dua aksi Pixelboard yang diizinkan."
+            lastError = "Perintah shell ditolak: hanya tap numerik terbatas, input teks/keyboard dan dua aksi Pixelboard yang diizinkan."
             return false
         }
         val displayMatch = Regex("""^input -d ([0-9]{1,5}) """).find(safeCommand)
@@ -698,7 +712,16 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
             lastError = "Display ID tidak valid untuk input teks."
             return false
         }
-        return runInputCommand(displayId, safeCommand, "IME_TEXT")
+        if (tapMatch != null) {
+            val activeDisplayId = virtualDisplay?.display?.displayId ?: -1
+            val tapX = tapMatch.groupValues[1].toIntOrNull() ?: -1
+            val tapY = tapMatch.groupValues[2].toIntOrNull() ?: -1
+            if (displayId != activeDisplayId || tapX !in 0 until virtualWidth || tapY !in 0 until virtualHeight) {
+                lastError = "Fallback tap ditolak: display/koordinat di luar virtual display aktif."
+                return false
+            }
+        }
+        return runInputCommand(displayId, safeCommand, if (tapMatch != null) "MOUSE_CLICK_FALLBACK" else "IME_TEXT")
     }
 
     override fun launchAppOnDisplay(displayId: Int, packageName: String?, activityName: String?): String {
@@ -910,6 +933,7 @@ class ShizukuUserService() : IVirtualDisplayService.Stub() {
         private const val INJECT_ASYNC = 0
         private const val INJECT_WAIT_FOR_RESULT = 1
         private const val INJECT_WAIT_FOR_FINISH = 2
+        private const val MOUSE_CLICK_HOLD_MS = 45L
         private const val DISPLAY_IME_POLICY_FALLBACK_DISPLAY = 1
         private const val DISPLAY_IME_POLICY_HIDE = 2
     }
